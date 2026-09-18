@@ -9,6 +9,7 @@ export class TmuxError extends Error {
 }
 
 const NO_SERVER = /no server running|no sessions|error connecting to/;
+const NOT_FOUND = /can't find session/;
 
 export class Tmux {
   constructor(private readonly socketName?: string) {}
@@ -64,7 +65,7 @@ export class Tmux {
       await this.run(["has-session", "-t", `=${name}`]);
       return true;
     } catch (e) {
-      if (e instanceof TmuxError && /can't find session|no server running|no sessions|error connecting to/.test(e.message)) {
+      if (e instanceof TmuxError && (NO_SERVER.test(e.message) || NOT_FOUND.test(e.message))) {
         return false;
       }
       throw e;
