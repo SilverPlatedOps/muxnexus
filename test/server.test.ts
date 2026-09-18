@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:te
 import type { ServerMessage } from "../src/shared/protocol";
 import { createServer, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
+import { tmpdir } from "node:os";
 import { waitFor } from "./helpers";
 
 const SOCKET = "cmux-viewer-test-server";
@@ -9,9 +10,9 @@ const tmux = new Tmux(SOCKET);
 let server: RunningServer;
 
 /** Small test client that records control messages and terminal output separately. */
-async function connect() {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
-    headers: { Origin: `http://127.0.0.1:${server.port}` },
+async function connect(port: number = server.port) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+    headers: { Origin: `http://127.0.0.1:${port}` },
   } as any);
   ws.binaryType = "arraybuffer";
   const messages: ServerMessage[] = [];
@@ -199,4 +200,23 @@ test("a new connection receives exactly one state", async () => {
   await Bun.sleep(500); // 2+ poll intervals at pollMs 200
   expect(c.messages.filter((m) => m.t === "state")).toHaveLength(1);
   c.ws.close();
+});
+
+test("attaches through an explicit tmux socket path", async () => {
+  const path = `${tmpdir()}/cmux-viewer-test-server-${process.pid}.sock`;
+  const byPath = new Tmux(undefined, path);
+  const srv = createServer({ host: "127.0.0.1", port: 0, socketPath: path, pollMs: 200 });
+  try {
+    await byPath.run(["new-session", "-d", "-s", "p", "sh"]);
+    const c = await connect(srv.port);
+    const state = await waitFor(() => c.last("state"), 2000, "state");
+    expect(state && state.t === "state" ? state.sessions.map((s) => s.name) : null).toEqual(["p"]);
+    c.send({ t: "attach", session: "p" });
+    await waitFor(() => c.last("attached"), 2000, "attached");
+    await waitFor(() => c.output().length > 0, 3000, "redraw through -S socket");
+    c.ws.close();
+  } finally {
+    srv.stop();
+    await byPath.killServer();
+  }
 });

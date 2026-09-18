@@ -18,12 +18,30 @@ bun test
 if Tailscale is down. Pass `--host <addr>` to bind elsewhere. There is no
 authentication: only expose this on the tailnet.
 
+### Which tmux server
+
+The viewer drives one tmux server, chosen at startup:
+
+1. `--socket <path>` if given (tmux's `-S`).
+2. Otherwise cmux's built-in local-tmux server at `~/.cmux/local-tmux/server.sock`,
+   when that socket exists. This makes the browser and cmux share one set of
+   sessions with no extra setup.
+3. Otherwise tmux's default socket. cmux is not required.
+
+The chosen socket is printed at startup. Example for a custom server:
+
+```sh
+bun run start -- --socket /tmp/tmux-501/default
+```
+
 Open `http://<tailscale-ip>:7681/` from any device on your tailnet.
 
 ## Using it with cmux
 
-Both cmux and the browser attach to the same default tmux socket, so a session
-created in either place shows up in the other.
+cmux's local-tmux feature runs its own tmux server (`cmux local-tmux list`
+shows its sessions). The viewer uses that server by default, so a session
+created in either place shows up in the other. Open a viewer-created session
+in cmux with `cmux tmux attach <name>`.
 
 - tmux 3.7 defaults to `window-size latest`: whichever client typed or resized
   last sets the window size. If your `~/.tmux.conf` sets `window-size smallest`

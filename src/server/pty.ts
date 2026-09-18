@@ -1,8 +1,10 @@
 import { spawn } from "bun-pty";
+import { socketArgs } from "./tmux";
 
 export interface AttachOptions {
   session: string;
   socketName?: string;
+  socketPath?: string;
   cols: number;
   rows: number;
   onData: (data: string) => void;
@@ -19,7 +21,7 @@ export interface PtyHandle {
 /** Spawn `tmux attach-session` in a PTY. One call per browser client. */
 export function attachSession(opts: AttachOptions): PtyHandle {
   const args = [
-    ...(opts.socketName ? ["-L", opts.socketName] : []),
+    ...socketArgs(opts.socketName, opts.socketPath),
     "attach-session",
     "-t",
     `=${opts.session}`,

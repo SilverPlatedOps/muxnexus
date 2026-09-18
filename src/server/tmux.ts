@@ -12,11 +12,17 @@ const NO_SERVER = /no server running|no sessions|error connecting to/;
 const NOT_FOUND = /can't find session/;
 
 export class Tmux {
-  constructor(private readonly socketName?: string) {}
+  /**
+   * @param socketName  tmux `-L` socket name (default socket directory)
+   * @param socketPath  tmux `-S` socket path; takes precedence over `socketName`
+   */
+  constructor(
+    private readonly socketName?: string,
+    private readonly socketPath?: string,
+  ) {}
 
   private argv(args: string[]): string[] {
-    const base = this.socketName ? ["tmux", "-L", this.socketName] : ["tmux"];
-    return [...base, ...args];
+    return ["tmux", ...socketArgs(this.socketName, this.socketPath), ...args];
   }
 
   /** Run a tmux command. Resolves stdout, rejects with TmuxError(stderr) on nonzero exit. */
@@ -112,6 +118,13 @@ export class Tmux {
       /* no server: nothing to do */
     }
   }
+}
+
+/** tmux socket selection flags: `-S path` wins over `-L name`; neither means tmux's default. */
+export function socketArgs(socketName?: string, socketPath?: string): string[] {
+  if (socketPath) return ["-S", socketPath];
+  if (socketName) return ["-L", socketName];
+  return [];
 }
 
 function lines(out: string): string[] {

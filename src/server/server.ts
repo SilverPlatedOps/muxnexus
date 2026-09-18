@@ -7,6 +7,8 @@ export interface ServerOptions {
   host: string;
   port: number;
   socketName?: string;
+  /** tmux `-S` socket path; takes precedence over `socketName`. */
+  socketPath?: string;
   pollMs?: number;
   index?: HTMLBundle;
 }
@@ -29,7 +31,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export function createServer(opts: ServerOptions): RunningServer {
-  const tmux = new Tmux(opts.socketName);
+  const tmux = new Tmux(opts.socketName, opts.socketPath);
   const clients = new Set<Socket>();
   let lastState = "";
 
@@ -59,6 +61,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     const handle: PtyHandle = attachSession({
       session,
       socketName: opts.socketName,
+      socketPath: opts.socketPath,
       cols: ws.data.cols,
       rows: ws.data.rows,
       onData: (d) => {

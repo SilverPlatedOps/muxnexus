@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { Tmux, TmuxError } from "../src/server/tmux";
 
 const SOCKET = "cmux-viewer-test-tmux";
@@ -88,5 +90,20 @@ describe("Tmux mutators", () => {
     await tmux.newSession("s");
     // An empty name yields target "=", which tmux rejects with an unrelated error.
     await expect(tmux.hasSession("")).rejects.toThrow(/no mouse target/);
+  });
+});
+
+describe("Tmux socket selection", () => {
+  test("an explicit socket path (-S) runs its own server, isolated from -L sockets", async () => {
+    const path = `${tmpdir()}/cmux-viewer-test-${process.pid}.sock`;
+    const byPath = new Tmux(undefined, path);
+    try {
+      await byPath.newSession("p");
+      expect(existsSync(path)).toBe(true);
+      expect((await byPath.listSessions()).map((s) => s.name)).toEqual(["p"]);
+      expect(await tmux.listSessions()).toEqual([]);
+    } finally {
+      await byPath.killServer();
+    }
   });
 });
