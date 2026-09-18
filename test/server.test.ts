@@ -10,7 +10,9 @@ let server: RunningServer;
 
 /** Small test client that records control messages and terminal output separately. */
 async function connect() {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+    headers: { Origin: `http://127.0.0.1:${server.port}` },
+  } as any);
   ws.binaryType = "arraybuffer";
   const messages: ServerMessage[] = [];
   let output = "";
@@ -29,6 +31,30 @@ beforeAll(() => { server = createServer({ host: "127.0.0.1", port: 0, socketName
 afterAll(() => server.stop());
 beforeEach(async () => { await tmux.killServer(); });
 afterEach(async () => { await tmux.killServer(); });
+
+test("rejects a WebSocket upgrade with a foreign Origin", async () => {
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+    headers: { Origin: "http://evil.example" },
+  } as any);
+  let opened = false;
+  ws.onopen = () => { opened = true; };
+  await new Promise<void>((res) => {
+    ws.onerror = () => res();
+    ws.onclose = () => res();
+  });
+  expect(opened).toBe(false);
+});
+
+test("rejects a WebSocket upgrade with no Origin", async () => {
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+  let opened = false;
+  ws.onopen = () => { opened = true; };
+  await new Promise<void>((res) => {
+    ws.onerror = () => res();
+    ws.onclose = () => res();
+  });
+  expect(opened).toBe(false);
+});
 
 test("sends state on connect", async () => {
   const c = await connect();

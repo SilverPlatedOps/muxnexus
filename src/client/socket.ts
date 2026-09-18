@@ -31,12 +31,16 @@ export class Connection {
   private pingTimer: ReturnType<typeof setInterval> | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private readonly url: string, private readonly h: ConnectionHandlers) {}
+  constructor(
+    private readonly url: string,
+    private readonly h: ConnectionHandlers,
+    private readonly options?: { headers?: Record<string, string> },
+  ) {}
 
   connect(): void {
     if (this.closed) return;
     if (this.ws) return;
-    const ws = new WebSocket(this.url);
+    const ws = new WebSocket(this.url, this.options as any);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
 

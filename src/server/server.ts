@@ -140,6 +140,19 @@ export function createServer(opts: ServerOptions): RunningServer {
     routes: opts.index ? { "/": opts.index } : {},
     fetch(req, srv) {
       if (new URL(req.url).pathname === "/ws") {
+        // WebSocket handshakes are not subject to the browser's same-origin
+        // policy, so any page open in the user's browser could otherwise
+        // connect and send keystrokes. This is a same-origin check, not
+        // authentication.
+        const origin = req.headers.get("origin");
+        const host = req.headers.get("host");
+        let sameOrigin = false;
+        try {
+          sameOrigin = origin !== null && host !== null && new URL(origin).host === host;
+        } catch {
+          sameOrigin = false;
+        }
+        if (!sameOrigin) return new Response("Forbidden: cross-origin WebSocket", { status: 403 });
         const ok = srv.upgrade(req, { data: { pty: null, session: null, cols: 80, rows: 24 } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }

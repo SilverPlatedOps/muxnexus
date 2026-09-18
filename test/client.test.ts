@@ -41,7 +41,7 @@ describe("Connection against a real server", () => {
       onClose: () => {},
       onMessage: (m) => { messages.push(m); },
       onOutput: (b) => { output += dec.decode(b, { stream: true }); },
-    });
+    }, { headers: { Origin: `http://127.0.0.1:${server.port}` } });
     conn.connect();
     await waitFor(() => opened === 1, 2000, "open");
     await waitFor(() => messages.some((m) => m.t === "state"), 2000, "state");
@@ -60,7 +60,7 @@ describe("Connection against a real server", () => {
       onClose: () => { closed++; },
       onMessage: () => {},
       onOutput: () => {},
-    });
+    }, { headers: { Origin: `http://127.0.0.1:${server.port}` } });
     conn.connect();
     await waitFor(() => opened === 1, 2000, "first open");
     conn.dropForTest();
@@ -76,7 +76,7 @@ describe("Connection against a real server", () => {
       onClose: () => {},
       onMessage: () => {},
       onOutput: () => {},
-    });
+    }, { headers: { Origin: `http://127.0.0.1:${server.port}` } });
     conn.connect();
     conn.connect();
     await waitFor(() => opened === 1, 2000, "first open");
