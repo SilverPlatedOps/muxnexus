@@ -7,7 +7,7 @@ export type Row =
 export function sidebarModel(sessions: SessionInfo[], current: string | null): Row[] {
   const rows: Row[] = [];
   for (const s of sessions) {
-    rows.push({ kind: "session", name: s.name, attached: s.attached > 0, current: s.name === current });
+    rows.push({ kind: "session", name: s.name, attached: s.attached > (s.name === current ? 1 : 0), current: s.name === current });
     for (const w of s.windows) {
       rows.push({ kind: "window", session: s.name, index: w.index, name: w.name, active: w.active, panes: w.panes });
     }
@@ -103,7 +103,7 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
       ui.editing = null;
       const name = input.value.trim();
       if (save && name && name !== initial) commit(name);
-      else rerender();
+      rerender();
     };
     input.onkeydown = (e) => {
       if (e.key === "Enter") finish(true);

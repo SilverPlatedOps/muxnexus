@@ -18,4 +18,6 @@ test("rejects a flag with a missing value", () => {
   expect(() => parseArgs(["--host"])).toThrow(/missing value for --host/);
   expect(() => parseArgs(["--host", "--port", "9000"])).toThrow(/missing value for --host/);
   expect(() => parseArgs(["--port"])).toThrow(/missing value for --port/);
+  expect(() => parseArgs(["--port="])).toThrow(/missing value for --port/);
+  expect(() => parseArgs(["--host="])).toThrow(/missing value for --host/);
 });

@@ -32,6 +32,8 @@ function showTerminal(on: boolean) {
 function attach(session: string) {
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
+  if (session === current) return;
+  showTerminal(true);
   conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   conn.send({ t: "attach", session });
 }
@@ -52,11 +54,15 @@ const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hos
 const conn = new Connection(wsUrl, {
   onOpen() {
     banner.hidden = true;
-    conn.send({ t: "resize", cols: term.cols, rows: term.rows });
-    if (desired) conn.send({ t: "attach", session: desired });
+    if (desired) attach(desired);
+    else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
   onClose() {
     banner.hidden = false;
+    // The server-side attachment is gone with the socket; clear `current` so
+    // the reconnect's onOpen re-sends `attach` instead of treating it as a
+    // same-session no-op (attach()'s current === session guard).
+    current = null;
   },
   onMessage(m) {
     switch (m.t) {

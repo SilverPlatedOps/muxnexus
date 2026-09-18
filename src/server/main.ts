@@ -11,7 +11,7 @@ export function parseArgs(argv: string[]): Args {
   for (let i = 0; i < argv.length; i++) {
     const [flag, inline] = argv[i].split("=", 2);
     const value = inline ?? argv[++i];
-    if (value === undefined || value.startsWith("--")) throw new Error(`missing value for ${flag}`);
+    if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`missing value for ${flag}`);
     if (flag === "--host") args.host = value;
     else if (flag === "--port") {
       const n = Number(value);
