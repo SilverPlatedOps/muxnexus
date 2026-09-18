@@ -2,7 +2,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:te
 import type { ServerMessage } from "../src/shared/protocol";
 import { createServer, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createCmuxMirror } from "../src/server/cmux";
 import { waitFor } from "./helpers";
 
 const SOCKET = "cmux-viewer-test-server";
@@ -218,5 +221,68 @@ test("attaches through an explicit tmux socket path", async () => {
   } finally {
     srv.stop();
     await byPath.killServer();
+  }
+});
+
+test("with a cmux mirror, create/rename/kill from the browser drive cmux workspaces", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-mirror-"));
+  const log = join(dir, "calls.log");
+  const bin = join(dir, "cmux");
+  writeFileSync(bin, `#!/bin/sh
+printf '%s\n' "$*" >> "${log}"
+if [ "$1" = "workspace" ] && [ "$2" = "list" ]; then
+  printf '%s' '{"workspaces":[{"custom_title":"web1","ref":"workspace:7"},{"custom_title":"web2","ref":"workspace:8"}]}'
+fi
+`);
+  chmodSync(bin, 0o755);
+  const readLog = () => (existsSync(log) ? readFileSync(log, "utf8") : ""); // the fake creates it on first call
+  const mirror = createCmuxMirror({ cmuxBin: bin, socketPath: "/tmp/fake.sock", cwd: "/tmp" });
+  const srv = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200, mirror });
+  try {
+    const c = await connect(srv.port);
+    await waitFor(() => c.last("state"));
+    c.send({ t: "new-session", name: "web1" });
+    await waitFor(() => (c.last("state") as any)?.sessions.some((s: any) => s.name === "web1"), 2000, "web1 created");
+    await waitFor(() => readLog().includes("workspace create"), 2000, "create logged");
+    c.send({ t: "rename-session", session: "web1", name: "web2" });
+    await waitFor(() => (c.last("state") as any)?.sessions.some((s: any) => s.name === "web2"), 2000, "renamed");
+    // The poller can broadcast the renamed state before the mirror step runs; wait for the mirror too.
+    await waitFor(() => readLog().includes("workspace rename"), 2000, "rename logged");
+    c.send({ t: "kill-session", session: "web2" });
+    await waitFor(() => (c.last("state") as any)?.sessions.length === 0, 2000, "killed");
+    await waitFor(() => readLog().includes("workspace close"), 2000, "close logged");
+    expect(readLog().trim().split("\n")).toEqual([
+      "workspace create --name web1 --cwd /tmp --env VIEWER_TMUX_SESSION=web1 --focus false",
+      "workspace list --json",
+      "workspace rename workspace:7 --title web2",
+      "workspace list --json",
+      "workspace close workspace:8",
+    ]);
+    expect(c.messages.filter((m) => m.t === "error")).toHaveLength(0);
+    c.ws.close();
+  } finally {
+    srv.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failing cmux mirror surfaces a toast but the tmux command still succeeds", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-mirror-bad-"));
+  const bin = join(dir, "cmux");
+  writeFileSync(bin, `#!/bin/sh\necho "cmux is not running" >&2\nexit 1\n`);
+  chmodSync(bin, 0o755);
+  const mirror = createCmuxMirror({ cmuxBin: bin, socketPath: "/tmp/fake.sock" });
+  const srv = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200, mirror });
+  try {
+    const c = await connect(srv.port);
+    await waitFor(() => c.last("state"));
+    c.send({ t: "new-session", name: "lonely" });
+    const err = await waitFor(() => c.last("error"), 2000, "mirror error toast");
+    expect((err as any).message).toMatch(/cmux is not running/);
+    expect(await tmux.hasSession("lonely")).toBe(true);
+    c.ws.close();
+  } finally {
+    srv.stop();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -40,8 +40,31 @@ Open `http://<tailscale-ip>:7681/` from any device on your tailnet.
 
 cmux's local-tmux feature runs its own tmux server (`cmux local-tmux list`
 shows its sessions). The viewer uses that server by default, so a session
-created in either place shows up in the other. Open a viewer-created session
-in cmux with `cmux tmux attach <name>`.
+created in either place shows up in the other.
+
+cmux's sidebar lists workspaces, not tmux sessions, so the viewer keeps the
+two in parity when it is driving cmux's server and the `cmux` CLI is on
+`PATH`: creating a session in the browser also opens an unfocused cmux
+workspace attached to it, renaming retitles that workspace, and killing
+closes it. The workspace attaches through the `VIEWER_TMUX_SESSION`
+variable read by the shell guard below. If cmux is not running, the tmux
+command still succeeds and the browser shows a toast. On any other socket
+the mirror is off.
+
+For the other direction, make every new cmux shell start inside tmux with a
+guard in `~/.zshrc` (one session per project directory; `NO_TMUX=1` skips it):
+
+```sh
+if [[ -o interactive && -z "$TMUX" && -n "$CMUX_PANEL_ID" && -z "$NO_TMUX" ]] && command -v tmux >/dev/null; then
+  _n="${VIEWER_TMUX_SESSION:-${PWD:t}}"; _n="${_n//[.:]/_}"
+  tmux -S "$HOME/.cmux/local-tmux/server.sock" new-session -A -s "$_n" -c "$PWD"
+  unset _n
+fi
+```
+
+Closing a cmux tab or workspace only detaches its client; the session keeps
+running (that is what lets Claude survive a closed tab). Kill it from the
+browser's `⋯` menu or with `C-b :kill-session` to end it.
 
 - tmux 3.7 defaults to `window-size latest`: whichever client typed or resized
   last sets the window size. If your `~/.tmux.conf` sets `window-size smallest`

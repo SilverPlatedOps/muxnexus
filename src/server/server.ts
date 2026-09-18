@@ -1,5 +1,6 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, ServerMessage } from "../shared/protocol";
+import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
 
@@ -11,6 +12,8 @@ export interface ServerOptions {
   socketPath?: string;
   pollMs?: number;
   index?: HTMLBundle;
+  /** Optional cmux parity: mirror browser-created sessions as cmux workspaces. */
+  mirror?: CmuxMirror;
 }
 
 export interface RunningServer {
@@ -88,6 +91,16 @@ export function createServer(opts: ServerOptions): RunningServer {
     void poll();
   }
 
+  /** Run a cmux mirror step; a failure is a toast, never a failure of the tmux command itself. */
+  async function mirrorStep(ws: Socket, step: (m: CmuxMirror) => Promise<void>): Promise<void> {
+    if (!opts.mirror) return;
+    try {
+      await step(opts.mirror);
+    } catch (e) {
+      send(ws, { t: "error", message: `cmux: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+
   async function handleControl(ws: Socket, text: string): Promise<void> {
     let m: ClientMessage;
     try {
@@ -117,9 +130,11 @@ export function createServer(opts: ServerOptions): RunningServer {
         }
         case "new-session":
           await tmux.newSession(m.name);
+          await mirrorStep(ws, (mirror) => mirror.sessionCreated(m.name));
           break;
         case "kill-session":
           await tmux.killSession(m.session);
+          await mirrorStep(ws, (mirror) => mirror.sessionKilled(m.session));
           break;
         case "new-window":
           await tmux.newWindow(m.session);
@@ -132,6 +147,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           break;
         case "rename-session":
           await tmux.renameSession(m.session, m.name);
+          await mirrorStep(ws, (mirror) => mirror.sessionRenamed(m.session, m.name));
           break;
         case "rename-window":
           await tmux.renameWindow(m.session, m.index, m.name);
