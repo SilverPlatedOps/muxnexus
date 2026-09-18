@@ -70,7 +70,7 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
   function menuFor(key: string, onRename: () => void, onKill: () => void): HTMLElement {
     const m = el("div", "menu");
     const rename = el("button", "", "Rename");
-    rename.onclick = () => { ui.menu = null; ui.editing = key; onRename(); };
+    rename.onclick = () => { ui.menu = null; m.remove(); onRename(); };
     const kill = el("button", "", "Kill");
     kill.onclick = () => { ui.menu = null; ui.confirm = key; rerender(); };
     m.append(rename, kill);
@@ -88,10 +88,13 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
   }
 
   /** Swap a row's name span for an input; commit on Enter or blur, cancel on Escape. */
-  function inlineRename(row: HTMLElement, initial: string, commit: (name: string) => void) {
+  function inlineRename(row: HTMLElement, key: string, initial: string, commit: (name: string) => void) {
+    const nameEl = row.querySelector(".name");
+    if (!nameEl) return; // menu already gone (e.g. a second Rename click); nothing to swap
+    ui.editing = key;
     const input = el("input", "rename") as HTMLInputElement;
     input.value = initial;
-    row.querySelector(".name")!.replaceWith(input);
+    nameEl.replaceWith(input);
     row.onclick = (e) => e.stopPropagation();
     let done = false;
     const finish = (save: boolean) => {
@@ -127,7 +130,7 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
     const out: HTMLElement[] = [r];
     if (ui.menu === key) {
       out.push(menuFor(key,
-        () => inlineRename(r, row.name, (name) => actions.renameSession(row.name, name)),
+        () => inlineRename(r, key, row.name, (name) => actions.renameSession(row.name, name)),
         () => actions.killSession(row.name)));
     }
     if (ui.confirm === key) out.push(confirmFor(`Kill session "${row.name}"?`, () => actions.killSession(row.name)));
@@ -148,7 +151,7 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
     const out: HTMLElement[] = [r];
     if (ui.menu === key) {
       out.push(menuFor(key,
-        () => inlineRename(r, row.name, (name) => actions.renameWindow(row.session, row.index, name)),
+        () => inlineRename(r, key, row.name, (name) => actions.renameWindow(row.session, row.index, name)),
         () => actions.killWindow(row.session, row.index)));
     }
     if (ui.confirm === key) out.push(confirmFor(`Kill window ${row.index}?`, () => actions.killWindow(row.session, row.index)));
@@ -173,7 +176,7 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
   function draw(sessions: SessionInfo[], current: string | null) {
     lastSessions = sessions;
     lastCurrent = current;
-    if (ui.editing && ui.editing !== "new-session") return; // keep the open rename input alive
+    if (ui.editing) return; // keep the open editor (rename input or new-session prompt) alive
     root.replaceChildren();
     if (sessions.length === 0) root.append(el("div", "row", "No tmux server"));
     for (const row of sidebarModel(sessions, current)) {
@@ -186,8 +189,9 @@ export function createSidebar(root: HTMLElement, layout: HTMLElement, actions: S
         root.append(addButton("", "+ window", () => actions.newWindow(row.session)));
       }
     }
-    if (ui.editing === "new-session") root.append(newSessionPrompt());
-    else root.append(addButton("session", "+ session", () => { ui.editing = "new-session"; rerender(); }));
+    const btn = el("button", "add session", "+ session");
+    btn.onclick = () => { ui.editing = "new-session"; btn.replaceWith(newSessionPrompt()); };
+    root.append(btn);
   }
 
   return {
