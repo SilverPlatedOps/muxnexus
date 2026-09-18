@@ -68,4 +68,20 @@ describe("Tmux mutators", () => {
     expect(await tmux.hasSession("here")).toBe(true);
     expect(await tmux.hasSession("gone")).toBe(false);
   });
+
+  test("hasSession returns false when no server is running", async () => {
+    await tmux.killServer();
+    expect(await tmux.hasSession("any")).toBe(false);
+  });
+
+  test("hasSession rejects for errors other than not-found", async () => {
+    // Create a Tmux instance that throws permission denied
+    class FailingTmux extends Tmux {
+      async run(_args: string[]): Promise<string> {
+        throw new TmuxError("permission denied");
+      }
+    }
+    const failing = new FailingTmux();
+    await expect(failing.hasSession("x")).rejects.toThrow(/permission denied/);
+  });
 });

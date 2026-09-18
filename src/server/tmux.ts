@@ -63,8 +63,11 @@ export class Tmux {
     try {
       await this.run(["has-session", "-t", `=${name}`]);
       return true;
-    } catch {
-      return false;
+    } catch (e) {
+      if (e instanceof TmuxError && /can't find session|no server running|no sessions|error connecting to/.test(e.message)) {
+        return false;
+      }
+      throw e;
     }
   }
 
