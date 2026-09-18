@@ -19,7 +19,8 @@ export function backoffDelay(attempt: number): number {
 
 export interface ConnectionHandlers {
   onOpen(): void;
-  onClose(): void;
+  /** nextDelayMs: how long until the automatic retry. */
+  onClose(nextDelayMs: number): void;
   onMessage(m: ServerMessage): void;
   onOutput(bytes: Uint8Array): void;
 }
@@ -61,9 +62,10 @@ export class Connection {
       if (this.ws !== ws) return;
       clearInterval(this.pingTimer);
       this.ws = null;
-      this.h.onClose();
+      const delay = backoffDelay(this.attempt++);
+      this.h.onClose(delay);
       if (!this.closed) {
-        this.reconnectTimer = setTimeout(() => this.connect(), backoffDelay(this.attempt++));
+        this.reconnectTimer = setTimeout(() => this.connect(), delay);
       }
     };
     ws.onerror = () => ws.close();
@@ -75,6 +77,12 @@ export class Connection {
 
   sendInput(data: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encoder.encode(data));
+  }
+
+  /** Reconnect now instead of waiting out the backoff. */
+  retryNow(): void {
+    clearTimeout(this.reconnectTimer);
+    this.connect();
   }
 
   /** Permanently close; no reconnect. */

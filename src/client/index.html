@@ -4,16 +4,74 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>muxnexus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="./style.css" />
   <script type="module" src="./app.ts"></script>
 </head>
 <body>
-  <div id="banner" hidden>Reconnecting…</div>
   <div id="layout">
-    <aside id="sidebar" aria-label="tmux sessions"></aside>
+    <div id="overlay" hidden></div>
+
+    <aside id="sidebar" aria-label="tmux sessions">
+      <header id="brand">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#61afef" stroke-width="1.3" aria-hidden="true">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"></rect>
+          <line x1="9" y1="2.5" x2="9" y2="13.5"></line>
+          <line x1="9" y1="8" x2="14.5" y2="8"></line>
+        </svg>
+        <span class="word">muxnexus</span>
+        <span class="spacer"></span>
+        <button id="collapse" class="icon-btn" type="button" aria-label="Hide sidebar (Command B)" title="Hide sidebar &#8984;B">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"></rect>
+            <line x1="6" y1="2.5" x2="6" y2="13.5"></line>
+          </svg>
+        </button>
+        <button id="drawer-close" class="icon-btn close" type="button" aria-label="Close sessions">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <line x1="4" y1="4" x2="12" y2="12"></line>
+            <line x1="12" y1="4" x2="4" y2="12"></line>
+          </svg>
+        </button>
+      </header>
+
+      <div id="sessions"></div>
+      <footer id="side-foot"></footer>
+    </aside>
+
     <main id="main">
-      <div id="empty">Select or create a session</div>
-      <div id="terminal" hidden></div>
+      <header id="topbar" hidden>
+        <div id="crumb">
+          <button id="hamburger" class="icon-btn" type="button" aria-label="Show sessions">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+              <line x1="2.5" y1="4" x2="13.5" y2="4"></line>
+              <line x1="2.5" y1="8" x2="13.5" y2="8"></line>
+              <line x1="2.5" y1="12" x2="13.5" y2="12"></line>
+            </svg>
+          </button>
+          <span id="crumb-session"></span>
+          <span class="sep">/</span>
+          <span id="crumb-window"></span>
+        </div>
+        <span id="conn" title="Connected"></span>
+      </header>
+
+      <div id="status" hidden>
+        <span class="dot on" style="background: #e5c07b; border-color: #e5c07b;"></span>
+        <span id="status-text">Reconnecting</span>
+        <span class="spacer"></span>
+        <button id="retry" class="btn" type="button">Retry</button>
+      </div>
+
+      <div id="empty">
+        <span>Pick a session, or</span>
+        <button id="empty-new" class="btn" type="button">New session</button>
+      </div>
+
+      <div id="wrap" hidden>
+        <div id="terminal"></div>
+      </div>
     </main>
   </div>
 </body>
