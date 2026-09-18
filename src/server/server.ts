@@ -70,8 +70,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         ws.data.session = null;
         void tmux
           .hasSession(session)
-          .then((alive) => alive)
-          .catch(() => false)
+          .catch(() => true)
           .then((alive) => {
             const reason: DetachReason = alive ? "exited" : "session-killed";
             send(ws, { t: "detached", reason });

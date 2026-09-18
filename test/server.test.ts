@@ -107,6 +107,20 @@ test("switching sessions kills the old client and attaches the new one", async (
   c.ws.close();
 });
 
+test("binary input before attach is dropped without error", async () => {
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  const c = await connect();
+  await waitFor(() => c.last("state"));
+  c.sendBytes("echo SHOULD_NOT_RUN\r");
+  await Bun.sleep(150);
+  expect(c.messages.filter((m) => m.t === "error")).toHaveLength(0);
+  expect(c.output()).toBe("");
+  // The session's pane must not have received the bytes either.
+  const pane = await tmux.run(["capture-pane", "-p", "-t", "=s:0"]);
+  expect(pane).not.toContain("SHOULD_NOT_RUN");
+  c.ws.close();
+});
+
 test("errors are reported, unknown types rejected, ping ignored", async () => {
   const c = await connect();
   await waitFor(() => c.last("state"));
