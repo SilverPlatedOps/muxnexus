@@ -13,3 +13,9 @@ test("parses --host and --port in either order", () => {
 test("rejects a non-numeric port", () => {
   expect(() => parseArgs(["--port", "abc"])).toThrow(/port/);
 });
+
+test("rejects a flag with a missing value", () => {
+  expect(() => parseArgs(["--host"])).toThrow(/missing value for --host/);
+  expect(() => parseArgs(["--host", "--port", "9000"])).toThrow(/missing value for --host/);
+  expect(() => parseArgs(["--port"])).toThrow(/missing value for --port/);
+});
