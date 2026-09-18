@@ -35,6 +35,7 @@ export class Connection {
 
   connect(): void {
     if (this.closed) return;
+    if (this.ws) return;
     const ws = new WebSocket(this.url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -53,8 +54,8 @@ export class Connection {
       }
     };
     ws.onclose = () => {
-      clearInterval(this.pingTimer);
       if (this.ws !== ws) return;
+      clearInterval(this.pingTimer);
       this.ws = null;
       this.h.onClose();
       if (!this.closed) {

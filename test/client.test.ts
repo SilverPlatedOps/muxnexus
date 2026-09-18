@@ -68,4 +68,20 @@ describe("Connection against a real server", () => {
     await waitFor(() => opened === 2, 3000, "reopened");
     conn.close();
   });
+
+  test("connect() is a no-op while a socket already exists", async () => {
+    let opened = 0;
+    const conn = new Connection(`ws://127.0.0.1:${server.port}/ws`, {
+      onOpen: () => { opened++; },
+      onClose: () => {},
+      onMessage: () => {},
+      onOutput: () => {},
+    });
+    conn.connect();
+    conn.connect();
+    await waitFor(() => opened === 1, 2000, "first open");
+    await Bun.sleep(300);
+    expect(opened).toBe(1);
+    conn.close();
+  });
 });
