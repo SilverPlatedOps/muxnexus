@@ -75,8 +75,12 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     return true;
   });
 
+  let reported = "";
   const fitAndReport = () => {
     fit.fit();
+    const key = `${term.cols}x${term.rows}`;
+    if (key === reported) return; // nothing changed: do not spam tmux with resizes
+    reported = key;
     h.onResize(term.cols, term.rows);
   };
   new ResizeObserver(debounce(fitAndReport, 100)).observe(container);
