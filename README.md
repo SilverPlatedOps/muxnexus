@@ -1,4 +1,4 @@
-# cmux-viewer
+# muxnexus
 
 A browser client for your local tmux server. Start Claude Code (or anything)
 in tmux from cmux on the Mac, then drive the same session from a laptop

@@ -71,7 +71,7 @@ if (import.meta.main) {
   const cmuxBin = socketPath === CMUX_TMUX_SOCKET ? Bun.which("cmux") : null;
   const mirror = socketPath && cmuxBin ? createCmuxMirror({ cmuxBin, socketPath }) : undefined;
   const running = createServer({ host, port: args.port, socketPath, index, mirror });
-  console.log(`cmux-viewer listening on http://${host}:${running.port}`);
+  console.log(`muxnexus listening on http://${host}:${running.port}`);
   console.log(`tmux socket: ${socketPath ?? "tmux default"}${!args.socket && socketPath ? " (cmux local-tmux)" : ""}`);
   console.log(`cmux workspace mirror: ${mirror ? "on" : "off"}`);
 }

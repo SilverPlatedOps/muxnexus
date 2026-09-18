@@ -3,7 +3,7 @@ import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import type { SessionInfo } from "../shared/protocol";
 
-const SESSION_KEY = "cmux-viewer.session";
+const SESSION_KEY = "muxnexus.session";
 
 const banner = document.getElementById("banner")!;
 const layout = document.getElementById("layout")!;
