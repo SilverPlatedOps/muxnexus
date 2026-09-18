@@ -27,14 +27,15 @@ export interface TerminalView {
 }
 
 const THEME = {
-  background: "#0b0e14",
-  foreground: "#d5d9e0",
-  cursor: "#d5d9e0",
-  selectionBackground: "#2d3b55",
-  black: "#0b0e14", red: "#f07178", green: "#c3e88d", yellow: "#ffcb6b",
-  blue: "#82aaff", magenta: "#c792ea", cyan: "#89ddff", white: "#d5d9e0",
-  brightBlack: "#4b5263", brightRed: "#ff8b92", brightGreen: "#ddffa7", brightYellow: "#ffe585",
-  brightBlue: "#9cc4ff", brightMagenta: "#e1acff", brightCyan: "#a3f7ff", brightWhite: "#ffffff",
+  // One Dark
+  background: "#282c34",
+  foreground: "#abb2bf",
+  cursor: "#528bff",
+  selectionBackground: "#3e4451",
+  black: "#282c34", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
+  blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#abb2bf",
+  brightBlack: "#5c6370", brightRed: "#e06c75", brightGreen: "#98c379", brightYellow: "#d19a66",
+  brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
 };
 
 export function createTerminal(container: HTMLElement, h: TerminalHandlers): TerminalView {

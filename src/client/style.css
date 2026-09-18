@@ -1,12 +1,12 @@
 :root {
-  --bg: #0b0e14;
-  --panel: #10141c;
-  --border: #1c2230;
-  --fg: #d5d9e0;
-  --muted: #7c8494;
-  --accent: #82aaff;
-  --green: #c3e88d;
-  --red: #f07178;
+  --bg: #282c34;
+  --panel: #21252b;
+  --border: #181a1f;
+  --fg: #abb2bf;
+  --muted: #5c6370;
+  --accent: #61afef;
+  --green: #98c379;
+  --red: #e06c75;
   --mono: "JetBrains Mono", Menlo, monospace;
 }
 
@@ -74,11 +74,11 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
 }
-.row:hover { background: #161c27; }
+.row:hover { background: #2c313a; }
 .row.session { font-weight: 600; margin-top: 6px; }
 .row.window { padding-left: 26px; color: var(--muted); }
 .row.window.active { color: var(--fg); }
-.row.current { background: #1a2333; }
+.row.current { background: #3e4451; }
 .row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex: none; }
 .row .dot.on { background: var(--green); }
@@ -86,7 +86,7 @@ html, body {
 .row:hover .menu-btn, .row.menu-open .menu-btn { visibility: visible; }
 .menu { display: flex; gap: 6px; padding: 2px 10px 4px 26px; }
 .menu button, .confirm button, .add {
-  font: inherit; color: var(--fg); background: #1a2333; border: 1px solid var(--border);
+  font: inherit; color: var(--fg); background: #3e4451; border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 8px; cursor: pointer;
 }
 .menu button:hover, .add:hover { border-color: var(--accent); }
