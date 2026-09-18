@@ -133,6 +133,37 @@ test("switching sessions kills the old client and attaches the new one", async (
   c.ws.close();
 });
 
+test("attach to the already-attached session is a no-op", async () => {
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "s" });
+  await waitFor(() => c.last("attached"));
+  await waitFor(() => c.output().length > 0);
+  c.send({ t: "attach", session: "s" });
+  await Bun.sleep(300);
+  expect(c.messages.filter((m) => m.t === "attached")).toHaveLength(1);
+  expect(c.messages.filter((m) => m.t === "detached")).toHaveLength(0);
+  expect((await tmux.listSessions())[0].attached).toBe(1);
+  c.ws.close();
+});
+
+test("rejects invalid resize", async () => {
+  const c = await connect();
+  await waitFor(() => c.last("state"));
+  c.send({ t: "resize", cols: "x", rows: null });
+  c.send({ t: "resize", cols: 999999, rows: 5 });
+  await waitFor(() => c.messages.filter((m) => m.t === "error").length === 2, 2000, "two errors");
+  for (const err of c.messages.filter((m) => m.t === "error")) {
+    expect((err as any).message).toMatch(/invalid resize/);
+  }
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  c.send({ t: "attach", session: "s" });
+  await waitFor(() => c.last("attached"));
+  await waitFor(() => c.output().length > 0);
+  expect((await tmux.run(["display-message", "-p", "-t", "=s:0", "#{window_width}"])).trim()).toBe("80");
+  c.ws.close();
+});
+
 test("binary input before attach is dropped without error", async () => {
   await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
   const c = await connect();
@@ -156,16 +187,16 @@ test("errors are reported, unknown types rejected, ping ignored", async () => {
   c.send({ t: "bogus" });
   await waitFor(() => c.messages.filter((m) => m.t === "error").length === 2, 2000, "second error");
   expect((c.last("error") as any).message).toMatch(/unknown message type/);
-  // The poller's dedup key (`lastState`) predates this connection: the previous
-  // test left it non-empty, and this client's initial "state" was sent directly
-  // by `open()` without updating that key. The poller notices the mismatch on
-  // its next 200ms tick and broadcasts one redundant "state" independent of
-  // anything this test does. Let it land before baselining so it isn't mistaken
-  // for traffic caused by the "ping".
-  await waitFor(() => c.messages.filter((m) => m.t === "state").length === 2, 1000, "poller state settled");
   const before = c.messages.length;
   c.send({ t: "ping" });
   await Bun.sleep(150);
   expect(c.messages.length).toBe(before);
+  c.ws.close();
+});
+
+test("a new connection receives exactly one state", async () => {
+  const c = await connect();
+  await Bun.sleep(500); // 2+ poll intervals at pollMs 200
+  expect(c.messages.filter((m) => m.t === "state")).toHaveLength(1);
   c.ws.close();
 });

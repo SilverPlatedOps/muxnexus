@@ -47,11 +47,15 @@ export class Tmux {
 
     const byName = new Map<string, SessionInfo>();
     for (const line of lines(sessOut)) {
-      const [name, attached] = line.split("\t");
+      const parts = line.split("\t");
+      if (parts.length !== 2) continue;
+      const [name, attached] = parts;
       byName.set(name, { name, attached: Number(attached), windows: [] });
     }
     for (const line of lines(winOut)) {
-      const [session, index, name, active, panes] = line.split("\t");
+      const parts = line.split("\t");
+      if (parts.length !== 5) continue;
+      const [session, index, name, active, panes] = parts;
       const s = byName.get(session);
       if (!s) continue; // session vanished between the two calls
       const w: WindowInfo = { index: Number(index), name, active: active === "1", panes: Number(panes) };
@@ -93,11 +97,11 @@ export class Tmux {
   }
 
   async renameSession(session: string, name: string): Promise<void> {
-    await this.run(["rename-session", "-t", `=${session}`, name]);
+    await this.run(["rename-session", "-t", `=${session}`, "--", name]);
   }
 
   async renameWindow(session: string, index: number, name: string): Promise<void> {
-    await this.run(["rename-window", "-t", `=${session}:${index}`, name]);
+    await this.run(["rename-window", "-t", `=${session}:${index}`, "--", name]);
   }
 
   /** Kill the whole server on this socket. Never throws (used by tests). */

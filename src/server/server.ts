@@ -54,6 +54,7 @@ export function createServer(opts: ServerOptions): RunningServer {
   }
 
   function attach(ws: Socket, session: string) {
+    if (ws.data.session === session && ws.data.pty && !ws.data.pty.exited) return;
     detach(ws);
     const handle: PtyHandle = attachSession({
       session,
@@ -97,11 +98,20 @@ export function createServer(opts: ServerOptions): RunningServer {
           return;
         case "attach":
           return attach(ws, m.session);
-        case "resize":
+        case "resize": {
+          const ok =
+            Number.isInteger(m.cols) &&
+            Number.isInteger(m.rows) &&
+            m.cols > 0 &&
+            m.rows > 0 &&
+            m.cols <= 1000 &&
+            m.rows <= 1000;
+          if (!ok) return send(ws, { t: "error", message: "invalid resize" });
           ws.data.cols = m.cols;
           ws.data.rows = m.rows;
           ws.data.pty?.resize(m.cols, m.rows);
           return;
+        }
         case "new-session":
           await tmux.newSession(m.name);
           break;
@@ -162,7 +172,14 @@ export function createServer(opts: ServerOptions): RunningServer {
       idleTimeout: 120,
       open(ws) {
         clients.add(ws);
-        void tmux.listSessions().catch(() => []).then((sessions) => send(ws, { t: "state", sessions }));
+        void tmux.listSessions().catch(() => []).then((sessions) => {
+          const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
+          if (json !== lastState) {
+            lastState = json;
+            for (const other of clients) if (other !== ws && other.readyState === WebSocket.OPEN) other.sendText(json);
+          }
+          if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
+        });
       },
       message(ws, msg) {
         if (typeof msg === "string") void handleControl(ws, msg);

@@ -55,6 +55,16 @@ describe("Tmux mutators", () => {
     ]);
   });
 
+  test("rename to a name starting with a dash", async () => {
+    await tmux.newSession("s");
+    await tmux.renameSession("s", "-dash");
+    expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["-dash"]);
+    await tmux.newWindow("-dash");
+    await tmux.renameWindow("-dash", 1, "-w");
+    const [session] = await tmux.listSessions();
+    expect(session.windows.find((w) => w.index === 1)?.name).toBe("-w");
+  });
+
   test("renameSession and killSession", async () => {
     await tmux.newSession("old name");
     await tmux.renameSession("old name", "new name");
