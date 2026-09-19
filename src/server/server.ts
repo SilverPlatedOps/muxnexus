@@ -58,11 +58,17 @@ export function createServer(opts: ServerOptions): RunningServer {
     pty?.kill();
   }
 
-  function attach(ws: Socket, session: string) {
+  async function attach(ws: Socket, session: string) {
     if (ws.data.session === session && ws.data.pty && !ws.data.pty.exited) return;
+    let target: string;
+    try {
+      target = await tmux.target(session);
+    } catch (e) {
+      return send(ws, { t: "error", message: e instanceof Error ? e.message : String(e) });
+    }
     detach(ws);
     const handle: PtyHandle = attachSession({
-      session,
+      session: target,
       socketName: opts.socketName,
       socketPath: opts.socketPath,
       cols: ws.data.cols,
@@ -86,7 +92,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       },
     });
     ws.data.pty = handle;
-    ws.data.session = session;
+    ws.data.session = session; // the sidebar name, not the tmux target
     send(ws, { t: "attached", session });
     void poll();
   }
@@ -113,7 +119,8 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "ping":
           return;
         case "attach":
-          return attach(ws, m.session);
+          await attach(ws, m.session);
+          return;
         case "resize": {
           const ok =
             Number.isInteger(m.cols) &&

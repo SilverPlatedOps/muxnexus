@@ -266,6 +266,48 @@ fi
   }
 });
 
+test("attaching to a group targets the base and does not move a tab session's window", async () => {
+  await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24", "sh"]);
+  await tmux.run(["new-window", "-d", "-t", "=ws", "sh"]);
+  await tmux.run(["new-session", "-d", "-t", "ws", "-s", "ws~tab00001"]);
+  await tmux.run(["select-window", "-t", "=ws~tab00001:1"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "ws" });
+  await waitFor(() => (c.last("attached") as any)?.session === "ws", 2000, "attached to group");
+  await waitFor(() => c.output().length > 0, 3000, "redraw");
+  c.send({ t: "select-window", session: "ws", index: 0 });
+  await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", "=ws:0", "#{window_active}"])).trim() === "1", 2000, "browser on window 0");
+  // the tab session keeps its own current window
+  expect((await tmux.run(["list-sessions", "-F", "#{session_name}\t#{window_index}"])).trim().split("\n"))
+    .toContain("ws~tab00001\t1");
+  // the sidebar shows one session with two windows
+  const state = c.last("state") as any;
+  expect(state.sessions.map((s: any) => s.name)).toEqual(["ws"]);
+  expect(state.sessions[0].windows).toHaveLength(2);
+  c.send({ t: "kill-session", session: "ws" });
+  await waitFor(() => (c.last("state") as any)?.sessions.length === 0, 3000, "group gone");
+  await waitFor(() => c.last("detached"), 3000, "detached");
+  c.ws.close();
+});
+
+test("attaching to a group whose base is gone uses the surviving member", async () => {
+  await tmux.run(["new-session", "-d", "-s", "ws", "sh"]);
+  await tmux.run(["new-session", "-d", "-t", "ws", "-s", "ws~tab00002"]);
+  await tmux.run(["kill-session", "-t", "=ws"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "ws" });
+  await waitFor(() => (c.last("attached") as any)?.session === "ws", 2000, "attached via member");
+  await waitFor(() => c.output().length > 0, 3000, "redraw via member");
+  expect(c.messages.filter((m) => m.t === "error")).toHaveLength(0);
+  // A failed `tmux attach-session -t =ws` also produces "attached" (sent
+  // before the PTY is confirmed live) and its error text arrives as pty
+  // output, so the assertions above pass even without the fix. Confirm a
+  // real attach happened: the surviving member's attached count flips to 1.
+  await waitFor(async () => (await tmux.listSessions())[0]?.attached === 1, 3000, "member actually attached");
+  expect(c.output()).not.toContain("can't find session");
+  c.ws.close();
+});
+
 test("a failing cmux mirror surfaces a toast but the tmux command still succeeds", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-mirror-bad-"));
   const bin = join(dir, "cmux");
