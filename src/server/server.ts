@@ -227,7 +227,11 @@ export function createServer(opts: ServerOptions): RunningServer {
     port: server.port ?? opts.port,
     stop() {
       clearInterval(timer);
-      for (const ws of clients) detach(ws);
+      for (const ws of clients) {
+        ws.data.attachSeq++; // invalidate any in-flight attach
+        detach(ws);
+      }
+      clients.clear();
       server.stop(true);
     },
   };

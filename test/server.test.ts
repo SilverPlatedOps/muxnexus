@@ -294,9 +294,12 @@ test("attaching to a group whose base is gone uses the surviving member", async 
   await tmux.run(["new-session", "-d", "-s", "ws", "sh"]);
   await tmux.run(["new-session", "-d", "-t", "ws", "-s", "ws~tab00002"]);
   await tmux.run(["kill-session", "-t", "=ws"]);
+  // The sidebar shows the surviving member's own name; the browser attaches to that.
+  const shown = (await tmux.listSessions())[0].name;
+  expect(shown).toBe("ws~tab00002");
   const c = await connect();
-  c.send({ t: "attach", session: "ws" });
-  await waitFor(() => (c.last("attached") as any)?.session === "ws", 2000, "attached via member");
+  c.send({ t: "attach", session: shown });
+  await waitFor(() => (c.last("attached") as any)?.session === shown, 2000, "attached via member");
   await waitFor(() => c.output().length > 0, 3000, "redraw via member");
   expect(c.messages.filter((m) => m.t === "error")).toHaveLength(0);
   // A failed `tmux attach-session -t =ws` also produces "attached" (sent
@@ -317,9 +320,8 @@ test("closing the socket while an attach is resolving leaves no phantom client",
     c.send({ t: "attach", session: "s" });
     c.ws.close();
   }
-  await Bun.sleep(500);
-  const [s] = await tmux.listSessions();
-  expect(s.attached).toBe(0);
+  await Bun.sleep(150); // long enough for a phantom attach to register
+  await waitFor(async () => (await tmux.listSessions())[0]?.attached === 0, 3000, "no phantom");
 });
 
 test("a newer attach supersedes an older one still resolving", async () => {
@@ -330,12 +332,24 @@ test("a newer attach supersedes an older one still resolving", async () => {
   c.send({ t: "attach", session: "a" });
   c.send({ t: "attach", session: "b" });
   await waitFor(() => c.messages.some((m) => m.t === "attached"), 2000, "some attached");
-  await Bun.sleep(300);
+  await waitFor(async () => (await tmux.listSessions()).find((s) => s.name === "b")?.attached === 1, 3000, "b attached");
+  const sessions = await tmux.listSessions();
+  expect(sessions.find((s) => s.name === "a")?.attached).toBe(0);
   const attachedMsgs = c.messages.filter((m) => m.t === "attached") as any[];
   expect(attachedMsgs.at(-1).session).toBe("b");
-  const sessions = await tmux.listSessions();
-  expect(sessions.find((s) => s.name === "a")!.attached).toBe(0);
-  expect(sessions.find((s) => s.name === "b")!.attached).toBe(1);
+  c.ws.close();
+});
+
+test("stop() detaches every client and leaves no in-flight attach behind", async () => {
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  const srv = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200 });
+  const c = await connect(srv.port);
+  c.send({ t: "attach", session: "s" });
+  await waitFor(() => c.last("attached"), 2000, "attached");
+  await waitFor(async () => (await tmux.listSessions())[0]?.attached === 1, 3000, "client attached");
+  srv.stop();
+  await waitFor(async () => (await tmux.listSessions())[0]?.attached === 0, 3000, "detached by stop");
+  expect(await tmux.hasSession("s")).toBe(true);
   c.ws.close();
 });
 

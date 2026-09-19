@@ -139,15 +139,17 @@ describe("Tmux session groups", () => {
     }
   });
 
-  test("target() is the base when present, else the first surviving member", async () => {
+  test("target() is the base when present, else the sidebar shows the oldest surviving member", async () => {
     await makeGroup();
     expect(await tmux.target("ws")).toBe("ws");
     await tmux.run(["kill-session", "-t", "=ws"]);
     const sessions = await tmux.listSessions();
-    expect(sessions.map((s) => s.name)).toEqual(["ws"]); // group keeps the base's name
-    expect(await tmux.target("ws")).toBe("ws~a1b2c3d4");
-    expect(await tmux.hasSession("ws")).toBe(true);
-    await tmux.newWindow("ws"); // must not throw: resolves to the member
+    // the group still answers to "ws", but only real session names are shown
+    expect(sessions.map((s) => s.name)).toEqual(["ws~a1b2c3d4"]);
+    expect(await tmux.target("ws~a1b2c3d4")).toBe("ws~a1b2c3d4");
+    await expect(tmux.target("ws")).rejects.toThrow(/can't find session/);
+    expect(await tmux.hasSession("ws")).toBe(false);
+    await tmux.newWindow("ws~a1b2c3d4");
     expect((await tmux.listSessions())[0].windows).toHaveLength(3);
   });
 
@@ -155,6 +157,25 @@ describe("Tmux session groups", () => {
     await makeGroup();
     await tmux.killSession("ws");
     expect(await tmux.listSessions()).toEqual([]);
+  });
+
+  test("a comma in a group name never touches another session", async () => {
+    await tmux.newSession("a");
+    await tmux.run(["new-session", "-d", "-s", "a,b"]);
+    await tmux.run(["new-session", "-d", "-t", "=a,b", "-s", "a,b~t1"]);
+    await tmux.killSession("a,b");
+    expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["a"]);
+  });
+
+  test("renaming a group's base renames the sidebar entry", async () => {
+    await makeGroup();
+    await tmux.renameSession("ws", "proj");
+    expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["proj"]);
+    expect(await tmux.target("proj")).toBe("proj");
+    // still one group: a window added through the new name reaches every member
+    await tmux.newWindow("proj");
+    expect((await tmux.listSessions())[0].windows).toHaveLength(3);
+    expect((await tmux.run(["list-windows", "-t", "=ws~a1b2c3d4", "-F", "#{window_index}"])).trim().split("\n")).toHaveLength(3);
   });
 
   test("plain sessions are unaffected", async () => {
