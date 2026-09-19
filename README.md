@@ -44,8 +44,10 @@ created in either place shows up in the other.
 
 ### Workspaces, tabs, sessions, windows
 
-- A cmux **workspace** is a tmux **session**, named after the workspace title
-  (or, for an untitled workspace, its directory).
+- A cmux **workspace** is a tmux **session**. Its name is the first of:
+  `VIEWER_TMUX_SESSION` (set by the mirror on workspaces the browser opens),
+  the workspace's custom title, the current directory's basename, and `root`
+  when the shell starts at `/`. `.` and `:` become `_`.
 - A cmux **tab** is a tmux **window** in that session. Each tab views the
   session through its own grouped tab session (`<name>~<id>`), so two tabs
   never show the same window. The browser lists the session once with one row
@@ -53,12 +55,18 @@ created in either place shows up in the other.
 - Closing a tab or quitting cmux leaves the windows running. Reopened tabs
   re-adopt the lowest free window; new tabs get new windows.
 - Killing a session in the browser kills every tab attached to it.
+- If the base session is killed from outside while tabs remain, the browser
+  shows the oldest tab's session name until a new tab recreates the base;
+  closing the last such tab then ends the windows too.
+- Set `NO_TMUX=1` in a shell's environment to skip the guard entirely and get
+  a plain shell.
 
 The mirror still runs when the viewer drives cmux's tmux and the `cmux` CLI is
 on `PATH`: creating a session in the browser opens a cmux workspace attached
 to it, renaming retitles it, killing closes it.
 
-Wire the guard into `~/.zshrc`:
+Wire the guard into `~/.zshrc`. The snippet assumes the repo is at
+`~/github/muxnexus`; adjust both paths if it lives elsewhere:
 
 ```sh
 if [[ -o interactive && -z "$TMUX" && -n "$CMUX_PANEL_ID" && -z "$NO_TMUX" ]] && command -v tmux >/dev/null \
