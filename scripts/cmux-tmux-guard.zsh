@@ -25,6 +25,7 @@ for w in d.get("workspaces", []):
 ' 2>/dev/null)"
   fi
   [[ -z "$name" ]] && name="${PWD:t}"
+  [[ -z "$name" ]] && name="root"   # basename of "/" is empty; "" is a legal but untargetable tmux name
   print -r -- "${name//[.:]/_}"
 }
 

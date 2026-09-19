@@ -47,6 +47,8 @@ test("base name: VIEWER_TMUX_SESSION wins, then the workspace title, then the di
   expect(await zsh("muxnexus_base_name", { VIEWER_TMUX_SESSION: "", CMUX_WORKSPACE_ID: "WS-1" })).toBe("My Project");
   expect(await zsh("muxnexus_base_name", { VIEWER_TMUX_SESSION: "", CMUX_WORKSPACE_ID: "WS-2" })).toBe(dir.split("/").pop()!);
   expect(await zsh("muxnexus_base_name", { VIEWER_TMUX_SESSION: "", CMUX_WORKSPACE_ID: "" })).toBe(dir.split("/").pop()!);
+  // At the filesystem root the basename is empty; tmux would accept "" as a name, which nothing can target.
+  expect(await zsh("muxnexus_base_name", { VIEWER_TMUX_SESSION: "", CMUX_WORKSPACE_ID: "" }, "/")).toBe("root");
 });
 
 test("pick_window adopts the lowest window no attached tab shows, else creates one", async () => {
