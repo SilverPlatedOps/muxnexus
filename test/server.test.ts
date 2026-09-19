@@ -322,6 +322,9 @@ test("closing the socket while an attach is resolving leaves no phantom client",
   }
   await Bun.sleep(150); // long enough for a phantom attach to register
   await waitFor(async () => (await tmux.listSessions())[0]?.attached === 0, 3000, "no phantom");
+  // A phantom can register late; the final word is a hard check after a settle.
+  await Bun.sleep(300);
+  expect((await tmux.listSessions())[0]?.attached).toBe(0);
 });
 
 test("a newer attach supersedes an older one still resolving", async () => {
