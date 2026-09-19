@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachSession, type PtyHandle } from "../src/server/pty";
+import { spawn } from "bun-pty";
+import { attachSession } from "../src/server/pty";
 import { Tmux } from "../src/server/tmux";
 import { waitFor } from "./helpers";
 
@@ -10,18 +11,47 @@ const SOCKET = "cmux-viewer-test-guard";
 const tmux = new Tmux(SOCKET);
 const SCRIPT = join(import.meta.dir, "..", "scripts", "cmux-tmux-guard.zsh");
 let dir: string;
-let ptys: PtyHandle[] = [];
+let ptys: { kill(): void }[] = [];
 
 /** Run a zsh snippet with the guard sourced; returns trimmed stdout. */
 async function zsh(snippet: string, env: Record<string, string> = {}, cwd = dir): Promise<string> {
   const proc = Bun.spawn(["zsh", "-c", `source "${SCRIPT}"; ${snippet}`], {
     cwd,
     stdout: "pipe", stderr: "pipe",
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MUXNEXUS_TMUX_SOCKET: "", ...env },
+    // never "": the guard reads ${MUXNEXUS_TMUX_SOCKET:-$HOME/.cmux/...}, and an
+    // empty value would point a stray guard run at the user's real tmux server.
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MUXNEXUS_TMUX_SOCKET: join(dir, "unused.sock"), ...env },
   });
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   if (code !== 0) throw new Error(`zsh exited ${code}: ${err}`);
   return out.trim();
+}
+
+/** The `-S` path of this test's `-L` server, read through an existing session. */
+async function sockOf(session: string): Promise<string> {
+  const path = (await tmux.run(["display-message", "-p", "-t", `=${session}:0`, "#{socket_path}"])).trim();
+  expect(path).toContain(SOCKET); // never let a guard run reach the user's tmux
+  return path;
+}
+
+/** Run the whole guard in a PTY (it ends with a blocking `attach-session`). */
+function guardPty(sock: string, extra: Record<string, string>) {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && k !== "TMUX") env[k] = v;
+  env.TERM = "xterm-256color";
+  env.PATH = `${dir}:${process.env.PATH}`;
+  env.MUXNEXUS_TMUX_SOCKET = sock;
+  Object.assign(env, extra);
+  const pty = spawn("zsh", ["-c", `source "${SCRIPT}"; muxnexus_tmux_guard`], {
+    name: "xterm-256color", cols: 80, rows: 24, env,
+  });
+  ptys.push({ kill: () => { try { pty.kill(); } catch { /* already gone */ } } });
+  return pty;
+}
+
+/** `#{session_name}\t#{window_index}` for every session. */
+async function currentWindows(): Promise<string[]> {
+  return (await tmux.run(["list-sessions", "-F", "#{session_name}\t#{window_index}"])).trim().split("\n");
 }
 
 beforeEach(async () => {
@@ -55,7 +85,7 @@ test("pick_window adopts the lowest window no attached tab shows, else creates o
   await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24"]);
   await tmux.run(["new-window", "-d", "-t", "=ws"]);
   await tmux.run(["new-window", "-d", "-t", "=ws"]); // windows 0,1,2
-  const sock = await tmux.run(["display-message", "-p", "-t", "=ws:0", "#{socket_path}"]).then((s) => s.trim());
+  const sock = await sockOf("ws");
   const pick = () => zsh(`muxnexus_pick_window "${sock}" ws`);
   expect(await pick()).toBe("0");                       // nobody attached: lowest window
   // a tab session attached on window 0
@@ -77,4 +107,58 @@ test("pick_window adopts the lowest window no attached tab shows, else creates o
 
 test("the guard's tab-session name uses the first 8 chars of CMUX_SURFACE_ID", async () => {
   expect(await zsh('muxnexus_tab_name ws', { CMUX_SURFACE_ID: "F6AA5D79-79C3-4556-BA76-B59700078684" })).toBe("ws~F6AA5D79");
+});
+
+test("pick_window follows the group after the base is renamed", async () => {
+  await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24"]);
+  await tmux.run(["new-window", "-d", "-t", "=ws"]); // windows 0,1
+  const sock = await sockOf("ws");
+  await tmux.run(["new-session", "-d", "-t", "=ws", "-s", "ws~t1"]);
+  await tmux.run(["select-window", "-t", "=ws~t1:0"]);
+  ptys.push(attachSession({ session: "ws~t1", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
+  await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", "=ws~t1:0", "#{session_attached}"])).trim() === "1", 3000, "t1 attached");
+  // tmux keeps #{session_group} at "ws"; the guard must resolve the group, not assume the name.
+  await tmux.run(["rename-session", "-t", "=ws", "--", "proj"]);
+  expect(await zsh(`muxnexus_pick_window "${sock}" proj`)).toBe("1");
+});
+
+test("the guard creates a base, attaches a tab session, and removes it on detach", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]); // the guard restarts the server at the same path
+
+  guardPty(sock, { VIEWER_TMUX_SESSION: "e2e", CMUX_SURFACE_ID: "ABCDEFGH-1111" });
+  await waitFor(
+    async () => (await tmux.run(["display-message", "-p", "-t", "=e2e~ABCDEFGH:0", "#{session_attached}"]).catch(() => "")).trim() === "1",
+    8000, "tab session attached",
+  );
+  expect(await tmux.hasSession("e2e")).toBe(true);
+  expect((await tmux.run(["list-windows", "-t", "=e2e", "-F", "#{window_index}"])).trim().split("\n")).toEqual(["0"]);
+  expect(await currentWindows()).toContain("e2e~ABCDEFGH\t0");
+
+  // Detaching the client ends the guard's blocking attach; its cleanup kills the tab session.
+  await tmux.run(["detach-client", "-s", "=e2e~ABCDEFGH"]);
+  await waitFor(async () => !(await tmux.hasSession("e2e~ABCDEFGH")), 8000, "tab session cleaned up");
+  expect(await tmux.hasSession("e2e")).toBe(true);
+  expect((await tmux.run(["list-windows", "-t", "=e2e", "-F", "#{window_index}"])).trim().split("\n")).toEqual(["0"]);
+});
+
+test("the guard rejoins an orphaned group instead of starting a fresh base", async () => {
+  await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24"]);
+  await tmux.run(["new-window", "-d", "-t", "=ws"]); // windows 0,1
+  await tmux.run(["new-session", "-d", "-t", "=ws", "-s", "ws~t1"]);
+  const sock = await sockOf("ws");
+  await tmux.run(["kill-session", "-t", "=ws"]); // orphaned group: tabs alive, base gone
+
+  guardPty(sock, { VIEWER_TMUX_SESSION: "ws", CMUX_SURFACE_ID: "ORPHAN01-2222" });
+  await waitFor(async () => await tmux.hasSession("ws"), 8000, "base recreated");
+  await waitFor(
+    async () => (await tmux.run(["display-message", "-p", "-t", "=ws~ORPHAN01:0", "#{session_attached}"]).catch(() => "")).trim() === "1",
+    8000, "new tab attached",
+  );
+  // the recreated base shares the orphan's windows rather than owning a lone new one
+  expect((await tmux.run(["list-windows", "-t", "=ws", "-F", "#{window_index}"])).trim().split("\n")).toEqual(["0", "1"]);
+  const rows = (await tmux.run(["list-sessions", "-F", "#{session_name}\t#{session_group}"])).trim().split("\n");
+  expect(rows).toContain("ws\tws");
+  expect(rows).toContain("ws~t1\tws");
 });
