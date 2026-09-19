@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Tmux, TmuxError } from "../src/server/tmux";
+import { waitFor } from "./helpers";
 
 const SOCKET = "cmux-viewer-test-tmux";
 const tmux = new Tmux(SOCKET);
@@ -105,5 +106,61 @@ describe("Tmux socket selection", () => {
     } finally {
       await byPath.killServer();
     }
+  });
+});
+
+describe("Tmux session groups", () => {
+  /** base with two windows, plus two grouped tab sessions viewing different windows */
+  async function makeGroup() {
+    await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24"]);
+    await tmux.run(["new-window", "-d", "-t", "=ws"]);
+    await tmux.run(["new-session", "-d", "-t", "ws", "-s", "ws~a1b2c3d4"]);
+    await tmux.run(["new-session", "-d", "-t", "ws", "-s", "ws~e5f6a7b8"]);
+    await tmux.run(["select-window", "-t", "=ws~e5f6a7b8:1"]);
+  }
+
+  test("a group lists once, named after the base, with the base's windows", async () => {
+    await makeGroup();
+    const sessions = await tmux.listSessions();
+    expect(sessions.map((s) => s.name)).toEqual(["ws"]);
+    expect(sessions[0].windows.map((w) => w.index)).toEqual([0, 1]);
+    expect(sessions[0].attached).toBe(0);
+  });
+
+  test("attached counts every member of the group", async () => {
+    await makeGroup();
+    // A detached "attach" is impossible; simulate one client via a PTY.
+    const { attachSession } = await import("../src/server/pty");
+    const pty = attachSession({ session: "ws~a1b2c3d4", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} });
+    try {
+      await waitFor(async () => (await tmux.listSessions())[0]?.attached === 1, 3000, "group attached");
+    } finally {
+      pty.kill();
+    }
+  });
+
+  test("target() is the base when present, else the first surviving member", async () => {
+    await makeGroup();
+    expect(await tmux.target("ws")).toBe("ws");
+    await tmux.run(["kill-session", "-t", "=ws"]);
+    const sessions = await tmux.listSessions();
+    expect(sessions.map((s) => s.name)).toEqual(["ws"]); // group keeps the base's name
+    expect(await tmux.target("ws")).toBe("ws~a1b2c3d4");
+    expect(await tmux.hasSession("ws")).toBe(true);
+    await tmux.newWindow("ws"); // must not throw: resolves to the member
+    expect((await tmux.listSessions())[0].windows).toHaveLength(3);
+  });
+
+  test("killSession removes every member", async () => {
+    await makeGroup();
+    await tmux.killSession("ws");
+    expect(await tmux.listSessions()).toEqual([]);
+  });
+
+  test("plain sessions are unaffected", async () => {
+    await tmux.newSession("plain");
+    const [s] = await tmux.listSessions();
+    expect(s.name).toBe("plain");
+    expect(await tmux.target("plain")).toBe("plain");
   });
 });
