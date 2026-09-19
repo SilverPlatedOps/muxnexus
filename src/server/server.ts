@@ -26,6 +26,7 @@ interface ConnData {
   session: string | null;
   cols: number;
   rows: number;
+  attachSeq: number;
 }
 
 type Socket = ServerWebSocket<ConnData>;
@@ -60,12 +61,15 @@ export function createServer(opts: ServerOptions): RunningServer {
 
   async function attach(ws: Socket, session: string) {
     if (ws.data.session === session && ws.data.pty && !ws.data.pty.exited) return;
+    const seq = ++ws.data.attachSeq;
     let target: string;
     try {
       target = await tmux.target(session);
     } catch (e) {
       return send(ws, { t: "error", message: e instanceof Error ? e.message : String(e) });
     }
+    // a newer attach superseded this one, or the socket closed while resolving
+    if (seq !== ws.data.attachSeq || !clients.has(ws)) return;
     detach(ws);
     const handle: PtyHandle = attachSession({
       session: target,
@@ -189,7 +193,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           sameOrigin = false;
         }
         if (!sameOrigin) return new Response("Forbidden: cross-origin WebSocket", { status: 403 });
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, cols: 80, rows: 24 } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, cols: 80, rows: 24, attachSeq: 0 } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -213,6 +217,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       },
       close(ws) {
         clients.delete(ws);
+        ws.data.attachSeq++; // invalidate any in-flight attach for this socket
         detach(ws);
       },
     },

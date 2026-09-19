@@ -308,6 +308,37 @@ test("attaching to a group whose base is gone uses the surviving member", async 
   c.ws.close();
 });
 
+test("closing the socket while an attach is resolving leaves no phantom client", async () => {
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  // Race the resolution several times: send attach and close immediately.
+  for (let i = 0; i < 5; i++) {
+    const c = await connect();
+    await waitFor(() => c.last("state"));
+    c.send({ t: "attach", session: "s" });
+    c.ws.close();
+  }
+  await Bun.sleep(500);
+  const [s] = await tmux.listSessions();
+  expect(s.attached).toBe(0);
+});
+
+test("a newer attach supersedes an older one still resolving", async () => {
+  await tmux.run(["new-session", "-d", "-s", "a", "sh"]);
+  await tmux.run(["new-session", "-d", "-s", "b", "sh"]);
+  const c = await connect();
+  await waitFor(() => c.last("state"));
+  c.send({ t: "attach", session: "a" });
+  c.send({ t: "attach", session: "b" });
+  await waitFor(() => c.messages.some((m) => m.t === "attached"), 2000, "some attached");
+  await Bun.sleep(300);
+  const attachedMsgs = c.messages.filter((m) => m.t === "attached") as any[];
+  expect(attachedMsgs.at(-1).session).toBe("b");
+  const sessions = await tmux.listSessions();
+  expect(sessions.find((s) => s.name === "a")!.attached).toBe(0);
+  expect(sessions.find((s) => s.name === "b")!.attached).toBe(1);
+  c.ws.close();
+});
+
 test("a failing cmux mirror surfaces a toast but the tmux command still succeeds", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-mirror-bad-"));
   const bin = join(dir, "cmux");
