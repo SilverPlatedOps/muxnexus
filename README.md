@@ -42,29 +42,31 @@ cmux's local-tmux feature runs its own tmux server (`cmux local-tmux list`
 shows its sessions). The viewer uses that server by default, so a session
 created in either place shows up in the other.
 
-cmux's sidebar lists workspaces, not tmux sessions, so the viewer keeps the
-two in parity when it is driving cmux's server and the `cmux` CLI is on
-`PATH`: creating a session in the browser also opens an unfocused cmux
-workspace attached to it, renaming retitles that workspace, and killing
-closes it. The workspace attaches through the `VIEWER_TMUX_SESSION`
-variable read by the shell guard below. If cmux is not running, the tmux
-command still succeeds and the browser shows a toast. On any other socket
-the mirror is off.
+### Workspaces, tabs, sessions, windows
 
-For the other direction, make every new cmux shell start inside tmux with a
-guard in `~/.zshrc` (one session per project directory; `NO_TMUX=1` skips it):
+- A cmux **workspace** is a tmux **session**, named after the workspace title
+  (or, for an untitled workspace, its directory).
+- A cmux **tab** is a tmux **window** in that session. Each tab views the
+  session through its own grouped tab session (`<name>~<id>`), so two tabs
+  never show the same window. The browser lists the session once with one row
+  per tab; tab sessions are hidden.
+- Closing a tab or quitting cmux leaves the windows running. Reopened tabs
+  re-adopt the lowest free window; new tabs get new windows.
+- Killing a session in the browser kills every tab attached to it.
+
+The mirror still runs when the viewer drives cmux's tmux and the `cmux` CLI is
+on `PATH`: creating a session in the browser opens a cmux workspace attached
+to it, renaming retitles it, killing closes it.
+
+Wire the guard into `~/.zshrc`:
 
 ```sh
-if [[ -o interactive && -z "$TMUX" && -n "$CMUX_PANEL_ID" && -z "$NO_TMUX" ]] && command -v tmux >/dev/null; then
-  _n="${VIEWER_TMUX_SESSION:-${PWD:t}}"; _n="${_n//[.:]/_}"
-  tmux -S "$HOME/.cmux/local-tmux/server.sock" new-session -A -s "$_n" -c "$PWD"
-  unset _n
+if [[ -o interactive && -z "$TMUX" && -n "$CMUX_PANEL_ID" && -z "$NO_TMUX" ]] && command -v tmux >/dev/null \
+   && [[ -r "$HOME/github/muxnexus/scripts/cmux-tmux-guard.zsh" ]]; then
+  source "$HOME/github/muxnexus/scripts/cmux-tmux-guard.zsh"
+  muxnexus_tmux_guard
 fi
 ```
-
-Closing a cmux tab or workspace only detaches its client; the session keeps
-running (that is what lets Claude survive a closed tab). Kill it from the
-browser's `⋯` menu or with `C-b :kill-session` to end it.
 
 - tmux 3.7 defaults to `window-size latest`: whichever client typed or resized
   last sets the window size. If your `~/.tmux.conf` sets `window-size smallest`
@@ -102,3 +104,7 @@ Run these after any change to the server or PTY layer.
    Enable `set -g mouse on` if you want wheel scrolling to drive tmux history.
 6. Start `claude` in a tmux window from cmux. Type a prompt in the browser,
    read the reply in cmux. Resize the browser: Claude's TUI redraws cleanly.
+7. Open three tabs in one cmux workspace. The browser lists one session with
+   three windows. Switch windows in the browser: no cmux tab changes.
+8. Quit cmux and reopen it. The restored tabs re-adopt their windows. Kill the
+   session from the browser: every tab drops to a plain shell.
