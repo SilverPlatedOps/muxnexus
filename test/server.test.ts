@@ -452,3 +452,65 @@ test("listens on every requested address, on one shared port", async () => {
     both.stop();
   }
 });
+
+// ---- ordering round-trip ----
+// The whole point of sending the full order rather than one move: what comes
+// back out of tmux must be exactly what went in, with no server-side guessing.
+
+const names = (m: ServerMessage | undefined) => (m && m.t === "state" ? m.sessions.map((s) => s.name) : null);
+
+test("reorder-sessions stamps @muxnexus_order and the next state comes back in that order", async () => {
+  for (const n of ["alpha", "beta", "gamma"]) await tmux.newSession(n);
+  const c = await connect();
+  await waitFor(() => c.last("state"), 2000, "state");
+
+  c.send({ t: "reorder-sessions", names: ["gamma", "alpha", "beta"] });
+  await waitFor(() => {
+    const n = names(c.last("state"));
+    return n !== null && n[0] === "gamma";
+  }, 3000, "reordered state");
+  expect(names(c.last("state"))).toEqual(["gamma", "alpha", "beta"]);
+
+  // and it survives a fresh client, because the order lives in tmux not the page
+  const fresh = await connect();
+  const state = await waitFor(() => fresh.last("state"), 2000, "state for fresh client");
+  expect(names(state)).toEqual(["gamma", "alpha", "beta"]);
+  c.ws.close();
+  fresh.ws.close();
+});
+
+test("a session with no stamp sorts after the stamped ones", async () => {
+  for (const n of ["alpha", "beta"]) await tmux.newSession(n);
+  const c = await connect();
+  await waitFor(() => c.last("state"), 2000, "state");
+  c.send({ t: "reorder-sessions", names: ["beta", "alpha"] });
+  await waitFor(() => names(c.last("state"))?.[0] === "beta", 3000, "reordered");
+
+  await tmux.newSession("zulu"); // made outside muxnexus, never stamped
+  await waitFor(() => names(c.last("state"))?.length === 3, 3000, "third session");
+  expect(names(c.last("state"))).toEqual(["beta", "alpha", "zulu"]);
+  c.ws.close();
+});
+
+test("reorder-windows rearranges tabs and keeps each window's stamped surface", async () => {
+  await tmux.newSession("wins");
+  await tmux.run(["rename-window", "-t", "=wins:0", "one"]);
+  await tmux.newWindow("wins");
+  await tmux.newWindow("wins");
+  const live = (await tmux.run(["list-windows", "-t", "=wins", "-F", "#{window_index}"])).trim().split("\n").map(Number);
+  for (const i of live) await tmux.run(["set-option", "-w", "-t", `wins:${i}`, "@muxnexus_surface", `SURF-${i}`]);
+
+  const c = await connect();
+  await waitFor(() => c.last("state"), 2000, "state");
+  const wanted = [live[2], live[0], live[1]];
+  c.send({ t: "reorder-windows", session: "wins", indices: wanted });
+
+  await waitFor(async () => {
+    const out = await tmux.run(["list-windows", "-t", "=wins", "-F", "#{window_index} #{@muxnexus_surface}"]);
+    return out.includes(`${live[0]} SURF-${live[2]}`);
+  }, 3000, "windows swapped");
+
+  const out = await tmux.run(["list-windows", "-t", "=wins", "-F", "#{@muxnexus_surface}"]);
+  expect(out.trim().split("\n")).toEqual([`SURF-${live[2]}`, `SURF-${live[0]}`, `SURF-${live[1]}`]);
+  c.ws.close();
+});

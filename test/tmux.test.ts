@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { Tmux, TmuxError, windowLabel } from "../src/server/tmux";
+import { orderSessions, swapPlan, Tmux, TmuxError, windowLabel } from "../src/server/tmux";
 import { waitFor } from "./helpers";
 
 const SOCKET = "cmux-viewer-test-tmux";
@@ -206,5 +206,64 @@ describe("windowLabel", () => {
     expect(windowLabel("zsh", "", HOST)).toBe("zsh");
     expect(windowLabel("zsh", "   ", HOST)).toBe("zsh");
     expect(windowLabel("vim", "vim", HOST)).toBe("vim");
+  });
+});
+
+describe("swapPlan", () => {
+  // tmux refuses `move-window` onto an occupied index ("index in use"), so any
+  // reordering is done with swap-window. These are the swaps that get from the
+  // current arrangement to the wanted one; each pair is a pair of *positions*.
+  const apply = (positions: number[], plan: [number, number][]) => {
+    const at = [...positions];
+    for (const [a, b] of plan) {
+      const i = positions.indexOf(a);
+      const j = positions.indexOf(b);
+      [at[i], at[j]] = [at[j], at[i]];
+    }
+    return at;
+  };
+
+  test("no swaps when already in the wanted order", () => {
+    expect(swapPlan([0, 1, 2], [0, 1, 2])).toEqual([]);
+  });
+
+  test("moves the last window to the front in one swap", () => {
+    const plan = swapPlan([0, 1, 2], [2, 1, 0]);
+    expect(apply([0, 1, 2], plan)).toEqual([2, 1, 0]);
+  });
+
+  test("reaches an arbitrary order and never exceeds n-1 swaps", () => {
+    const plan = swapPlan([0, 1, 2, 3], [3, 0, 2, 1]);
+    expect(apply([0, 1, 2, 3], plan)).toEqual([3, 0, 2, 1]);
+    expect(plan.length).toBeLessThanOrEqual(3);
+  });
+
+  test("works when window indices have gaps, as they do after a window is killed", () => {
+    const plan = swapPlan([0, 1, 5], [5, 0, 1]);
+    expect(apply([0, 1, 5], plan)).toEqual([5, 0, 1]);
+    for (const [a, b] of plan) expect([0, 1, 5]).toContain(a), expect([0, 1, 5]).toContain(b);
+  });
+
+  test("ignores a wanted order naming a window that is gone", () => {
+    const plan = swapPlan([0, 1], [9, 1, 0]);
+    expect(apply([0, 1], plan)).toEqual([1, 0]);
+  });
+});
+
+describe("orderSessions", () => {
+  const s = (name: string, order?: number) => ({ name, order }) as any;
+
+  test("sorts by @muxnexus_order when it is set", () => {
+    expect(orderSessions([s("c", 2), s("a", 0), s("b", 1)]).map((x) => x.name)).toEqual(["a", "b", "c"]);
+  });
+
+  test("puts unordered sessions after ordered ones, by name", () => {
+    // A session made outside muxnexus has no stamp; it belongs at the end
+    // rather than wherever tmux's name sort happens to drop it.
+    expect(orderSessions([s("zed"), s("amy"), s("keep", 5)]).map((x) => x.name)).toEqual(["keep", "amy", "zed"]);
+  });
+
+  test("is stable for equal orders", () => {
+    expect(orderSessions([s("b", 1), s("a", 1)]).map((x) => x.name)).toEqual(["b", "a"]);
   });
 });

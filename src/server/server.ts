@@ -232,6 +232,20 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "rename-window":
           await tmux.renameWindow(m.session, m.index, m.name);
           break;
+        case "reorder-sessions": {
+          if (!Array.isArray(m.names) || m.names.some((n) => typeof n !== "string")) {
+            return send(ws, { t: "error", message: "invalid reorder-sessions" });
+          }
+          await tmux.setSessionOrder(m.names);
+          break;
+        }
+        case "reorder-windows": {
+          if (!Array.isArray(m.indices) || m.indices.some((i) => !Number.isInteger(i))) {
+            return send(ws, { t: "error", message: "invalid reorder-windows" });
+          }
+          await tmux.reorderWindows(m.session, m.indices);
+          break;
+        }
         default:
           return send(ws, { t: "error", message: `unknown message type: ${String((m as { t?: unknown }).t)}` });
       }

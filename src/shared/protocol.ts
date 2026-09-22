@@ -22,6 +22,8 @@ export interface SessionInfo {
   label?: string;
   /** The stamped workspace is gone from cmux, so nothing here is reachable there. */
   orphan?: boolean;
+  /** Sidebar position (`@muxnexus_order`). Absent until muxnexus has been told where this goes. */
+  order?: number;
 }
 
 export type ClientMessage =
@@ -34,6 +36,10 @@ export type ClientMessage =
   | { t: "select-window"; session: string; index: number }
   | { t: "rename-session"; session: string; name: string }
   | { t: "rename-window"; session: string; index: number; name: string }
+  /** The whole wanted sidebar order, not one move: concurrent clients then settle on last-write-wins. */
+  | { t: "reorder-sessions"; names: string[] }
+  /** The whole wanted tab order, as window indices. */
+  | { t: "reorder-windows"; session: string; indices: number[] }
   | { t: "ping" };
 
 export type DetachReason = "session-killed" | "exited";

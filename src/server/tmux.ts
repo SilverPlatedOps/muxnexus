@@ -7,6 +7,49 @@ import type { SessionInfo } from "../shared/protocol";
  * program sets is the part that differs. tmux seeds that title with the
  * hostname, which names the machine rather than the window, so it is ignored.
  */
+/**
+ * The swaps that rearrange `positions` into `wanted`, as pairs of window
+ * indices. tmux refuses `move-window` onto an occupied index ("index in use"),
+ * so reordering is done with `swap-window`; selection sort reaches any order in
+ * at most n-1 swaps and every intermediate state is a valid arrangement.
+ *
+ * `positions` are the live window indices, ascending; they may have gaps. Any
+ * entry of `wanted` that no longer exists is skipped -- a window can be killed
+ * between the browser sending an order and the server applying it.
+ */
+export function swapPlan(positions: readonly number[], wanted: readonly number[]): [number, number][] {
+  const at = [...positions];
+  const plan: [number, number][] = [];
+  let k = 0;
+  for (const target of wanted) {
+    if (k >= at.length) break;
+    const j = at.indexOf(target, k);
+    if (j === -1) continue; // gone since the client last looked
+    if (j !== k) {
+      plan.push([positions[k], positions[j]]);
+      [at[k], at[j]] = [at[j], at[k]];
+    }
+    k++;
+  }
+  return plan;
+}
+
+/**
+ * Sidebar order: `@muxnexus_order` when muxnexus has been told where a session
+ * goes, then everything else by name. tmux has no session ordering of its own --
+ * `list-sessions` sorts by name -- so a session created outside muxnexus has no
+ * stamp, and belongs at the end rather than interleaved by an unrelated name.
+ */
+export function orderSessions<T extends { name: string; order?: number }>(sessions: readonly T[]): T[] {
+  const rank = (s: T) => (s.order === undefined ? Number.MAX_SAFE_INTEGER : s.order);
+  return [...sessions].sort((a, b) => {
+    const d = rank(a) - rank(b);
+    if (d !== 0) return d;
+    if (a.order === undefined && b.order === undefined) return a.name.localeCompare(b.name);
+    return 0; // equal stamps keep their incoming order
+  });
+}
+
 export function windowLabel(windowName: string, paneTitle: string, host: string): string {
   const title = paneTitle.trim();
   if (!title || title === windowName) return windowName;
@@ -33,6 +76,7 @@ interface SessionRow {
   group: string;
   id: number;
   workspaceId: string;
+  order?: number;
 }
 
 export class Tmux {
@@ -67,14 +111,15 @@ export class Tmux {
     try {
       out = await this.run([
         "list-sessions", "-F",
-        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}",
+        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
-    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 6).map(([name, attached, grouped, group, id, workspaceId]) => ({
+    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 7).map(([name, attached, grouped, group, id, workspaceId, order]) => ({
       name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")), workspaceId,
+      order: order === "" ? undefined : Number(order),
     }));
   }
 
@@ -120,6 +165,7 @@ export class Tmux {
           attached: members.reduce((n, m) => n + m.attached, 0),
           windows: [],
           ...(rep.workspaceId ? { workspaceId: rep.workspaceId } : {}),
+          ...(rep.order === undefined || Number.isNaN(rep.order) ? {} : { order: rep.order }),
         },
         rep,
       });
@@ -140,7 +186,12 @@ export class Tmux {
         ...(surfaceId ? { surfaceId } : {}),
       });
     }
-    return [...groups.values()].sort((a, b) => a.rep.id - b.rep.id).map((g) => g.info);
+    // Creation order was only ever a stand-in; `@muxnexus_order` is the real one
+    // once the sidebar has been arranged. Unstamped sessions keep falling back to
+    // oldest-first, which is what orderSessions's name tiebreak would otherwise
+    // disturb, so feed it the list already in id order.
+    const byAge = [...groups.values()].sort((a, b) => a.rep.id - b.rep.id).map((g) => g.info);
+    return orderSessions(byAge);
   }
 
   /**
@@ -202,6 +253,26 @@ export class Tmux {
   }
 
   /** Kill the whole server on this socket. Never throws (used by tests). */
+  /** Stamp the sidebar position of each name, in the order given. */
+  async setSessionOrder(names: readonly string[]): Promise<void> {
+    // set-option takes no "=" target prefix; exact names are matched first.
+    for (const [i, name] of names.entries()) {
+      await this.run(["set-option", "-t", name, "@muxnexus_order", String(i)]);
+    }
+  }
+
+  /**
+   * Rearrange a session's windows into `wanted` (window indices, in order).
+   * `move-window` cannot be used: tmux refuses an occupied target index.
+   */
+  async reorderWindows(session: string, wanted: readonly number[]): Promise<void> {
+    const out = await this.run(["list-windows", "-t", `=${session}`, "-F", "#{window_index}"]);
+    const positions = lines(out).map(Number).sort((a, b) => a - b);
+    for (const [a, b] of swapPlan(positions, wanted)) {
+      await this.run(["swap-window", "-s", `=${session}:${b}`, "-t", `=${session}:${a}`]);
+    }
+  }
+
   async killServer(): Promise<void> {
     try {
       await this.run(["kill-server"]);
