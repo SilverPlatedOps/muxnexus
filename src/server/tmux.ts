@@ -1,5 +1,19 @@
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import type { SessionInfo } from "../shared/protocol";
+
+/**
+ * What to call a window. tmux names one after the command running in it, which
+ * for an agent is its version and so identical for every tab; the title the
+ * program sets is the part that differs. tmux seeds that title with the
+ * hostname, which names the machine rather than the window, so it is ignored.
+ */
+export function windowLabel(windowName: string, paneTitle: string, host: string): string {
+  const title = paneTitle.trim();
+  if (!title || title === windowName) return windowName;
+  const lower = title.toLowerCase();
+  if (lower === host.toLowerCase() || lower === host.split(".")[0].toLowerCase()) return windowName;
+  return title;
+}
 
 export class TmuxError extends Error {
   constructor(message: string) {
@@ -18,6 +32,7 @@ interface SessionRow {
   grouped: boolean;
   group: string;
   id: number;
+  workspaceId: string;
 }
 
 export class Tmux {
@@ -52,14 +67,14 @@ export class Tmux {
     try {
       out = await this.run([
         "list-sessions", "-F",
-        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}",
+        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
-    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 5).map(([name, attached, grouped, group, id]) => ({
-      name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")),
+    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 6).map(([name, attached, grouped, group, id, workspaceId]) => ({
+      name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")), workspaceId,
     }));
   }
 
@@ -83,7 +98,7 @@ export class Tmux {
     try {
       winOut = await this.run([
         "list-windows", "-a", "-F",
-        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}",
+        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
@@ -104,6 +119,7 @@ export class Tmux {
           name: rep.name,
           attached: members.reduce((n, m) => n + m.attached, 0),
           windows: [],
+          ...(rep.workspaceId ? { workspaceId: rep.workspaceId } : {}),
         },
         rep,
       });
@@ -112,11 +128,17 @@ export class Tmux {
     for (const g of groups.values()) byRep.set(g.rep.name, g.info);
     for (const line of lines(winOut)) {
       const parts = line.split("\t");
-      if (parts.length !== 5) continue;
-      const [session, index, name, active, panes] = parts;
+      if (parts.length !== 7) continue;
+      const [session, index, name, active, panes, paneTitle, surfaceId] = parts;
       const s = byRep.get(session);
       if (!s) continue; // a tab session, or a session that vanished between the two calls
-      s.windows.push({ index: Number(index), name, active: active === "1", panes: Number(panes) });
+      s.windows.push({
+        index: Number(index),
+        name: windowLabel(name, paneTitle, hostname()),
+        active: active === "1",
+        panes: Number(panes),
+        ...(surfaceId ? { surfaceId } : {}),
+      });
     }
     return [...groups.values()].sort((a, b) => a.rep.id - b.rep.id).map((g) => g.info);
   }

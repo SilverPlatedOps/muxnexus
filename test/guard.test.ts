@@ -43,7 +43,7 @@ function guardPty(sock: string, extra: Record<string, string>) {
   env.MUXNEXUS_TMUX_SOCKET = sock;
   Object.assign(env, extra);
   const pty = spawn("zsh", ["-c", `source "${SCRIPT}"; muxnexus_tmux_guard`], {
-    name: "xterm-256color", cols: 80, rows: 24, env,
+    name: "xterm-256color", cols: 80, rows: 24, env, cwd: dir,
   });
   ptys.push({ kill: () => { try { pty.kill(); } catch { /* already gone */ } } });
   return pty;
@@ -54,16 +54,27 @@ async function currentWindows(): Promise<string[]> {
   return (await tmux.run(["list-sessions", "-F", "#{session_name}\t#{window_index}"])).trim().split("\n");
 }
 
-beforeEach(async () => {
-  await tmux.killServer();
-  dir = mkdtempSync(join(tmpdir(), "muxnexus-guard-"));
-  // fake cmux: one workspace with a custom title, id WS-1
+/** Rewrite the fake `cmux` on PATH so a test can change what workspaces report. */
+function writeCmuxStub(workspaces: object[]) {
   writeFileSync(join(dir, "cmux"), `#!/bin/sh
 if [ "$1" = "workspace" ] && [ "$2" = "list" ]; then
-  printf '%s' '{"workspaces":[{"id":"WS-1","custom_title":"My Project","has_custom_title":true},{"id":"WS-2","custom_title":null,"has_custom_title":false}]}'
+  printf '%s' '${JSON.stringify({ workspaces })}'
 fi
 `);
   chmodSync(join(dir, "cmux"), 0o755);
+}
+
+/** WS-1 has a custom title; WS-2 and WS-3 are untitled, as cmux leaves them. */
+const DEFAULT_WORKSPACES = [
+  { id: "WS-1", custom_title: "My Project", has_custom_title: true },
+  { id: "WS-2", custom_title: null, has_custom_title: false },
+  { id: "WS-3", custom_title: null, has_custom_title: false },
+];
+
+beforeEach(async () => {
+  await tmux.killServer();
+  dir = mkdtempSync(join(tmpdir(), "muxnexus-guard-"));
+  writeCmuxStub(DEFAULT_WORKSPACES);
 });
 afterEach(async () => {
   for (const p of ptys) p.kill();
@@ -161,4 +172,141 @@ test("the guard rejoins an orphaned group instead of starting a fresh base", asy
   const rows = (await tmux.run(["list-sessions", "-F", "#{session_name}\t#{session_group}"])).trim().split("\n");
   expect(rows).toContain("ws\tws");
   expect(rows).toContain("ws~t1\tws");
+});
+
+/** Wait until a tab session of this surface id exists and has a client. */
+async function waitForTab(surface: string, label: string) {
+  await waitFor(
+    async () =>
+      (await tmux.run(["list-sessions", "-F", "#{session_name}\t#{session_attached}"]).catch(() => ""))
+        .split("\n").some((r) => r.includes(`~${surface}`) && r.endsWith("\t1")),
+    8000, label,
+  );
+}
+
+/** Base sessions (those a workspace owns) as `name\tworkspace-id` rows. */
+async function ownedSessions(): Promise<string[]> {
+  return (await tmux.run(["list-sessions", "-F", "#{session_name}\t#{@muxnexus_workspace}"]))
+    .trim().split("\n").filter((r) => !r.split("\t")[0].includes("~"));
+}
+
+test("two untitled workspaces in one directory get a session each, not a shared one", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]);
+  const dirName = dir.split("/").pop()!;
+
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-2", CMUX_SURFACE_ID: "AAAAAAAA-1" });
+  await waitForTab("AAAAAAAA", "first workspace attached");
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-3", CMUX_SURFACE_ID: "BBBBBBBB-1" });
+  await waitForTab("BBBBBBBB", "second workspace attached");
+
+  // Both derive the same name from the directory, so the second must be disambiguated.
+  const owned = await ownedSessions();
+  expect(owned).toContain(`${dirName}\tWS-2`);
+  expect(owned.length).toBe(2);
+  expect(owned.some((r) => r.endsWith("\tWS-3") && r.split("\t")[0] !== dirName)).toBe(true);
+
+  // The giveaway of the old bug: one base holding both workspaces' windows.
+  expect((await tmux.run(["list-windows", "-t", `=${dirName}`, "-F", "#{window_index}"])).trim().split("\n"))
+    .toEqual(["0"]);
+});
+
+test("a renamed workspace keeps its own session instead of stranding it", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]);
+
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "AAAAAAAA-1" });
+  await waitForTab("AAAAAAAA", "first tab attached");
+  expect(await tmux.hasSession("My Project")).toBe(true);
+  await tmux.run(["detach-client", "-s", "=My Project~AAAAAAAA"]);
+  await waitFor(async () => !(await tmux.hasSession("My Project~AAAAAAAA")), 8000, "first tab gone");
+
+  // The user retitles the workspace in cmux; its id is unchanged.
+  writeCmuxStub([{ id: "WS-1", custom_title: "Renamed Project", has_custom_title: true }]);
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "BBBBBBBB-1" });
+  await waitForTab("BBBBBBBB", "tab after rename attached");
+
+  // One session, carrying the new name — not a second base beside the old one.
+  const owned = await ownedSessions();
+  expect(owned).toEqual(["Renamed Project\tWS-1"]);
+  expect(await tmux.hasSession("My Project")).toBe(false);
+});
+
+test("a workspace renamed while an earlier tab is still attached still follows", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]);
+
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "AAAA1111-0" });
+  await waitForTab("AAAA1111", "first tab attached");
+  expect(await tmux.hasSession("My Project")).toBe(true);
+
+  // Renamed in cmux while that first tab is still open and attached.
+  writeCmuxStub([{ id: "WS-1", custom_title: "Renamed Project", has_custom_title: true }]);
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "BBBB2222-0" });
+  await waitForTab("BBBB2222", "second tab attached");
+
+  expect(await ownedSessions()).toEqual(["Renamed Project\tWS-1"]);
+});
+
+test("a failed title lookup never renames the session to the directory", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]);
+
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "AAAA1111-0" });
+  await waitForTab("AAAA1111", "first tab attached");
+  expect(await tmux.hasSession("My Project")).toBe(true);
+
+  // cmux hiccups: the CLI is there but answers with nothing usable.
+  writeFileSync(join(dir, "cmux"), "#!/bin/sh\nexit 1\n");
+  chmodSync(join(dir, "cmux"), 0o755);
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "BBBB2222-0" });
+  await waitForTab("BBBB2222", "second tab attached");
+
+  // The session keeps its real name instead of being renamed to the temp dir.
+  expect(await ownedSessions()).toEqual(["My Project\tWS-1"]);
+  expect(await tmux.hasSession(dir.split("/").pop()!)).toBe(false);
+});
+
+/** The value a pane in this window would start with, as tmux would hand it over. */
+async function sessionEnv(session: string, name: string): Promise<string> {
+  const out = await tmux.run(["show-environment", "-t", `=${session}`, name]).catch(() => "");
+  const line = out.trim();
+  return line.startsWith(`${name}=`) ? line.slice(name.length + 1) : "";
+}
+
+test("a tab publishes its own cmux identity, so a later window is not stamped with the first tab's", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]);
+
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "AAAA1111-0", CMUX_PANEL_ID: "PANEL-A" });
+  await waitForTab("AAAA1111", "first tab attached");
+  expect(await sessionEnv("My Project", "CMUX_SURFACE_ID")).toBe("AAAA1111-0");
+  expect(await sessionEnv("My Project", "CMUX_PANEL_ID")).toBe("PANEL-A");
+
+  // A second tab of the same workspace: the session must now describe *it*,
+  // otherwise `cmux` in its window would resolve to the first tab's surface.
+  guardPty(sock, { CMUX_WORKSPACE_ID: "WS-1", CMUX_SURFACE_ID: "BBBB2222-0", CMUX_PANEL_ID: "PANEL-B" });
+  await waitForTab("BBBB2222", "second tab attached");
+  expect(await sessionEnv("My Project", "CMUX_SURFACE_ID")).toBe("BBBB2222-0");
+  expect(await sessionEnv("My Project", "CMUX_PANEL_ID")).toBe("PANEL-B");
+});
+
+test("a tab with no cmux identity clears any stale one left in the session", async () => {
+  await tmux.run(["new-session", "-d", "-s", "__probe"]);
+  const sock = await sockOf("__probe");
+  await tmux.run(["kill-session", "-t", "=__probe"]);
+
+  guardPty(sock, { VIEWER_TMUX_SESSION: "plain", CMUX_SURFACE_ID: "STALE-1", CMUX_SURFACE_ID_SET: "1" });
+  await waitForTab("STALE-1".slice(0, 8), "cmux tab attached");
+  expect(await sessionEnv("plain", "CMUX_SURFACE_ID")).toBe("STALE-1");
+
+  // The browser opens a window on the same session: no cmux tab, so no identity.
+  guardPty(sock, { VIEWER_TMUX_SESSION: "plain", CMUX_SURFACE_ID: "", CMUX_SURFACE_ID_SET: "" });
+  await waitFor(async () => (await sessionEnv("plain", "CMUX_SURFACE_ID")) === "", 8000, "identity cleared");
+  expect(await sessionEnv("plain", "CMUX_SURFACE_ID")).toBe("");
 });

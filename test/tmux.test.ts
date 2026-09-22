@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { Tmux, TmuxError } from "../src/server/tmux";
+import { Tmux, TmuxError, windowLabel } from "../src/server/tmux";
 import { waitFor } from "./helpers";
 
 const SOCKET = "cmux-viewer-test-tmux";
@@ -183,5 +183,28 @@ describe("Tmux session groups", () => {
     const [s] = await tmux.listSessions();
     expect(s.name).toBe("plain");
     expect(await tmux.target("plain")).toBe("plain");
+  });
+});
+
+describe("windowLabel", () => {
+  const HOST = "Demo-MacBook-Pro.local";
+
+  test("prefers a title the program set over tmux's command-derived name", () => {
+    // Claude Code names every window after its version, so the pane title is
+    // the only thing that distinguishes one tab from another.
+    expect(windowLabel("2.1.278", "✳ Sonar issues review", HOST)).toBe("✳ Sonar issues review");
+    expect(windowLabel("2.1.278", "✳ Image analysis", HOST)).toBe("✳ Image analysis");
+  });
+
+  test("ignores the hostname tmux seeds pane_title with", () => {
+    expect(windowLabel("zsh", HOST, HOST)).toBe("zsh");
+    expect(windowLabel("zsh", "demo-macbook-pro", HOST)).toBe("zsh");
+    expect(windowLabel("zsh", "Demo-MacBook-Pro", HOST)).toBe("zsh");
+  });
+
+  test("falls back to the window name when the title adds nothing", () => {
+    expect(windowLabel("zsh", "", HOST)).toBe("zsh");
+    expect(windowLabel("zsh", "   ", HOST)).toBe("zsh");
+    expect(windowLabel("vim", "vim", HOST)).toBe("vim");
   });
 });

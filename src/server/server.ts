@@ -1,5 +1,5 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
-import type { ClientMessage, DetachReason, ServerMessage } from "../shared/protocol";
+import type { ClientMessage, DetachReason, ServerMessage, SessionInfo } from "../shared/protocol";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
@@ -43,9 +43,35 @@ export function createServer(opts: ServerOptions): RunningServer {
     if (ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(m));
   }
 
+  /**
+   * Show each session under its cmux workspace's current title, so renaming a
+   * workspace is reflected straight away instead of waiting for a new tab. A
+   * stamped session whose workspace is gone is marked: it still runs, but
+   * nothing in cmux corresponds to it any more.
+   */
+  async function label(sessions: SessionInfo[]): Promise<SessionInfo[]> {
+    const mirror = opts.mirror;
+    const known = sessions.some((s) => s.workspaceId || s.windows.some((w) => w.surfaceId));
+    if (!mirror || !known) return sessions;
+    const [titles, tabs] = await Promise.all([
+      mirror.workspaceTitles().catch(() => new Map<string, string>()),
+      mirror.surfaceTitles().catch(() => new Map<string, string>()),
+    ]);
+    if (titles.size === 0 && tabs.size === 0) return sessions; // cmux unreachable
+    return sessions.map((s) => {
+      const windows = s.windows.map((w) => {
+        const tab = w.surfaceId ? tabs.get(w.surfaceId) : undefined;
+        return tab ? { ...w, label: tab } : w;
+      });
+      if (!s.workspaceId) return { ...s, windows };
+      const title = titles.get(s.workspaceId);
+      return title ? { ...s, windows, label: title } : { ...s, windows, orphan: true };
+    });
+  }
+
   /** Re-read tmux state; broadcast only when it changed since the last broadcast. */
   async function poll(): Promise<void> {
-    const sessions = await tmux.listSessions().catch(() => []);
+    const sessions = await label(await tmux.listSessions().catch(() => []));
     const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
     if (json === lastState) return;
     lastState = json;
@@ -202,7 +228,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       idleTimeout: 120,
       open(ws) {
         clients.add(ws);
-        void tmux.listSessions().catch(() => []).then((sessions) => {
+        void tmux.listSessions().catch(() => []).then(label).then((sessions) => {
           const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
           if (json !== lastState) {
             lastState = json;
