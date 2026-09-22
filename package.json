@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "bash scripts/install.sh",
     "dev": "bun --watch src/server/main.ts --host 127.0.0.1",
     "start": "bun src/server/main.ts",
     "test": "bun test",

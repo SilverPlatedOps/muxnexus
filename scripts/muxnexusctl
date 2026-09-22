@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Start and stop the muxnexus server by hand.
+#   muxnexusctl start [-- <server args>]   background, detached, logs to a file
+#   muxnexusctl stop | restart | status | logs
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/muxnexus"
+PIDFILE="$STATE/server.pid"
+LOG="$STATE/server.log"
+
+if [ -t 1 ]; then B=$'\033[1m'; D=$'\033[2m'; G=$'\033[32m'; R=$'\033[31m'; X=$'\033[0m'
+else B=''; D=''; G=''; R=''; X=''; fi
+
+# The pid of a running server: the pidfile when it is still alive, otherwise a
+# process started some other way (`bun run start` in a terminal, say).
+server_pid() {
+  local pid
+  if [ -f "$PIDFILE" ] && pid="$(cat "$PIDFILE" 2>/dev/null)" && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    printf '%s' "$pid"; return 0
+  fi
+  pgrep -f "$ROOT/src/server/main.ts" 2>/dev/null | head -1 && return 0
+  pgrep -f 'src/server/main\.ts' 2>/dev/null | head -1
+}
+
+# The port the server was told to use, default 7681.
+port_from_args() {
+  local prev="" a
+  for a in "$@"; do
+    case "$prev" in --port) printf '%s' "$a"; return ;; esac
+    case "$a" in --port=*) printf '%s' "${a#--port=}"; return ;; esac
+    prev="$a"
+  done
+  printf '7681'
+}
+
+cmd_start() {
+  local pid; pid="$(server_pid || true)"
+  if [ -n "$pid" ]; then
+    printf '%salready running%s (pid %s) — %smuxnexusctl restart%s to replace it\n' "$G" "$X" "$pid" "$D" "$X"
+    return 0
+  fi
+  mkdir -p "$STATE"
+  local port; port="$(port_from_args "$@")"
+  # `exec` so the backgrounded subshell *becomes* bun: $! is then the pid that
+  # holds the port, not a parent that dies leaving the server orphaned.
+  ( cd "$ROOT"; exec nohup bun "$ROOT/src/server/main.ts" "$@" >>"$LOG" 2>&1 ) &
+  echo $! >"$PIDFILE"
+  # The server prints its URL once it is listening; give it a moment to fail loudly.
+  local i
+  for i in $(seq 40); do
+    pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+    [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null && break
+    curl -sf -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null && break
+    sleep 0.25
+  done
+  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    printf '%sfailed to start%s — last lines of %s:\n\n' "$R" "$X" "$LOG"
+    tail -15 "$LOG" 2>/dev/null
+    rm -f "$PIDFILE"
+    return 1
+  fi
+  printf '%sstarted%s (pid %s)\n' "$G" "$X" "$pid"
+  grep -E 'listening|tmux socket|mirror' "$LOG" 2>/dev/null | tail -3 | sed 's/^/  /'
+}
+
+cmd_stop() {
+  local pid; pid="$(server_pid || true)"
+  if [ -z "$pid" ]; then printf 'not running\n'; rm -f "$PIDFILE"; return 0; fi
+  kill "$pid" 2>/dev/null || true
+  local i
+  for i in $(seq 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+  if kill -0 "$pid" 2>/dev/null; then
+    printf '%sstill up after SIGTERM%s, sending SIGKILL\n' "$R" "$X"
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$PIDFILE"
+  printf '%sstopped%s (pid %s)\n' "$G" "$X" "$pid"
+}
+
+cmd_status() {
+  local pid; pid="$(server_pid || true)"
+  if [ -z "$pid" ]; then printf '%snot running%s\n' "$R" "$X"; return 1; fi
+  printf '%srunning%s (pid %s)\n' "$G" "$X" "$pid"
+  grep -E 'listening|tmux socket|mirror' "$LOG" 2>/dev/null | tail -3 | sed 's/^/  /'
+  printf '  %slog: %s%s\n' "$D" "$LOG" "$X"
+}
+
+case "${1:-}" in
+  start)   shift; [ "${1:-}" = "--" ] && shift; cmd_start "$@" ;;
+  stop)    cmd_stop ;;
+  restart) shift; [ "${1:-}" = "--" ] && shift; cmd_stop; cmd_start "$@" ;;
+  status)  cmd_status ;;
+  logs)    shift; tail "${@:--f}" "$LOG" ;;
+  *) printf '%susage:%s muxnexusctl start [-- <server args>] | stop | restart | status | logs\n' "$B" "$X"; exit 2 ;;
+esac
