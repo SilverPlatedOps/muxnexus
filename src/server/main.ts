@@ -6,7 +6,8 @@ import { createCmuxMirror } from "./cmux";
 import { createServer } from "./server";
 
 export interface Args {
-  host?: string;
+  /** Addresses to bind (`--host`, repeatable). Empty means "work it out from Tailscale". */
+  hosts: string[];
   port: number;
   /** Explicit tmux socket path (`--socket`). */
   socket?: string;
@@ -27,12 +28,12 @@ export function resolveSocketPath(explicit: string | undefined, cmuxSocketExists
 }
 
 export function parseArgs(argv: string[]): Args {
-  const args: Args = { host: undefined, port: 7681, socket: undefined, allowHosts: [] };
+  const args: Args = { hosts: [], port: 7681, socket: undefined, allowHosts: [] };
   for (let i = 0; i < argv.length; i++) {
     const [flag, inline] = argv[i].split("=", 2);
     const value = inline ?? argv[++i];
     if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`missing value for ${flag}`);
-    if (flag === "--host") args.host = value;
+    if (flag === "--host") args.hosts.push(value);
     else if (flag === "--socket") args.socket = value;
     else if (flag === "--allow-host") args.allowHosts.push(value);
     else if (flag === "--port") {
@@ -42,6 +43,19 @@ export function parseArgs(argv: string[]): Args {
     } else throw new Error(`unknown argument: ${flag}`);
   }
   return args;
+}
+
+/**
+ * The addresses to listen on. Loopback is added to whatever you asked for, so
+ * `localhost` keeps working while the tailnet address serves everything else --
+ * a wildcard bind would do that too, but it would also answer on whatever
+ * network the laptop joins next. A wildcard you asked for is left alone: it
+ * already covers loopback, and binding it twice would collide.
+ */
+export function resolveHosts(explicit: readonly string[], tailscaleIp: string): string[] {
+  const wanted = explicit.length ? [...explicit] : [tailscaleIp];
+  if (!wanted.some((h) => h === "0.0.0.0" || h === "::")) wanted.push("127.0.0.1");
+  return [...new Set(wanted)];
 }
 
 /**
@@ -90,23 +104,27 @@ export async function tailscaleIp(): Promise<string> {
 
 if (import.meta.main) {
   const args = parseArgs(Bun.argv.slice(2));
-  let host = args.host;
-  if (!host) {
+  let tailnet = "";
+  if (args.hosts.length === 0) {
     try {
-      host = await tailscaleIp();
+      tailnet = await tailscaleIp();
     } catch (e) {
       console.error(e instanceof Error ? e.message : String(e));
       console.error("Start Tailscale (`tailscale up`) or pass --host <address>.");
       process.exit(1);
     }
   }
+  const hosts = resolveHosts(args.hosts, tailnet);
   const socketPath = resolveSocketPath(args.socket, existsSync(CMUX_TMUX_SOCKET));
   // Parity with cmux is opt-in by circumstance: only when driving cmux's own tmux and the CLI exists.
   const cmuxBin = socketPath === CMUX_TMUX_SOCKET ? Bun.which("cmux") : null;
   const mirror = socketPath && cmuxBin ? createCmuxMirror({ cmuxBin, socketPath }) : undefined;
   const allowHosts = [...args.allowHosts, ...magicDnsNames(await tailscaleStatus())];
-  const running = createServer({ host, port: args.port, socketPath, index, mirror, allowHosts });
-  console.log(`muxnexus listening on http://${host}:${running.port}`);
+  const running = createServer({ hosts, port: args.port, socketPath, index, mirror, allowHosts });
+  for (const h of hosts) console.log(`muxnexus listening on http://${h}:${running.port}`);
+  if (hosts.some((h) => h === "0.0.0.0" || h === "::")) {
+    console.warn("warning: a wildcard bind answers on every network this machine joins, including untrusted ones.");
+  }
   console.log(`tmux socket: ${socketPath ?? "tmux default"}${!args.socket && socketPath ? " (cmux local-tmux)" : ""}`);
   console.log(`cmux workspace mirror: ${mirror ? "on" : "off"}`);
   if (allowHosts.length) console.log(`also reachable as: ${allowHosts.join(", ")}`);

@@ -46,7 +46,7 @@ Open the URL it prints from any device on your tailnet.
 | --- | --- |
 | `bun run start` | Binds your Tailscale IPv4 on port 7681 |
 | `bun run start -- --port 8080` | Serve on another port |
-| `bun run start -- --host 127.0.0.1` | Bind somewhere other than the tailnet |
+| `bun run start -- --host 127.0.0.1` | Bind somewhere other than the tailnet; repeatable |
 | `bun run start -- --socket <path>` | Drive a specific tmux server |
 | `bun run start -- --allow-host <name>` | Answer to another hostname; repeatable |
 | `bun run dev` | Binds 127.0.0.1, restarts on change |
@@ -57,7 +57,12 @@ Open the URL it prints from any device on your tailnet.
 Tailscale is down. Pass `--host <addr>` to bind elsewhere — Cloudflare Access in
 front of `127.0.0.1` works just as well.
 
-It answers to the address it is bound to, to loopback, and to this machine's
+It listens on your Tailscale address *and* on loopback, so `localhost` works at
+the desk while the tailnet serves everything else. `--host` may be repeated to
+add more; a wildcard (`0.0.0.0`) is left alone, since it covers loopback already
+and answers on every network the machine later joins -- it warns about that.
+
+It answers to the addresses it is bound to, to loopback, and to this machine's
 MagicDNS name — so reaching it from a phone by name works without setting
 anything up. Any other name needs `--allow-host`, which is what a reverse proxy
 on its own domain wants. The names it will answer to are printed at startup.

@@ -5,7 +5,8 @@ import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
 
 export interface ServerOptions {
-  host: string;
+  /** Addresses to listen on, all sharing one port. The first is the one reported. */
+  hosts: string[];
   port: number;
   socketName?: string;
   /** tmux `-S` socket path; takes precedence over `socketName`. */
@@ -54,8 +55,8 @@ function hostOnly(value: string): string {
 }
 
 /** Every name this server answers to: what it is bound to, loopback, and `--allow-host`. */
-export function allowedHostList(host: string, extra: readonly string[] = []): string[] {
-  return [host, "localhost", "127.0.0.1", "::1", ...extra];
+export function allowedHostList(hosts: readonly string[], extra: readonly string[] = []): string[] {
+  return [...hosts, "localhost", "127.0.0.1", "::1", ...extra];
 }
 
 /**
@@ -78,7 +79,7 @@ export function hostAllowed(host: string | null, allowed: readonly string[]): bo
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
   const clients = new Set<Socket>();
-  const allowedHosts = allowedHostList(opts.host, opts.allowHosts ?? []);
+  const allowedHosts = allowedHostList(opts.hosts, opts.allowHosts ?? []);
   let lastState = "";
 
   function send(ws: Socket, m: ServerMessage) {
@@ -242,9 +243,9 @@ export function createServer(opts: ServerOptions): RunningServer {
 
   const timer = setInterval(() => void poll(), opts.pollMs ?? 2000);
 
-  const server = Bun.serve<ConnData>({
-    hostname: opts.host,
-    port: opts.port,
+  const serveOn = (hostname: string, port: number) => Bun.serve<ConnData>({
+    hostname,
+    port,
     // Bun's dev server refuses any Host header that is not the bound address,
     // which is every name you reach this machine by over Tailscale. Turning HMR
     // off turns that check off with it; `hostAllowed` below replaces it. Nothing
@@ -301,8 +302,20 @@ export function createServer(opts: ServerOptions): RunningServer {
     },
   });
 
+  // One listener per address rather than a wildcard bind: a wildcard would also
+  // answer on whatever network the laptop joins next. The first listener settles
+  // the port (`port: 0` picks one), and the rest join it.
+  const servers = [serveOn(opts.hosts[0], opts.port)];
+  const port = servers[0].port ?? opts.port;
+  try {
+    for (const h of opts.hosts.slice(1)) servers.push(serveOn(h, port));
+  } catch (e) {
+    for (const s of servers) s.stop(true);
+    throw e;
+  }
+
   return {
-    port: server.port ?? opts.port,
+    port,
     stop() {
       clearInterval(timer);
       for (const ws of clients) {
@@ -310,7 +323,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         detach(ws);
       }
       clients.clear();
-      server.stop(true);
+      for (const s of servers) s.stop(true);
     },
   };
 }

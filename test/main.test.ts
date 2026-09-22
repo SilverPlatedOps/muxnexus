@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
-import { CMUX_TMUX_SOCKET, magicDnsNames, parseArgs, resolveSocketPath } from "../src/server/main";
+import { CMUX_TMUX_SOCKET, magicDnsNames, parseArgs, resolveHosts, resolveSocketPath } from "../src/server/main";
 
 test("defaults to port 7681 and no host", () => {
-  expect(parseArgs([])).toEqual({ host: undefined, port: 7681, socket: undefined, allowHosts: [] });
+  expect(parseArgs([])).toEqual({ hosts: [], port: 7681, socket: undefined, allowHosts: [] });
 });
 
 test("parses --host and --port in either order", () => {
-  expect(parseArgs(["--port", "9000", "--host", "127.0.0.1"])).toEqual({ host: "127.0.0.1", port: 9000, socket: undefined, allowHosts: [] });
-  expect(parseArgs(["--host=0.0.0.0", "--port=1"])).toEqual({ host: "0.0.0.0", port: 1, socket: undefined, allowHosts: [] });
+  expect(parseArgs(["--port", "9000", "--host", "127.0.0.1"])).toEqual({ hosts: ["127.0.0.1"], port: 9000, socket: undefined, allowHosts: [] });
+  expect(parseArgs(["--host=0.0.0.0", "--port=1"])).toEqual({ hosts: ["0.0.0.0"], port: 1, socket: undefined, allowHosts: [] });
 });
 
 test("rejects a non-numeric port", () => {
@@ -50,4 +50,19 @@ test("magicDnsNames yields nothing when Tailscale reports no name", () => {
   expect(magicDnsNames("")).toEqual([]);
   expect(magicDnsNames("not json")).toEqual([]);
   expect(magicDnsNames(JSON.stringify({ Self: {} }))).toEqual([]);
+});
+
+test("resolveHosts adds loopback so localhost keeps working alongside the tailnet", () => {
+  expect(resolveHosts([], "100.101.102.103")).toEqual(["100.101.102.103", "127.0.0.1"]);
+  expect(resolveHosts(["100.101.102.103"], "100.101.102.103")).toEqual(["100.101.102.103", "127.0.0.1"]);
+});
+
+test("resolveHosts does not bind the same address twice", () => {
+  expect(resolveHosts(["127.0.0.1"], "100.101.102.103")).toEqual(["127.0.0.1"]);
+  expect(resolveHosts(["127.0.0.1", "127.0.0.1"], "100.101.102.103")).toEqual(["127.0.0.1"]);
+});
+
+test("resolveHosts leaves a wildcard bind alone, since it already covers loopback", () => {
+  expect(resolveHosts(["0.0.0.0"], "100.101.102.103")).toEqual(["0.0.0.0"]);
+  expect(resolveHosts(["::"], "100.101.102.103")).toEqual(["::"]);
 });

@@ -31,7 +31,7 @@ async function connect(port: number = server.port) {
   return { ws, messages, send, last, output: () => output, sendBytes: (s: string) => ws.send(new TextEncoder().encode(s)) };
 }
 
-beforeAll(() => { server = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200 }); });
+beforeAll(() => { server = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200 }); });
 afterAll(() => server.stop());
 beforeEach(async () => { await tmux.killServer(); });
 afterEach(async () => { await tmux.killServer(); });
@@ -208,7 +208,7 @@ test("a new connection receives exactly one state", async () => {
 test("attaches through an explicit tmux socket path", async () => {
   const path = `${tmpdir()}/cmux-viewer-test-server-${process.pid}.sock`;
   const byPath = new Tmux(undefined, path);
-  const srv = createServer({ host: "127.0.0.1", port: 0, socketPath: path, pollMs: 200 });
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketPath: path, pollMs: 200 });
   try {
     await byPath.run(["new-session", "-d", "-s", "p", "sh"]);
     const c = await connect(srv.port);
@@ -237,7 +237,7 @@ fi
   chmodSync(bin, 0o755);
   const readLog = () => (existsSync(log) ? readFileSync(log, "utf8") : ""); // the fake creates it on first call
   const mirror = createCmuxMirror({ cmuxBin: bin, socketPath: "/tmp/fake.sock", cwd: "/tmp" });
-  const srv = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200, mirror });
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200, mirror });
   try {
     const c = await connect(srv.port);
     await waitFor(() => c.last("state"));
@@ -345,7 +345,7 @@ test("a newer attach supersedes an older one still resolving", async () => {
 
 test("stop() detaches every client and leaves no in-flight attach behind", async () => {
   await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
-  const srv = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200 });
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200 });
   const c = await connect(srv.port);
   c.send({ t: "attach", session: "s" });
   await waitFor(() => c.last("attached"), 2000, "attached");
@@ -362,7 +362,7 @@ test("a failing cmux mirror surfaces a toast but the tmux command still succeeds
   writeFileSync(bin, `#!/bin/sh\necho "cmux is not running" >&2\nexit 1\n`);
   chmodSync(bin, 0o755);
   const mirror = createCmuxMirror({ cmuxBin: bin, socketPath: "/tmp/fake.sock" });
-  const srv = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200, mirror });
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200, mirror });
   try {
     const c = await connect(srv.port);
     await waitFor(() => c.last("state"));
@@ -383,13 +383,13 @@ test("a failing cmux mirror surfaces a toast but the tmux command still succeeds
 // ourselves; these cover what the replacement must accept and refuse.
 
 test("hostAllowed accepts the bound host with or without a port", () => {
-  const allowed = allowedHostList("100.101.102.103");
+  const allowed = allowedHostList(["100.101.102.103"]);
   expect(hostAllowed("100.101.102.103:7681", allowed)).toBe(true);
   expect(hostAllowed("100.101.102.103", allowed)).toBe(true);
 });
 
 test("hostAllowed accepts loopback and a MagicDNS name given explicitly", () => {
-  const allowed = allowedHostList("100.101.102.103", ["macbook.tail1234ab.ts.net", "macbook"]);
+  const allowed = allowedHostList(["100.101.102.103"], ["macbook.tail1234ab.ts.net", "macbook"]);
   for (const h of ["localhost:7681", "127.0.0.1:7681", "[::1]:7681", "macbook.tail1234ab.ts.net:7681", "macbook:7681"]) {
     expect(hostAllowed(h, allowed)).toBe(true);
   }
@@ -398,21 +398,21 @@ test("hostAllowed accepts loopback and a MagicDNS name given explicitly", () => 
 test("hostAllowed refuses a rebound host even though its Origin would match", () => {
   // DNS rebinding: the attacker serves evil.example:7681 and points it at this
   // machine, so Origin and Host agree and the same-origin check alone passes.
-  const allowed = allowedHostList("100.101.102.103");
+  const allowed = allowedHostList(["100.101.102.103"]);
   expect(hostAllowed("evil.example:7681", allowed)).toBe(false);
   expect(hostAllowed(null, allowed)).toBe(false);
   expect(hostAllowed("", allowed)).toBe(false);
 });
 
 test("hostAllowed ignores case and bracketed IPv6", () => {
-  const allowed = allowedHostList("::1", ["MacBook.Tail1234ab.TS.net"]);
+  const allowed = allowedHostList(["::1"], ["MacBook.Tail1234ab.TS.net"]);
   expect(hostAllowed("macbook.tail1234ab.ts.net", allowed)).toBe(true);
   expect(hostAllowed("[::1]:7681", allowed)).toBe(true);
 });
 
 test("serves the page to a host Bun's dev server would have blocked", async () => {
   const index = (await import("../src/client/index.html")).default;
-  const withPage = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 10_000, index });
+  const withPage = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 10_000, index });
   try {
     const res = await fetch(`http://127.0.0.1:${withPage.port}/`, { headers: { Host: "macbook.tail1234ab.ts.net" } });
     const body = await res.text();
@@ -431,4 +431,24 @@ test("rejects a WebSocket upgrade whose Host is not ours, matching Origin or not
   ws.onopen = () => { opened = true; };
   await new Promise<void>((res) => { ws.onclose = () => res(); ws.onerror = () => res(); });
   expect(opened).toBe(false);
+});
+
+test("allowedHostList answers to every address it is bound to", () => {
+  const allowed = allowedHostList(["100.101.102.103", "127.0.0.1"], ["mux.example.com"]);
+  expect(hostAllowed("100.101.102.103:7681", allowed)).toBe(true);
+  expect(hostAllowed("localhost:7681", allowed)).toBe(true);
+  expect(hostAllowed("mux.example.com", allowed)).toBe(true);
+  expect(hostAllowed("192.168.1.9:7681", allowed)).toBe(false);
+});
+
+test("listens on every requested address, on one shared port", async () => {
+  const both = createServer({ hosts: ["127.0.0.1", "::1"], port: 0, socketName: SOCKET, pollMs: 10_000 });
+  try {
+    for (const url of [`http://127.0.0.1:${both.port}/nope`, `http://[::1]:${both.port}/nope`]) {
+      const res = await fetch(url);
+      expect(res.status).toBe(404); // reached our handler, so the listener is up
+    }
+  } finally {
+    both.stop();
+  }
 });

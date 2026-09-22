@@ -25,7 +25,7 @@ describe("Connection against a real server", () => {
   const SOCKET = "cmux-viewer-test-client";
   const tmux = new Tmux(SOCKET);
   let server: RunningServer;
-  beforeAll(() => { server = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 200 }); });
+  beforeAll(() => { server = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200 }); });
   afterAll(() => server.stop());
   beforeEach(async () => { await tmux.killServer(); });
   afterEach(async () => { await tmux.killServer(); });
