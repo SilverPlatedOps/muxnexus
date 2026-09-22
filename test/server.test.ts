@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import type { ServerMessage } from "../src/shared/protocol";
-import { createServer, type RunningServer } from "../src/server/server";
+import { allowedHostList, createServer, hostAllowed, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -375,4 +375,60 @@ test("a failing cmux mirror surfaces a toast but the tmux command still succeeds
     srv.stop();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- Host header allowlist ----
+// Bun's dev server blocks any Host it does not recognise, which is every name a
+// phone reaches this machine by. We turn that off and gate the WebSocket
+// ourselves; these cover what the replacement must accept and refuse.
+
+test("hostAllowed accepts the bound host with or without a port", () => {
+  const allowed = allowedHostList("100.101.102.103");
+  expect(hostAllowed("100.101.102.103:7681", allowed)).toBe(true);
+  expect(hostAllowed("100.101.102.103", allowed)).toBe(true);
+});
+
+test("hostAllowed accepts loopback and a MagicDNS name given explicitly", () => {
+  const allowed = allowedHostList("100.101.102.103", ["macbook.tail1234ab.ts.net", "macbook"]);
+  for (const h of ["localhost:7681", "127.0.0.1:7681", "[::1]:7681", "macbook.tail1234ab.ts.net:7681", "macbook:7681"]) {
+    expect(hostAllowed(h, allowed)).toBe(true);
+  }
+});
+
+test("hostAllowed refuses a rebound host even though its Origin would match", () => {
+  // DNS rebinding: the attacker serves evil.example:7681 and points it at this
+  // machine, so Origin and Host agree and the same-origin check alone passes.
+  const allowed = allowedHostList("100.101.102.103");
+  expect(hostAllowed("evil.example:7681", allowed)).toBe(false);
+  expect(hostAllowed(null, allowed)).toBe(false);
+  expect(hostAllowed("", allowed)).toBe(false);
+});
+
+test("hostAllowed ignores case and bracketed IPv6", () => {
+  const allowed = allowedHostList("::1", ["MacBook.Tail1234ab.TS.net"]);
+  expect(hostAllowed("macbook.tail1234ab.ts.net", allowed)).toBe(true);
+  expect(hostAllowed("[::1]:7681", allowed)).toBe(true);
+});
+
+test("serves the page to a host Bun's dev server would have blocked", async () => {
+  const index = (await import("../src/client/index.html")).default;
+  const withPage = createServer({ host: "127.0.0.1", port: 0, socketName: SOCKET, pollMs: 10_000, index });
+  try {
+    const res = await fetch(`http://127.0.0.1:${withPage.port}/`, { headers: { Host: "macbook.tail1234ab.ts.net" } });
+    const body = await res.text();
+    expect(body).not.toContain("Blocked:");
+    expect(body).toContain("<!doctype html>");
+  } finally {
+    withPage.stop();
+  }
+});
+
+test("rejects a WebSocket upgrade whose Host is not ours, matching Origin or not", async () => {
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+    headers: { Host: "evil.example", Origin: "http://evil.example" },
+  } as any);
+  let opened = false;
+  ws.onopen = () => { opened = true; };
+  await new Promise<void>((res) => { ws.onclose = () => res(); ws.onerror = () => res(); });
+  expect(opened).toBe(false);
 });

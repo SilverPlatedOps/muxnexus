@@ -48,6 +48,7 @@ Open the URL it prints from any device on your tailnet.
 | `bun run start -- --port 8080` | Serve on another port |
 | `bun run start -- --host 127.0.0.1` | Bind somewhere other than the tailnet |
 | `bun run start -- --socket <path>` | Drive a specific tmux server |
+| `bun run start -- --allow-host <name>` | Answer to another hostname; repeatable |
 | `bun run dev` | Binds 127.0.0.1, restarts on change |
 | `bun run setup` | The install script again |
 | `bun test` | Tests |
@@ -55,6 +56,17 @@ Open the URL it prints from any device on your tailnet.
 `start` resolves the bind address with `tailscale ip -4` and refuses to start if
 Tailscale is down. Pass `--host <addr>` to bind elsewhere — Cloudflare Access in
 front of `127.0.0.1` works just as well.
+
+It answers to the address it is bound to, to loopback, and to this machine's
+MagicDNS name — so reaching it from a phone by name works without setting
+anything up. Any other name needs `--allow-host`, which is what a reverse proxy
+on its own domain wants. The names it will answer to are printed at startup.
+
+That list is a DNS-rebinding guard, not authentication. It stops a page on the
+public internet from pointing its own domain at your tailnet address and driving
+your terminal through your browser. Comparing `Origin` to `Host` cannot do this
+on its own: an attacker serving from their domain on this port controls both
+headers, and they agree.
 
 ### Manual control
 

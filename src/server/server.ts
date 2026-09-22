@@ -14,6 +14,8 @@ export interface ServerOptions {
   index?: HTMLBundle;
   /** Optional cmux parity: mirror browser-created sessions as cmux workspaces. */
   mirror?: CmuxMirror;
+  /** Extra names this server answers to, beyond `host` and loopback (`--allow-host`). */
+  allowHosts?: string[];
 }
 
 export interface RunningServer {
@@ -34,9 +36,49 @@ type Socket = ServerWebSocket<ConnData>;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * The name part of a Host header or a configured address: lowercased, port
+ * removed, IPv6 unbracketed. A bare IPv6 address has no port to strip -- only
+ * the bracketed form may carry one.
+ */
+function hostOnly(value: string): string {
+  const v = value.trim().toLowerCase();
+  if (v.startsWith("[")) {
+    const end = v.indexOf("]");
+    return end === -1 ? v.slice(1) : v.slice(1, end);
+  }
+  const first = v.indexOf(":");
+  if (first === -1) return v;
+  if (v.indexOf(":", first + 1) !== -1) return v; // bare IPv6
+  return v.slice(0, first);
+}
+
+/** Every name this server answers to: what it is bound to, loopback, and `--allow-host`. */
+export function allowedHostList(host: string, extra: readonly string[] = []): string[] {
+  return [host, "localhost", "127.0.0.1", "::1", ...extra];
+}
+
+/**
+ * Whether a request's Host header names this server.
+ *
+ * Bun's dev server does this check itself, but it accepts only the address the
+ * server is bound to -- never the MagicDNS name a phone actually types -- so we
+ * turn it off (`development.hmr`) and do our own. It is not authentication: it
+ * is the DNS-rebinding guard that check was providing. Comparing Origin to Host
+ * cannot replace it, because an attacker serving from their own domain on this
+ * port controls both headers and they agree.
+ */
+export function hostAllowed(host: string | null, allowed: readonly string[]): boolean {
+  if (host === null) return false;
+  const name = hostOnly(host);
+  if (name === "") return false;
+  return allowed.some((a) => hostOnly(a) === name);
+}
+
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
   const clients = new Set<Socket>();
+  const allowedHosts = allowedHostList(opts.host, opts.allowHosts ?? []);
   let lastState = "";
 
   function send(ws: Socket, m: ServerMessage) {
@@ -203,13 +245,19 @@ export function createServer(opts: ServerOptions): RunningServer {
   const server = Bun.serve<ConnData>({
     hostname: opts.host,
     port: opts.port,
+    // Bun's dev server refuses any Host header that is not the bound address,
+    // which is every name you reach this machine by over Tailscale. Turning HMR
+    // off turns that check off with it; `hostAllowed` below replaces it. Nothing
+    // is lost -- `bun run dev` reloads by restarting the process (`--watch`).
+    development: { hmr: false },
     routes: opts.index ? { "/": opts.index } : {},
     fetch(req, srv) {
       if (new URL(req.url).pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
         // policy, so any page open in the user's browser could otherwise
-        // connect and send keystrokes. This is a same-origin check, not
-        // authentication.
+        // connect and send keystrokes. Neither check is authentication: the
+        // first stops another origin's page, the second stops a rebound name
+        // pointed at this machine.
         const origin = req.headers.get("origin");
         const host = req.headers.get("host");
         let sameOrigin = false;
@@ -219,6 +267,10 @@ export function createServer(opts: ServerOptions): RunningServer {
           sameOrigin = false;
         }
         if (!sameOrigin) return new Response("Forbidden: cross-origin WebSocket", { status: 403 });
+        if (!hostAllowed(host, allowedHosts)) {
+          console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
+          return new Response("Forbidden: unrecognised Host", { status: 403 });
+        }
         const ok = srv.upgrade(req, { data: { pty: null, session: null, cols: 80, rows: 24, attachSeq: 0 } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
