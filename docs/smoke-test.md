@@ -36,3 +36,10 @@ measurement and the failure modes are quiet:
   the `ResizeObserver` are feeding each other; something in the chain lost its
   height constraint.
 - Check both with the tab strip visible and with a single window (strip hidden).
+
+## Sidebar collapse
+
+Toggle the sidebar (`Cmd+B` or the button in the brand header) on a desktop-width
+window. The terminal must widen to fill the space, not vanish. `#layout.collapsed`
+drops to a single grid column on purpose: a `display: none` sidebar leaves the
+grid, so a second declared column would swallow `#main` into a zero-width cell.

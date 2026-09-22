@@ -55,7 +55,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   height: 100%;
   overflow: hidden;
 }
-#layout.collapsed { grid-template-columns: 0 1fr; }
+/* One column, not a zero-width one: a `display: none` sidebar leaves the grid,
+   so with two columns still declared #main auto-places into the first -- the
+   zero-wide one -- and the page goes blank. The phone rule below has always
+   collapsed to a single column, which is why this never showed there. */
+#layout.collapsed { grid-template-columns: 1fr; }
 #layout.collapsed #sidebar { display: none; }
 
 /* ---------- sidebar ---------- */
