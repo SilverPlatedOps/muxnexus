@@ -1,118 +1,133 @@
 # muxnexus
 
-A browser client for your local tmux server. Start Claude Code (or anything)
-in tmux from cmux on the Mac, then drive the same session from a laptop
-browser over Tailscale.
+**What if the laptop could just… stay home?**
 
-## Run
+cmux runs Claude Code inside tmux on my Mac. The sessions live on that Mac, which
+meant the Mac came with me everywhere — a 14" MacBook Pro in a bag, carried across
+town for a twenty-minute terminal session. (Maybe I'm the only one who finds it
+heavy. Just me? Okay.)
+
+But tmux doesn't care where I am. Those sessions keep running whether I'm sitting
+at the desk or not. The only missing piece was a way to reach them that wasn't
+another laptop.
+
+So that's what this is: a web UI for the tmux server already running on your
+machine. Reach it over Tailscale or Cloudflare Access from an iPad, a lighter
+laptop, a phone — and you land in the same sessions cmux is looking at. The iPad
+can keep something playing in the other half of the screen, which the MacBook was
+never going to let me do gracefully.
+
+## Setup
 
 ```sh
-bun install
-bun run start          # binds to your Tailscale IPv4 on port 7681
-bun run start -- --port 8080
-bun run dev            # local development: binds 127.0.0.1, restarts on change
-bun test
+git clone https://github.com/SilverPlatedOps/muxnexus.git && cd muxnexus
+./scripts/install.sh
 ```
 
-`start` resolves the bind address with `tailscale ip -4` and refuses to start
-if Tailscale is down. Pass `--host <addr>` to bind elsewhere. There is no
-authentication: only expose this on the tailnet.
+The script checks for bun, tmux and Tailscale, offers to install whatever is
+missing — one confirmation each, nothing installed behind your back — pulls
+dependencies, and optionally wires the cmux guard into your `~/.zshrc` (it backs
+the file up first). Safe to run again; it checks before it acts.
+
+Then start it:
+
+```sh
+bun run start
+```
+
+Open the URL it prints from any device on your tailnet.
+
+> **There is no authentication. None.** The tailnet is the auth. Don't put this on
+> a public interface.
+
+### Running it
+
+| Command | What it does |
+| --- | --- |
+| `bun run start` | Binds your Tailscale IPv4 on port 7681 |
+| `bun run start -- --port 8080` | Serve on another port |
+| `bun run start -- --host 127.0.0.1` | Bind somewhere other than the tailnet |
+| `bun run start -- --socket <path>` | Drive a specific tmux server |
+| `bun run dev` | Binds 127.0.0.1, restarts on change |
+| `bun run setup` | The install script again |
+| `bun test` | Tests |
+
+`start` resolves the bind address with `tailscale ip -4` and refuses to start if
+Tailscale is down. Pass `--host <addr>` to bind elsewhere — Cloudflare Access in
+front of `127.0.0.1` works just as well.
+
+### Manual control
+
+`bun run start` holds the terminal. For a server you start once and leave alone,
+the installer can add a `muxnexus` alias (or call `./scripts/muxnexusctl`):
+
+```sh
+muxnexus start            # background, detached; pass server args after --
+muxnexus stop
+muxnexus restart
+muxnexus status
+muxnexus logs             # tail -f the log
+```
+
+It keeps a pidfile and log under `~/.local/state/muxnexus/`, and `stop` also
+finds a server you started some other way.
 
 ### Which tmux server
 
-The viewer drives one tmux server, chosen at startup:
+muxnexus drives exactly one tmux server, chosen at startup:
 
-1. `--socket <path>` if given (tmux's `-S`).
-2. Otherwise cmux's built-in local-tmux server at `~/.cmux/local-tmux/server.sock`,
-   when that socket exists. This makes the browser and cmux share one set of
-   sessions with no extra setup.
-3. Otherwise tmux's default socket. cmux is not required.
+1. `--socket <path>`, if you passed it (tmux's `-S`).
+2. Otherwise cmux's own server at `~/.cmux/local-tmux/server.sock`, when that
+   socket exists — so the browser and cmux share one set of sessions with no
+   extra setup.
+3. Otherwise tmux's default socket. **cmux is not required.**
 
-The chosen socket is printed at startup. Example for a custom server:
+Whichever it picks is printed at startup.
 
-```sh
-bun run start -- --socket /tmp/tmux-501/default
-```
+## Why not something that exists
 
-Open `http://<tailscale-ip>:7681/` from any device on your tailnet.
+- **cmux's iPhone app** — in beta, but it's an app to install and pair, and there's
+  no web client. That's the gap this fills.
+- **[Orca](https://github.com/stablyai/orca)** — its unit of work is a git worktree.
+  Mine is the terminal I already had open.
+- **Claude's own apps** — they render the session *as an app*. I want the terminal,
+  because that's where everything else I run already lives.
 
-## Using it with cmux
+### About the name
 
-cmux's local-tmux feature runs its own tmux server (`cmux local-tmux list`
-shows its sessions). The viewer uses that server by default, so a session
-created in either place shows up in the other.
-
-### Workspaces, tabs, sessions, windows
-
-- A cmux **workspace** is a tmux **session**. Its name is the first of:
-  `VIEWER_TMUX_SESSION` (set by the mirror on workspaces the browser opens),
-  the workspace's custom title, the current directory's basename, and `root`
-  when the shell starts at `/`. `.` and `:` become `_`.
-- A cmux **tab** is a tmux **window** in that session. Each tab views the
-  session through its own grouped tab session (`<name>~<id>`), so two tabs
-  never show the same window. The browser lists the session once with one row
-  per tab; tab sessions are hidden.
-- Closing a tab or quitting cmux leaves the windows running. Reopened tabs
-  re-adopt the lowest free window; new tabs get new windows.
-- Killing a session in the browser kills every tab attached to it.
-- If the base session is killed from outside while tabs remain, the browser
-  shows the oldest tab's session name until a new tab recreates the base;
-  closing the last such tab then ends the windows too.
-- Set `NO_TMUX=1` in a shell's environment to skip the guard entirely and get
-  a plain shell.
-
-The mirror still runs when the viewer drives cmux's tmux and the `cmux` CLI is
-on `PATH`: creating a session in the browser opens a cmux workspace attached
-to it, renaming retitles it, killing closes it.
-
-Wire the guard into `~/.zshrc`. The snippet assumes the repo is at
-`~/github/muxnexus`; adjust both paths if it lives elsewhere:
-
-```sh
-if [[ -o interactive && -z "$TMUX" && -n "$CMUX_PANEL_ID" && -z "$NO_TMUX" ]] && command -v tmux >/dev/null \
-   && [[ -r "$HOME/github/muxnexus/scripts/cmux-tmux-guard.zsh" ]]; then
-  source "$HOME/github/muxnexus/scripts/cmux-tmux-guard.zsh"
-  muxnexus_tmux_guard
-fi
-```
-
-- tmux 3.7 defaults to `window-size latest`: whichever client typed or resized
-  last sets the window size. If your `~/.tmux.conf` sets `window-size smallest`
-  or `aggressive-resize`, the two clients will fight over size and the smaller
-  wins.
-- The green dot next to a session means another client (usually cmux) is
-  attached.
-- Detaching in the browser (`C-b d`) or closing the tab leaves the session
-  running.
+Not affiliated with [cmux](https://github.com/manaflow-ai/cmux), and not trying to
+be the official anything. cmux is excellent and the people building it deserve
+every bit of credit they get — "nexus" is just the bridge I needed. If their mobile
+story grows into this, use theirs.
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
 | `Cmd+B` | Toggle the sidebar |
+| `Cmd+F` | Find in scrollback |
 | `Cmd+C` | Copy the selection (no selection: nothing) |
 | `Cmd+V` | Paste (bracketed paste, forwarded by tmux) |
 | everything else | Sent to tmux, including `C-b` prefix keys |
 
-## cmux smoke test
+## Using it with cmux
 
-Run these after any change to the server or PTY layer.
+cmux's local-tmux feature runs its own tmux server (`cmux local-tmux list` shows
+its sessions). muxnexus uses that server by default, so a session created in
+either place shows up in the other, and the browser can open cmux workspaces to
+match.
 
-1. In cmux: `tmux new -s work`. Browser: `work` appears within 2 s; attaching
-   shows the same shell. Reverse: `+ session` in the browser, then
-   `tmux attach -t <name>` in cmux.
-2. Resize the browser window. cmux's view of the session must recover on the
-   next keystroke there, and vice versa.
-3. With cmux attached, the browser shows a green dot on `work`. Detach in cmux:
-   the dot clears on the next poll.
-4. Kill a window in cmux (`C-b &`): it disappears from the browser sidebar.
-   Kill the session from the browser while cmux is attached: cmux's client
-   exits with `[exited]`.
-5. Run something colourful (`ls -G`, `git diff`) and compare colours in both.
-   Enable `set -g mouse on` if you want wheel scrolling to drive tmux history.
-6. Start `claude` in a tmux window from cmux. Type a prompt in the browser,
-   read the reply in cmux. Resize the browser: Claude's TUI redraws cleanly.
-7. Open three tabs in one cmux workspace. The browser lists one session with
-   three windows. Switch windows in the browser: no cmux tab changes.
-8. Quit cmux and reopen it. The restored tabs re-adopt their windows. Kill the
-   session from the browser: every tab drops to a plain shell.
+The details — how workspaces map to sessions, what the guard does, and the tmux
+sizing caveats worth knowing — are in
+[docs/cmux-internals.md](docs/cmux-internals.md).
+
+## Docs
+
+- [docs/cmux-internals.md](docs/cmux-internals.md) — workspace/session mapping,
+  the `~/.zshrc` guard, tmux sizing behaviour
+- [docs/smoke-test.md](docs/smoke-test.md) — the checklist to run after touching
+  the server or PTY layer
+
+## Licence
+
+[MIT](LICENSE). Do what you like with it.
