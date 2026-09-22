@@ -2,6 +2,7 @@ import { createSidebar } from "./sidebar";
 import { createTabs } from "./tabs";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
+import { applyPendingOrder, orderSatisfied } from "./reorder";
 import type { SessionInfo } from "../shared/protocol";
 
 const SESSION_KEY = "muxnexus.session";
@@ -37,6 +38,10 @@ let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
 let sessions: SessionInfo[] = [];
 let countdown: ReturnType<typeof setInterval> | undefined;
+/** The order the user just dragged into, held until the server confirms it. */
+let pendingOrder: string[] | null = null;
+let pendingUntil = 0;
+const PENDING_MS = 5000;
 
 const term = createTerminal(termEl, {
   onInput: (d) => conn.sendInput(d),
@@ -70,6 +75,21 @@ function updateChip() {
   const shared = (session?.attached ?? 0) > 1;
   chipDot.classList.toggle("on", shared);
   chipDot.title = shared ? "another client is attached" : "";
+}
+
+/**
+ * Move the rows now and tell the server after. The server answers in tens of
+ * milliseconds -- it re-polls straight after writing -- but a `state` already in
+ * flight when the drag ended still carries the old order, and applying it would
+ * snap the list back for a frame. So the wanted order is held until a `state`
+ * agrees with it, or until PENDING_MS passes and the server's truth wins.
+ */
+function reorderSessions(names: string[]) {
+  pendingOrder = names;
+  pendingUntil = Date.now() + PENDING_MS;
+  sessions = applyPendingOrder(sessions, names);
+  paintAll();
+  conn.send({ t: "reorder-sessions", names });
 }
 
 function paintAll() {
@@ -137,6 +157,7 @@ const sidebar = createSidebar(sessionsEl, layout, {
   newSession: (name) => conn.send({ t: "new-session", name }),
   killSession: (session) => conn.send({ t: "kill-session", session }),
   renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
+  reorderSessions,
 }, footEl);
 
 const tabs = createTabs(tabsEl, {
@@ -164,7 +185,10 @@ const conn = new Connection(wsUrl, {
   onMessage(m) {
     switch (m.t) {
       case "state":
-        sessions = m.sessions;
+        if (pendingOrder && (orderSatisfied(m.sessions, pendingOrder) || Date.now() > pendingUntil)) {
+          pendingOrder = null;
+        }
+        sessions = applyPendingOrder(m.sessions, pendingOrder);
         paintAll();
         break;
       case "attached":

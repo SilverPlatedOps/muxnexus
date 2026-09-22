@@ -225,10 +225,17 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "select-window":
           await tmux.selectWindow(m.session, m.index);
           break;
-        case "rename-session":
+        case "rename-session": {
+          // Grab the stamped workspace id before the rename: cmux's own lookup
+          // falls back to matching on the old name, which is precisely wrong
+          // once the workspace title and the session name have diverged.
+          const wsId = opts.mirror
+            ? (await tmux.listSessions().catch(() => [])).find((x) => x.name === m.session)?.workspaceId
+            : undefined;
           await tmux.renameSession(m.session, m.name);
-          await mirrorStep(ws, (mirror) => mirror.sessionRenamed(m.session, m.name));
+          await mirrorStep(ws, (mirror) => mirror.sessionRenamed(m.session, m.name, wsId));
           break;
+        }
         case "rename-window":
           await tmux.renameWindow(m.session, m.index, m.name);
           break;

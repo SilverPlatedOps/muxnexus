@@ -19,7 +19,7 @@ export interface CmuxMirror {
   /** A session was created from the browser: open an unfocused cmux workspace attached to it. */
   sessionCreated(name: string): Promise<void>;
   /** A session was renamed: retitle its workspace, if one exists. */
-  sessionRenamed(from: string, to: string): Promise<void>;
+  sessionRenamed(from: string, to: string, workspaceId?: string): Promise<void>;
   /** A session was killed: close its workspace, if one exists. */
   sessionKilled(name: string): Promise<void>;
   /** Current title of every open workspace, by id. Empty when cmux cannot be read. */
@@ -76,6 +76,22 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
     return rows.find((w) => w.custom_title === name)?.ref;
   }
 
+  /**
+   * The workspace with this stamped id. Preferred over the title lookup above:
+   * a workspace keeps its id across renames, and the one case worth renaming is
+   * exactly the one where the title and the tmux session name have diverged.
+   */
+  async function findWorkspaceById(id: string): Promise<string | undefined> {
+    const out = await run(["workspace", "list", "--json"]);
+    let rows: WorkspaceRow[] = [];
+    try {
+      rows = (JSON.parse(out) as { workspaces?: WorkspaceRow[] }).workspaces ?? [];
+    } catch {
+      throw new CmuxError("cmux workspace list returned invalid JSON");
+    }
+    return rows.find((w) => w.id === id)?.ref;
+  }
+
   return {
     async sessionCreated(name) {
       // The workspace's shell reads VIEWER_TMUX_SESSION and attaches to that session
@@ -88,8 +104,8 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
         "--focus", "false",
       ]);
     },
-    async sessionRenamed(from, to) {
-      const ref = await findWorkspace(from);
+    async sessionRenamed(from, to, workspaceId) {
+      const ref = (workspaceId ? await findWorkspaceById(workspaceId) : undefined) ?? (await findWorkspace(from));
       if (ref) await run(["workspace", "rename", ref, "--title", to]);
     },
     async sessionKilled(name) {

@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../shared/protocol";
+import { makeReorderable, moveItem } from "./reorder";
 
 export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean }
@@ -28,6 +29,8 @@ export interface SidebarActions {
   newSession(name: string): void;
   killSession(session: string): void;
   renameSession(session: string, name: string): void;
+  /** The whole wanted sidebar order, by tmux session name. */
+  reorderSessions(names: string[]): void;
 }
 
 export interface Sidebar {
@@ -88,14 +91,41 @@ export function createSidebar(
     return b;
   }
 
-  function menuFor(onRename: () => void, onKill: () => void): HTMLElement {
+  function menuFor(onRename: () => void, onKill: () => void, move?: { up?: () => void; down?: () => void }): HTMLElement {
     const m = el("div", "menu");
     const rename = button("btn", "Rename");
     rename.onclick = () => { ui.menu = null; m.remove(); onRename(); };
+    m.append(rename);
+    // The keyboard- and touch-reachable half of reordering; dragging is the
+    // other half, and neither is the fallback for the other.
+    if (move?.up) {
+      const up = button("btn", "Move up");
+      up.onclick = () => { ui.menu = null; move.up!(); };
+      m.append(up);
+    }
+    if (move?.down) {
+      const down = button("btn", "Move down");
+      down.onclick = () => { ui.menu = null; move.down!(); };
+      m.append(down);
+    }
     const kill = button("btn", "Kill");
     kill.onclick = onKill;
-    m.append(rename, kill);
+    m.append(kill);
     return m;
+  }
+
+  /** Current sidebar order, by tmux name -- what every reorder is expressed against. */
+  function orderNames(): string[] {
+    return lastSessions.map((s) => s.name);
+  }
+
+  function moveSession(name: string, delta: number) {
+    const names = orderNames();
+    const from = names.indexOf(name);
+    if (from < 0) return;
+    const to = from + delta + (delta > 0 ? 1 : 0); // insertion point, not position
+    if (to < 0 || to > names.length) return;
+    actions.reorderSessions(moveItem(names, from, to));
   }
 
   function confirmFor(label: string, onYes: () => void): HTMLElement {
@@ -139,7 +169,7 @@ export function createSidebar(
     input.select();
   }
 
-  function renderSession(row: Extract<Row, { kind: "session" }>, windows: number) {
+  function renderSession(row: Extract<Row, { kind: "session" }>, windows: number, at: number, total: number) {
     const group = el("div", `group${row.current ? " current" : ""}`);
     const r = el("div", `row session${ui.menu === row.name ? " menu-open" : ""}${row.orphan ? " orphan" : ""}`);
 
@@ -151,6 +181,12 @@ export function createSidebar(
     name.append(dot, el("span", "label", row.label), count);
     if (row.orphan) name.title = `${row.name} — its cmux workspace is closed`;
     name.onclick = () => actions.attach(row.name);
+    // Double-click renames in place. renameSession reaches cmux too, resolved by
+    // the stamped workspace id, so a row showing a cmux title renames there.
+    name.ondblclick = (e) => {
+      e.preventDefault();
+      inlineRename(r, row.name, (next) => actions.renameSession(row.name, next));
+    };
 
     r.append(name, menuButton(row.name));
     group.append(r);
@@ -159,6 +195,10 @@ export function createSidebar(
       group.append(menuFor(
         () => inlineRename(r, row.name, (next) => actions.renameSession(row.name, next)),
         () => { ui.menu = null; ui.confirm = row.name; rerender(); },
+        {
+          up: at > 0 ? () => moveSession(row.name, -1) : undefined,
+          down: at < total - 1 ? () => moveSession(row.name, 1) : undefined,
+        },
       ));
     }
     if (ui.confirm === row.name) {
@@ -211,15 +251,24 @@ export function createSidebar(
       return;
     }
     // Windows live in the tab strip now; the sidebar is one row per session.
-    for (const row of sidebarModel(sessions, current)) {
-      if (row.kind !== "session") continue;
+    const sessionRows = sidebarModel(sessions, current).filter((r) => r.kind === "session");
+    sessionRows.forEach((row, i) => {
+      if (row.kind !== "session") return;
       const windows = sessions.find((s) => s.name === row.name)?.windows.length ?? 0;
-      root.append(renderSession(row, windows));
-    }
+      root.append(renderSession(row, windows, i, sessionRows.length));
+    });
     drawFoot();
   }
 
   drawFoot();
+
+  makeReorderable(root, {
+    rows: () => [...root.querySelectorAll<HTMLElement>(":scope > .group")],
+    commit: (order) => {
+      const names = orderNames();
+      actions.reorderSessions(order.map((i) => names[i]).filter((n) => n !== undefined));
+    },
+  });
 
   return {
     render: draw,
