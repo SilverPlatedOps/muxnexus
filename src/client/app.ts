@@ -41,7 +41,15 @@ let countdown: ReturnType<typeof setInterval> | undefined;
 /** The order the user just dragged into, held until the server confirms it. */
 let pendingOrder: string[] | null = null;
 let pendingUntil = 0;
+/**
+ * Same idea for the tab strip. Keyed by tmux window id, not index: the server
+ * reorders with swap-window, which moves windows between indices, so the order
+ * we asked for would never look satisfied if we compared positions.
+ */
+let pendingTabs: { session: string; ids: string[] } | null = null;
+let pendingTabsUntil = 0;
 const PENDING_MS = 5000;
+const winKey = (w: { id: string }) => w.id;
 
 const term = createTerminal(termEl, {
   onInput: (d) => conn.sendInput(d),
@@ -90,6 +98,24 @@ function reorderSessions(names: string[]) {
   sessions = applyPendingOrder(sessions, names);
   paintAll();
   conn.send({ t: "reorder-sessions", names });
+}
+
+function reorderWindows(indices: number[]) {
+  if (!current) return;
+  const live = sessions.find((s) => s.name === current)?.windows ?? [];
+  const ids = indices.map((i) => live.find((w) => w.index === i)?.id).filter((id): id is string => id !== undefined);
+  pendingTabs = { session: current, ids };
+  pendingTabsUntil = Date.now() + PENDING_MS;
+  sessions = withTabOrder(sessions);
+  paintAll();
+  conn.send({ t: "reorder-windows", session: current, indices });
+}
+
+/** The pending tab order applied to whichever session it was made for. */
+function withTabOrder(list: SessionInfo[]): SessionInfo[] {
+  const p = pendingTabs;
+  if (!p) return list;
+  return list.map((s) => (s.name === p.session ? { ...s, windows: applyPendingOrder(s.windows, p.ids, winKey) } : s));
 }
 
 function paintAll() {
@@ -165,6 +191,7 @@ const tabs = createTabs(tabsEl, {
   newWindow: () => { if (current) conn.send({ t: "new-window", session: current }); },
   renameWindow: (index, name) => { if (current) conn.send({ t: "rename-window", session: current, index, name }); },
   killWindow: (index) => { if (current) conn.send({ t: "kill-window", session: current, index }); },
+  reorderWindows,
 });
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
@@ -184,13 +211,21 @@ const conn = new Connection(wsUrl, {
   },
   onMessage(m) {
     switch (m.t) {
-      case "state":
+      case "state": {
         if (pendingOrder && (orderSatisfied(m.sessions, pendingOrder) || Date.now() > pendingUntil)) {
           pendingOrder = null;
         }
-        sessions = applyPendingOrder(m.sessions, pendingOrder);
+        const p = pendingTabs;
+        if (p) {
+          const live = m.sessions.find((s) => s.name === p.session);
+          if (!live || orderSatisfied(live.windows, p.ids, winKey) || Date.now() > pendingTabsUntil) {
+            pendingTabs = null;
+          }
+        }
+        sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         paintAll();
         break;
+      }
       case "attached":
         current = m.session;
         term.reset();

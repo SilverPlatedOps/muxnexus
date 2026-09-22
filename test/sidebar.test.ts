@@ -5,10 +5,10 @@ test("flattens sessions and windows into rows, marking current and attached", ()
   const rows = sidebarModel(
     [
       { name: "work", attached: 2, windows: [
-        { index: 0, name: "claude", active: true, panes: 2 },
-        { index: 1, name: "zsh", active: false, panes: 1 },
+        { id: "@0", index: 0, name: "claude", active: true, panes: 2 },
+        { id: "@1", index: 1, name: "zsh", active: false, panes: 1 },
       ] },
-      { name: "scratch", attached: 0, windows: [{ index: 0, name: "zsh", active: true, panes: 1 }] },
+      { name: "scratch", attached: 0, windows: [{ id: "@0", index: 0, name: "zsh", active: true, panes: 1 }] },
     ],
     "work",
   );

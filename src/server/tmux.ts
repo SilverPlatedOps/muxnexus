@@ -143,7 +143,7 @@ export class Tmux {
     try {
       winOut = await this.run([
         "list-windows", "-a", "-F",
-        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}",
+        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
@@ -174,11 +174,12 @@ export class Tmux {
     for (const g of groups.values()) byRep.set(g.rep.name, g.info);
     for (const line of lines(winOut)) {
       const parts = line.split("\t");
-      if (parts.length !== 7) continue;
-      const [session, index, name, active, panes, paneTitle, surfaceId] = parts;
+      if (parts.length !== 8) continue;
+      const [session, index, name, active, panes, paneTitle, surfaceId, id] = parts;
       const s = byRep.get(session);
       if (!s) continue; // a tab session, or a session that vanished between the two calls
       s.windows.push({
+        id,
         index: Number(index),
         name: windowLabel(name, paneTitle, hostname()),
         active: active === "1",

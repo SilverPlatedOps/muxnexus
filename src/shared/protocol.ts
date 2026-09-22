@@ -1,4 +1,10 @@
 export interface WindowInfo {
+  /**
+   * tmux's own window id (`@3`). Stable for the window's life, unlike `index`,
+   * which is a *position*: `swap-window` moves windows between indices, so an
+   * index identifies a slot and never the window sitting in it.
+   */
+  id: string;
   index: number;
   /** tmux's name for the window: the running command, so often the same for every tab. */
   name: string;

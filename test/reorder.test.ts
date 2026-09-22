@@ -83,3 +83,22 @@ describe("optimistic order", () => {
     expect(orderSatisfied([s("c"), s("b")], ["c", "a", "b"])).toBe(true);
   });
 });
+
+describe("optimistic order, keyed by something other than name", () => {
+  // Tabs are identified by window index, not by a name.
+  const w = (index: number) => ({ index });
+  const byIndex = (x: { index: number }) => String(x.index);
+
+  test("reorders windows by index", () => {
+    expect(applyPendingOrder([w(0), w(1), w(5)], ["5", "0", "1"], byIndex).map((x) => x.index)).toEqual([5, 0, 1]);
+  });
+
+  test("a window opened meanwhile goes to the end", () => {
+    expect(applyPendingOrder([w(0), w(1), w(9)], ["1", "0"], byIndex).map((x) => x.index)).toEqual([1, 0, 9]);
+  });
+
+  test("orderSatisfied works on indices too", () => {
+    expect(orderSatisfied([w(5), w(0)], ["5", "0"], byIndex)).toBe(true);
+    expect(orderSatisfied([w(0), w(5)], ["5", "0"], byIndex)).toBe(false);
+  });
+});

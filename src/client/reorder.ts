@@ -46,9 +46,13 @@ export function moveItem<T>(items: readonly T[], from: number, to: number): T[] 
  * disappeared is dropped. Without this a `state` already in flight when the drag
  * finished snaps the list back to the old order for one frame.
  */
-export function applyPendingOrder<T extends { name: string }>(incoming: readonly T[], pending: readonly string[] | null): T[] {
+export function applyPendingOrder<T>(
+  incoming: readonly T[],
+  pending: readonly string[] | null,
+  key: (item: T) => string = (item) => (item as { name: string }).name,
+): T[] {
   if (!pending) return [...incoming];
-  const left = new Map(incoming.map((s) => [s.name, s]));
+  const left = new Map(incoming.map((s) => [key(s), s]));
   const out: T[] = [];
   for (const name of pending) {
     const hit = left.get(name);
@@ -58,9 +62,13 @@ export function applyPendingOrder<T extends { name: string }>(incoming: readonly
 }
 
 /** Whether the server's order now matches what we asked for, ignoring comings and goings. */
-export function orderSatisfied(incoming: readonly { name: string }[], pending: readonly string[]): boolean {
-  const got = incoming.map((s) => s.name).filter((n) => pending.includes(n));
-  const want = pending.filter((n) => incoming.some((s) => s.name === n));
+export function orderSatisfied<T>(
+  incoming: readonly T[],
+  pending: readonly string[],
+  key: (item: T) => string = (item) => (item as { name: string }).name,
+): boolean {
+  const got = incoming.map(key).filter((n) => pending.includes(n));
+  const want = pending.filter((n) => incoming.some((s) => key(s) === n));
   return got.length === want.length && got.every((n, i) => n === want[i]);
 }
 
@@ -172,7 +180,9 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
       armed = true;
       container.classList.add("reordering");
       dragged?.classList.add("dragging");
-      container.setPointerCapture?.(e.pointerId);
+      // Throws if the pointer is already gone (released between frames, or a
+      // synthetic event). Capture is a nicety; losing it must not abort the drag.
+      try { container.setPointerCapture?.(e.pointerId); } catch { /* keep dragging */ }
     }
     e.preventDefault();
     const base = container.getBoundingClientRect();

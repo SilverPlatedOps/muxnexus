@@ -1,4 +1,5 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
+import { makeReorderable, moveItem } from "./reorder";
 
 /** The windows of the attached session, in tmux order. Empty when nothing is attached. */
 export function tabsModel(sessions: SessionInfo[], current: string | null): WindowInfo[] {
@@ -16,6 +17,8 @@ export interface TabActions {
   newWindow(): void;
   renameWindow(index: number, name: string): void;
   killWindow(index: number): void;
+  /** The whole wanted tab order, as window indices. */
+  reorderWindows(indices: number[]): void;
 }
 
 export interface Tabs {
@@ -85,6 +88,25 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       m.remove();
       inlineRename(tab, w.index, w.name); // rename targets tmux's name, not the cmux title
     };
+    m.append(rename);
+    // Dragging is the other half of this; on a phone the menu is the only half.
+    const order = tabsModel(lastSessions, lastCurrent).map((x) => x.index);
+    const at = order.indexOf(w.index);
+    const move = (delta: number) => {
+      const to = at + delta + (delta > 0 ? 1 : 0); // insertion point, not position
+      ui.menu = -1;
+      actions.reorderWindows(moveItem(order, at, to));
+    };
+    if (at > 0) {
+      const left = button("btn", "Move left");
+      left.onclick = (e) => { e.stopPropagation(); move(-1); };
+      m.append(left);
+    }
+    if (at >= 0 && at < order.length - 1) {
+      const right = button("btn", "Move right");
+      right.onclick = (e) => { e.stopPropagation(); move(1); };
+      m.append(right);
+    }
     const kill = button("btn", "Kill");
     kill.onclick = (e) => {
       e.stopPropagation();
@@ -92,7 +114,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       ui.confirm = w.index;
       rerender();
     };
-    m.append(rename, kill);
+    m.append(kill);
     return m;
   }
 
@@ -126,6 +148,12 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       name.append(panes);
     }
     name.onclick = () => actions.selectWindow(w.index);
+    // Rename targets tmux's window name even when the tab shows cmux's title:
+    // the title belongs to the cmux tab, and tmux's name is what we can set.
+    name.ondblclick = (e) => {
+      e.preventDefault();
+      inlineRename(tab, w.index, w.name);
+    };
 
     const menuBtn = button("row-btn tab-dots");
     menuBtn.setAttribute("aria-label", `Window ${w.index} menu`);
@@ -161,6 +189,15 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     add.onclick = () => actions.newWindow();
     root.append(add);
   }
+
+  makeReorderable(root, {
+    axis: "x",
+    rows: () => [...root.querySelectorAll<HTMLElement>(":scope > .tab")],
+    commit: (order) => {
+      const indices = tabsModel(lastSessions, lastCurrent).map((w) => w.index);
+      actions.reorderWindows(order.map((i) => indices[i]).filter((i) => i !== undefined));
+    },
+  });
 
   return { render: draw };
 }

@@ -74,3 +74,25 @@ plain shell.
 - The green dot next to a session means another client (usually cmux) is attached.
 - Detaching in the browser (`C-b d`) or closing the tab leaves the session
   running.
+
+## Ordering
+
+The sidebar's order is muxnexus's own, not cmux's. tmux has no session ordering
+-- `list-sessions` sorts by name -- so each session carries `@muxnexus_order`, an
+integer written by the server when you reorder. It lives in tmux rather than the
+browser so every client agrees: reorder on the Mac and the iPad already knows.
+A session with no stamp sorts after the stamped ones, so one created outside
+muxnexus lands at the end rather than in the middle.
+
+Windows need no stamp. tmux orders them natively by `window_index`, and
+reordering uses `swap-window`: `move-window` refuses an occupied target index
+("index in use"), while selection sort reaches any order in at most n-1 swaps
+with every intermediate state valid. Window options ride along with the window,
+so `@muxnexus_surface` -- and therefore a tab's cmux title -- survives a reorder.
+
+Because `swap-window` moves windows *between* indices, an index names a slot and
+never the window in it. Anything that has to identify a window across a reorder
+uses `#{window_id}` (`@3`), which is what `WindowInfo.id` carries.
+
+None of this is visible to cmux: reordering tabs here does not reorder cmux's,
+and session order is invisible there. cmux exposes no verb to set either.
