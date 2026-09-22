@@ -1,13 +1,21 @@
 import type { SessionInfo } from "../shared/protocol";
 
 export type Row =
-  | { kind: "session"; name: string; attached: boolean; current: boolean }
+  | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean }
   | { kind: "window"; session: string; index: number; name: string; active: boolean; panes: number };
 
 export function sidebarModel(sessions: SessionInfo[], current: string | null): Row[] {
   const rows: Row[] = [];
   for (const s of sessions) {
-    rows.push({ kind: "session", name: s.name, attached: s.attached > (s.name === current ? 1 : 0), current: s.name === current });
+    rows.push({
+      kind: "session",
+      name: s.name,
+      // `name` stays tmux's, which every action targets; only the display differs.
+      label: s.label ?? s.name,
+      orphan: s.orphan === true,
+      attached: s.attached > (s.name === current ? 1 : 0),
+      current: s.name === current,
+    });
     for (const w of s.windows) {
       rows.push({ kind: "window", session: s.name, index: w.index, name: w.name, active: w.active, panes: w.panes });
     }
@@ -17,13 +25,9 @@ export function sidebarModel(sessions: SessionInfo[], current: string | null): R
 
 export interface SidebarActions {
   attach(session: string): void;
-  selectWindow(session: string, index: number): void;
   newSession(name: string): void;
-  newWindow(session: string): void;
   killSession(session: string): void;
-  killWindow(session: string, index: number): void;
   renameSession(session: string, name: string): void;
-  renameWindow(session: string, index: number, name: string): void;
 }
 
 export interface Sidebar {
@@ -46,13 +50,10 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 
-/** A <button> whose only content is a static icon (never user data). */
-function iconButton(cls: string, icon: keyof typeof ICON, label: string): HTMLButtonElement {
-  const b = el("button", cls);
+function button(cls: string, text?: string): HTMLButtonElement {
+  const b = el("button", cls, text);
   b.type = "button";
-  b.setAttribute("aria-label", label);
-  b.innerHTML = ICON[icon];
-  return b as HTMLButtonElement;
+  return b;
 }
 
 interface UiState {
@@ -60,9 +61,6 @@ interface UiState {
   confirm: string | null;
   editing: string | null;
 }
-
-const sessionKey = (name: string) => `s:${name}`;
-const windowKey = (session: string, index: number) => `w:${session}:${index}`;
 
 export function createSidebar(
   root: HTMLElement,
@@ -76,60 +74,59 @@ export function createSidebar(
 
   const rerender = () => draw(lastSessions, lastCurrent);
 
-  function menuButton(key: string, label: string): HTMLElement {
-    const b = iconButton("menu-btn", "dots", label);
+  function menuButton(name: string): HTMLElement {
+    const b = button("row-btn menu-btn");
+    b.setAttribute("aria-label", `${name} menu`);
+    b.innerHTML = ICON.dots;
     b.title = "Rename or kill";
     b.onclick = (e) => {
       e.stopPropagation();
-      ui.menu = ui.menu === key ? null : key;
+      ui.menu = ui.menu === name ? null : name;
       ui.confirm = null;
       rerender();
     };
     return b;
   }
 
-  function menuFor(key: string, onRename: () => void, onKill: () => void): HTMLElement {
+  function menuFor(onRename: () => void, onKill: () => void): HTMLElement {
     const m = el("div", "menu");
-    const rename = el("button", "btn", "Rename");
-    rename.type = "button";
+    const rename = button("btn", "Rename");
     rename.onclick = () => { ui.menu = null; m.remove(); onRename(); };
-    const kill = el("button", "btn", "Kill");
-    kill.type = "button";
-    kill.onclick = () => { ui.menu = null; ui.confirm = key; rerender(); };
+    const kill = button("btn", "Kill");
+    kill.onclick = onKill;
     m.append(rename, kill);
     return m;
   }
 
   function confirmFor(label: string, onYes: () => void): HTMLElement {
     const c = el("div", "confirm");
-    const yes = el("button", "btn danger", "Kill");
-    yes.type = "button";
+    const yes = button("btn danger", "Kill");
     yes.onclick = () => { ui.confirm = null; onYes(); };
-    const no = el("button", "btn", "Cancel");
-    no.type = "button";
+    const no = button("btn", "Cancel");
     no.onclick = () => { ui.confirm = null; rerender(); };
     c.append(el("span", "label", label), yes, no);
     return c;
   }
 
-  /** Swap a row's name for an input; commit on Enter or blur, cancel on Escape. */
-  function inlineRename(row: HTMLElement, key: string, initial: string, commit: (name: string) => void) {
-    const nameEl = row.querySelector(".name");
-    if (!nameEl) return; // menu already gone (e.g. a second Rename click); nothing to swap
-    ui.editing = key;
+  /** Swap a row's label for an input; commit on Enter or blur, cancel on Escape. */
+  function inlineRename(row: HTMLElement, name: string, commit: (next: string) => void) {
+    const labelEl = row.querySelector(".label");
+    if (!labelEl) return;
+    ui.editing = name;
     const input = el("input", "rename") as HTMLInputElement;
     input.type = "text";
-    input.value = initial;
-    input.setAttribute("aria-label", "Name");
-    nameEl.replaceWith(input);
-    row.onclick = (e) => e.stopPropagation();
+    input.value = name;
+    input.setAttribute("aria-label", "Session name");
+    labelEl.replaceWith(input);
+    const nameBtn = row.querySelector(".name") as HTMLButtonElement | null;
+    if (nameBtn) nameBtn.onclick = (e) => e.preventDefault();
     let done = false;
     const finish = (save: boolean) => {
       if (done) return;
       done = true;
       ui.editing = null;
-      const name = input.value.trim();
-      if (save && name && name !== initial) commit(name);
+      const next = input.value.trim();
+      if (save && next && next !== name) commit(next);
       rerender();
     };
     input.onkeydown = (e) => {
@@ -142,64 +139,36 @@ export function createSidebar(
     input.select();
   }
 
-  function renderSession(row: Extract<Row, { kind: "session" }>, group: HTMLElement) {
-    const key = sessionKey(row.name);
-    const r = el("div", `row session${ui.menu === key ? " menu-open" : ""}`);
+  function renderSession(row: Extract<Row, { kind: "session" }>, windows: number) {
+    const group = el("div", `group${row.current ? " current" : ""}`);
+    const r = el("div", `row session${ui.menu === row.name ? " menu-open" : ""}${row.orphan ? " orphan" : ""}`);
+
+    const name = button("name");
     const dot = el("span", `dot${row.attached ? " on" : ""}`);
-    dot.title = row.attached ? "another client is attached" : "";
-    const name = el("button", "name", row.name);
-    name.type = "button";
+    if (row.attached) dot.title = "another client is attached";
+    const count = el("span", "count", String(windows));
+    count.title = `${windows} window${windows === 1 ? "" : "s"}`;
+    name.append(dot, el("span", "label", row.label), count);
+    if (row.orphan) name.title = `${row.name} — its cmux workspace is closed`;
     name.onclick = () => actions.attach(row.name);
-    r.append(dot, name, menuButton(key, `${row.name} menu`));
+
+    r.append(name, menuButton(row.name));
     group.append(r);
-    if (ui.menu === key) {
-      group.append(menuFor(key,
-        () => inlineRename(r, key, row.name, (name) => actions.renameSession(row.name, name)),
-        () => actions.killSession(row.name)));
+
+    if (ui.menu === row.name) {
+      group.append(menuFor(
+        () => inlineRename(r, row.name, (next) => actions.renameSession(row.name, next)),
+        () => { ui.menu = null; ui.confirm = row.name; rerender(); },
+      ));
     }
-    if (ui.confirm === key) {
-      const windows = lastSessions.find((s) => s.name === row.name)?.windows.length ?? 0;
+    if (ui.confirm === row.name) {
       group.append(confirmFor(`Kill ${windows} window${windows === 1 ? "" : "s"}?`, () => actions.killSession(row.name)));
     }
-  }
-
-  function renderWindow(row: Extract<Row, { kind: "window" }>, group: HTMLElement) {
-    const key = windowKey(row.session, row.index);
-    const r = el("button", `row window${row.active ? " active" : ""}${ui.menu === key ? " menu-open" : ""}`);
-    r.type = "button";
-    r.append(el("span", "idx", String(row.index)), el("span", "name", row.name));
-    if (row.panes > 1) {
-      const panes = el("span", "panes", String(row.panes));
-      panes.title = `${row.panes} panes`;
-      r.append(panes);
-    }
-    r.append(menuButton(key, `window ${row.index} menu`));
-    r.onclick = () => {
-      actions.attach(row.session);
-      actions.selectWindow(row.session, row.index);
-    };
-    group.append(r);
-    if (ui.menu === key) {
-      group.append(menuFor(key,
-        () => inlineRename(r, key, row.name, (name) => actions.renameWindow(row.session, row.index, name)),
-        () => actions.killWindow(row.session, row.index)));
-    }
-    if (ui.confirm === key) group.append(confirmFor(`Kill window ${row.index}?`, () => actions.killWindow(row.session, row.index)));
-  }
-
-  function addWindowRow(session: string): HTMLElement {
-    const b = el("button", "row add");
-    b.type = "button";
-    b.setAttribute("aria-label", `New window in ${session}`);
-    b.innerHTML = ICON.plus;
-    b.append(el("span", "", "window"));
-    b.onclick = () => actions.newWindow(session);
-    return b;
+    return group;
   }
 
   function newSessionButton(): HTMLElement {
-    const b = el("button", "btn block");
-    b.type = "button";
+    const b = button("btn block");
     b.innerHTML = ICON.plus;
     b.append(el("span", "", "New session"));
     b.onclick = () => startNewSession();
@@ -238,27 +207,16 @@ export function createSidebar(
     root.replaceChildren();
     if (sessions.length === 0) {
       root.append(el("div", "row note", "No tmux server"));
-      if (ui.editing !== "new-session") drawFoot();
+      drawFoot();
       return;
     }
-
-    let group: HTMLElement | null = null;
-    let groupSession = "";
-    const closeGroup = () => { if (group) group.append(addWindowRow(groupSession)); };
-
+    // Windows live in the tab strip now; the sidebar is one row per session.
     for (const row of sidebarModel(sessions, current)) {
-      if (row.kind === "session") {
-        closeGroup();
-        group = el("div", `group${row.current ? " current" : ""}`);
-        groupSession = row.name;
-        root.append(group);
-        renderSession(row, group);
-      } else if (group) {
-        renderWindow(row, group);
-      }
+      if (row.kind !== "session") continue;
+      const windows = sessions.find((s) => s.name === row.name)?.windows.length ?? 0;
+      root.append(renderSession(row, windows));
     }
-    closeGroup();
-    if (ui.editing !== "new-session") drawFoot(); // never rebuild the footer while its prompt is open
+    drawFoot();
   }
 
   drawFoot();

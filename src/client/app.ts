@@ -1,4 +1,5 @@
 import { createSidebar } from "./sidebar";
+import { createTabs } from "./tabs";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import type { SessionInfo } from "../shared/protocol";
@@ -11,8 +12,8 @@ const overlay = document.getElementById("overlay")!;
 const sessionsEl = document.getElementById("sessions")!;
 const footEl = document.getElementById("side-foot")!;
 const topbar = document.getElementById("topbar")!;
-const crumbSession = document.getElementById("crumb-session")!;
-const crumbWindow = document.getElementById("crumb-window")!;
+const chipDot = document.getElementById("chip-dot")!;
+const chipName = document.getElementById("chip-name")!;
 const connDot = document.getElementById("conn")!;
 const statusEl = document.getElementById("status")!;
 const statusText = document.getElementById("status-text")!;
@@ -20,10 +21,17 @@ const retryBtn = document.getElementById("retry")!;
 const emptyEl = document.getElementById("empty")!;
 const emptyNew = document.getElementById("empty-new")!;
 const wrapEl = document.getElementById("wrap")!;
+const tabsEl = document.getElementById("tabs")!;
 const termEl = document.getElementById("terminal")!;
 const collapseBtn = document.getElementById("collapse")!;
 const hamburger = document.getElementById("hamburger")!;
 const drawerClose = document.getElementById("drawer-close")!;
+const findEl = document.getElementById("find")!;
+const findInput = document.getElementById("find-input") as HTMLInputElement;
+const findCount = document.getElementById("find-count")!;
+const findPrevBtn = document.getElementById("find-prev")!;
+const findNextBtn = document.getElementById("find-next")!;
+const findCloseBtn = document.getElementById("find-close")!;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
@@ -48,18 +56,50 @@ function showTerminal(on: boolean) {
   wrapEl.hidden = !on;
   topbar.hidden = !on;
   emptyEl.hidden = on;
+  if (!on) closeFind();
   if (on) {
     term.fit();
     term.focus();
   }
 }
 
-/** Session and active window in the top bar; the sidebar shows everything else. */
-function updateCrumb() {
-  crumbSession.textContent = current ?? "";
-  const active = sessions.find((s) => s.name === current)?.windows.find((w) => w.active);
-  crumbWindow.textContent = active ? `${active.index}: ${active.name}` : "";
+/** The attached session, as one chip. Its windows are the tab strip. */
+function updateChip() {
+  chipName.textContent = current ?? "";
+  const session = sessions.find((s) => s.name === current);
+  const shared = (session?.attached ?? 0) > 1;
+  chipDot.classList.toggle("on", shared);
+  chipDot.title = shared ? "another client is attached" : "";
 }
+
+function paintAll() {
+  sidebar.render(sessions, current);
+  tabs.render(sessions, current);
+  updateChip();
+}
+
+// ---- find in scrollback ----
+
+function paintFind(s: { total: number; index: number }) {
+  findCount.textContent = findInput.value === "" ? "" : s.total === 0 ? "0" : `${s.index}/${s.total}`;
+  findCount.classList.toggle("none", findInput.value !== "" && s.total === 0);
+}
+
+function openFind() {
+  findEl.hidden = false;
+  findInput.focus();
+  findInput.select();
+  paintFind(term.search(findInput.value));
+}
+
+function closeFind() {
+  if (findEl.hidden) return;
+  findEl.hidden = true;
+  term.clearSearch();
+  term.focus();
+}
+
+// ---- connection status ----
 
 function showReconnect(nextMs: number) {
   connDot.classList.add("down");
@@ -94,14 +134,17 @@ function attach(session: string) {
 
 const sidebar = createSidebar(sessionsEl, layout, {
   attach,
-  selectWindow: (session, index) => conn.send({ t: "select-window", session, index }),
   newSession: (name) => conn.send({ t: "new-session", name }),
-  newWindow: (session) => conn.send({ t: "new-window", session }),
   killSession: (session) => conn.send({ t: "kill-session", session }),
-  killWindow: (session, index) => conn.send({ t: "kill-window", session, index }),
   renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
-  renameWindow: (session, index, name) => conn.send({ t: "rename-window", session, index, name }),
 }, footEl);
+
+const tabs = createTabs(tabsEl, {
+  selectWindow: (index) => { if (current) conn.send({ t: "select-window", session: current, index }); },
+  newWindow: () => { if (current) conn.send({ t: "new-window", session: current }); },
+  renameWindow: (index, name) => { if (current) conn.send({ t: "rename-window", session: current, index, name }); },
+  killWindow: (index) => { if (current) conn.send({ t: "kill-window", session: current, index }); },
+});
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
@@ -122,23 +165,20 @@ const conn = new Connection(wsUrl, {
     switch (m.t) {
       case "state":
         sessions = m.sessions;
-        sidebar.render(sessions, current);
-        updateCrumb();
+        paintAll();
         break;
       case "attached":
         current = m.session;
         term.reset();
         showTerminal(true);
-        sidebar.render(sessions, current);
-        updateCrumb();
+        paintAll();
         break;
       case "detached":
         current = null;
         desired = null;
         localStorage.removeItem(SESSION_KEY);
         showTerminal(false);
-        sidebar.render(sessions, current);
-        updateCrumb();
+        paintAll();
         break;
       case "error":
         sidebar.toast(m.message);
@@ -161,11 +201,25 @@ emptyNew.onclick = () => {
 };
 retryBtn.onclick = () => conn.retryNow();
 
+findInput.oninput = () => paintFind(term.search(findInput.value));
+findInput.onkeydown = (e) => {
+  e.stopPropagation();
+  if (e.key === "Enter") { e.preventDefault(); paintFind(e.shiftKey ? term.findPrev() : term.findNext()); }
+  else if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+};
+findPrevBtn.onclick = () => paintFind(term.findPrev());
+findNextBtn.onclick = () => paintFind(term.findNext());
+findCloseBtn.onclick = () => closeFind();
+
 document.addEventListener("keydown", (e) => {
-  if (e.metaKey && e.key === "b") {
+  if (!e.metaKey) return;
+  if (e.key === "b") {
     e.preventDefault();
     sidebar.toggle();
     term.fit();
+  } else if (e.key === "f" && !wrapEl.hidden) {
+    e.preventDefault();
+    openFind();
   }
 });
 

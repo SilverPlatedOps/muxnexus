@@ -50,9 +50,7 @@
               <line x1="2.5" y1="12" x2="13.5" y2="12"></line>
             </svg>
           </button>
-          <span id="crumb-session"></span>
-          <span class="sep">/</span>
-          <span id="crumb-window"></span>
+          <span class="chip"><span id="chip-dot" class="dot"></span><span id="chip-name"></span></span>
         </div>
         <span id="conn" title="Connected"></span>
       </header>
@@ -70,7 +68,28 @@
       </div>
 
       <div id="wrap" hidden>
-        <div id="terminal"></div>
+        <div id="tabs" hidden></div>
+        <div id="term-shell">
+          <div id="terminal"></div>
+          <div id="find" hidden>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#909aa7" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.6"></circle>
+              <line x1="10.4" y1="10.4" x2="13.5" y2="13.5"></line>
+            </svg>
+            <label for="find-input" class="sr-only">Find in scrollback</label>
+            <input id="find-input" type="text" autocomplete="off" spellcheck="false" />
+            <span id="find-count"></span>
+            <button id="find-prev" class="row-btn" type="button" aria-label="Previous match">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><polyline points="4,10 8,6 12,10"></polyline></svg>
+            </button>
+            <button id="find-next" class="row-btn" type="button" aria-label="Next match">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><polyline points="4,6 8,10 12,6"></polyline></svg>
+            </button>
+            <button id="find-close" class="row-btn" type="button" aria-label="Close search">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>
+            </button>
+          </div>
+        </div>
       </div>
     </main>
   </div>
