@@ -127,6 +127,26 @@ story grows into this, use theirs.
 | `Cmd+V` | Paste (bracketed paste, forwarded by tmux) |
 | everything else | Sent to tmux, including `C-b` prefix keys |
 
+## Grouping sessions
+
+Start a session's name with a tag in brackets, `[Work] Banner Migration`, and the
+sidebar groups it under a **Work** header with every other `[Work]` session.
+Headers fold, and a folded one still shows the most urgent state inside it.
+
+When the tag names one of your Claude profiles, it means something more:
+
+- A session created here as `[Work] ...` starts with `CLAUDE_CONFIG_DIR` set to
+  `~/.claude-work`, so `claude` (and `cc`) in any of its windows spends the work
+  account. The default profile is never set explicitly. Renaming a session into
+  a tag does not change its environment; only creating it does.
+- A tagged session whose agent runs on a different profile shows that profile's
+  name in yellow on its row, e.g. a `[Work]` session spending `personal`.
+
+Two agents working in the same git checkout get a yellow branch mark on their
+rows and tabs, naming each other. Separate `git worktree`s don't count: they are
+the fix. The mark needs the agent status hook, so an agent shows it only once
+it has taken a turn since the hook was installed.
+
 ## Using it with cmux
 
 cmux's local-tmux feature runs its own tmux server (`cmux local-tmux list` shows
