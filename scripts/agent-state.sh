@@ -9,7 +9,8 @@
 #
 # Writes one pane option:
 #
-#   @muxnexus_agent = "<state> <epoch> <pid>"    e.g. "running 1790242563 61936"
+#   @muxnexus_agent = "<state> <epoch> <pid> <config dir>"
+#     e.g. "running 1790242563 61936 /Users/me/.claude-work"
 #
 # `tmux` needs no socket argument: it takes one from $TMUX, which is set in the
 # pane the hook inherits. Outside tmux there is no pane and the script exits.
@@ -58,6 +59,8 @@ case "$event" in
 esac
 
 # $PPID is recorded so the server can drop a stamp whose process has gone:
-# SessionEnd covers a clean exit, but a killed agent never fires it.
-tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $(date +%s) $PPID" 2>/dev/null
+# SessionEnd covers a clean exit, but a killed agent never fires it. The config
+# dir says which account the agent spends; unset means Claude's default. It
+# goes last because a path may hold spaces, and the server reads it to the end.
+tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $(date +%s) $PPID ${CLAUDE_CONFIG_DIR:-$HOME/.claude}" 2>/dev/null
 exit 0
