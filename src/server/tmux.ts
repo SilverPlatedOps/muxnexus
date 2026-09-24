@@ -2,12 +2,6 @@ import { homedir, hostname } from "node:os";
 import type { AgentState, SessionInfo } from "../shared/protocol";
 
 /**
- * What to call a window. tmux names one after the command running in it, which
- * for an agent is its version and so identical for every tab; the title the
- * program sets is the part that differs. tmux seeds that title with the
- * hostname, which names the machine rather than the window, so it is ignored.
- */
-/**
  * The swaps that rearrange `positions` into `wanted`, as pairs of window
  * indices. tmux refuses `move-window` onto an occupied index ("index in use"),
  * so reordering is done with `swap-window`; selection sort reaches any order in
@@ -166,8 +160,23 @@ export function processAlive(pid: number): boolean {
   }
 }
 
+/**
+ * The status mark Claude Code puts before its title (`✳ Banner migration`), or
+ * a braille spinner frame. Only a mark from this set, and only as a word of
+ * its own, so a title's own punctuation, like `[WIP] x`, is never cut.
+ */
+const TITLE_MARK = /^(?:[\u2800-\u28FF]|[✳✶✻✽✢·])(?:\s+|$)/u;
+
+/**
+ * What to call a window. tmux names one after the command running in it, which
+ * for an agent is its version and so identical for every tab; the title the
+ * program sets is the part that differs. Claude's own status mark is dropped
+ * from it: the tab's glyph already says the state, and the mark said it again.
+ * tmux seeds the title with the hostname, which names the machine rather than
+ * the window, so that is ignored.
+ */
 export function windowLabel(windowName: string, paneTitle: string, host: string): string {
-  const title = paneTitle.trim();
+  const title = paneTitle.trim().replace(TITLE_MARK, "").trim();
   if (!title || title === windowName) return windowName;
   const lower = title.toLowerCase();
   if (lower === host.toLowerCase() || lower === host.split(".")[0].toLowerCase()) return windowName;

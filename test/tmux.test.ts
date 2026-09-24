@@ -268,8 +268,19 @@ describe("windowLabel", () => {
   test("prefers a title the program set over tmux's command-derived name", () => {
     // Claude Code names every window after its version, so the pane title is
     // the only thing that distinguishes one tab from another.
-    expect(windowLabel("2.1.278", "✳ Sonar issues review", HOST)).toBe("✳ Sonar issues review");
-    expect(windowLabel("2.1.278", "✳ Image analysis", HOST)).toBe("✳ Image analysis");
+    expect(windowLabel("2.1.278", "Sonar issues review", HOST)).toBe("Sonar issues review");
+  });
+
+  test("drops Claude's status mark, which the tab's glyph already shows", () => {
+    expect(windowLabel("2.1.278", "✳ Sonar issues review", HOST)).toBe("Sonar issues review");
+    expect(windowLabel("2.1.278", "⠐ Image analysis", HOST)).toBe("Image analysis");
+    // A mark alone is no title at all.
+    expect(windowLabel("2.1.278", "✳", HOST)).toBe("2.1.278");
+  });
+
+  test("keeps a title's own leading punctuation", () => {
+    expect(windowLabel("zsh", "[WIP] migration", HOST)).toBe("[WIP] migration");
+    expect(windowLabel("zsh", "✳Banner", HOST)).toBe("✳Banner");
   });
 
   test("ignores the hostname tmux seeds pane_title with", () => {
