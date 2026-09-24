@@ -23,10 +23,22 @@ const BARS = 8;
 /** The label every provider's short rolling window shares. */
 const SHORT_WINDOW = "5h";
 
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** Whole calendar days from `a` to `b`, on the viewer's clock. */
+function calendarDays(a: Date, b: Date): number {
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((midnight(b) - midnight(a)) / 86_400_000);
+}
+
 /**
- * Time until a reset, at a glance: "3h44", "2d22", "12m". Coarse on purpose --
- * the exact second a limit lifts has never mattered, and a ticking clock in the
- * corner of the eye is a distraction.
+ * When a limit lifts, worded the way you would plan around it: "12m" or
+ * "4h 1m" while it is today's problem, then the day and hour it resets --
+ * "Fri 8pm" -- since nobody counts "3d09" down in their head. Once the weekday
+ * would come round to today's again it is the date instead ("Oct 2").
+ *
+ * Coarse on purpose: the exact minute a weekly limit lifts has never mattered,
+ * so past a day the time is rounded to the hour.
  */
 export function formatReset(resetsAt: string | undefined, now: number): string {
   if (!resetsAt) return "";
@@ -36,10 +48,16 @@ export function formatReset(resetsAt: string | undefined, now: number): string {
   if (ms <= 0) return "now";
   const mins = Math.floor(ms / 60_000);
   if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h${String(mins % 60).padStart(2, "0")}`;
-  const days = Math.floor(hours / 24);
-  return `${days}d${hours % 24 === 0 ? "" : String(hours % 24).padStart(2, "0")}`;
+  if (mins < 24 * 60) {
+    const rest = mins % 60;
+    return `${Math.floor(mins / 60)}h${rest === 0 ? "" : ` ${rest}m`}`;
+  }
+  // Rounded on the local clock: zones half an hour off UTC would get "8:30".
+  const when = new Date(at + 30 * 60_000);
+  when.setMinutes(0, 0, 0);
+  if (calendarDays(new Date(now), when) >= 7) return `${MONTHS[when.getMonth()]} ${when.getDate()}`;
+  const h = when.getHours();
+  return `${DAYS[when.getDay()]} ${h % 12 === 0 ? 12 : h % 12}${h < 12 ? "am" : "pm"}`;
 }
 
 /**

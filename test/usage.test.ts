@@ -312,31 +312,44 @@ describe("backoff", () => {
 });
 
 describe("formatReset", () => {
-  const now = Date.parse("2026-09-24T09:00:00Z");
-  const at = (iso: string) => formatReset(iso, now);
-
-  test("hours and minutes", () => {
-    expect(at("2026-09-24T12:44:00Z")).toBe("3h44");
-    expect(at("2026-09-24T10:05:00Z")).toBe("1h05");
-  });
+  // Built in local time: past a day the answer is a weekday and an hour on the
+  // viewer's clock, so the test must not depend on the machine's timezone.
+  const local = (d: number, h: number, m = 0) => new Date(2026, 8, d, h, m).getTime(); // Sep 2026; the 24th is a Thursday
+  const now = local(24, 9);
+  const at = (ms: number) => formatReset(new Date(ms).toISOString(), now);
 
   test("under an hour is minutes", () => {
-    expect(at("2026-09-24T09:12:00Z")).toBe("12m");
+    expect(at(local(24, 9, 12))).toBe("12m");
   });
 
-  test("days, with the hours only when there are some", () => {
-    expect(at("2026-09-26T07:00:00Z")).toBe("1d22"); // 46h, not 2 days
-    expect(at("2026-09-27T07:00:00Z")).toBe("2d22");
-    expect(at("2026-09-28T09:00:00Z")).toBe("4d");
+  test("under a day is hours and minutes, each with its unit", () => {
+    expect(at(local(24, 13, 1))).toBe("4h 1m");
+    expect(at(local(24, 11, 51))).toBe("2h 51m");
+    expect(at(local(24, 13))).toBe("4h"); // no "0m"
+    expect(at(local(25, 8))).toBe("23h"); // tomorrow, but still a countdown
+  });
+
+  test("further out is the weekday and hour it resets, to the nearest hour", () => {
+    expect(at(local(26, 20))).toBe("Sat 8pm");
+    expect(at(local(25, 19, 59))).toBe("Fri 8pm");
+    expect(at(local(27, 5, 10))).toBe("Sun 5am");
+    expect(at(local(28, 12))).toBe("Mon 12pm");
+    expect(at(local(28, 23, 45))).toBe("Tue 12am"); // rounding can cross midnight
+  });
+
+  test("once the weekday would come round to today's again, it is the date", () => {
+    expect(at(local(30, 21))).toBe("Wed 9pm"); // six days on: still a unique weekday
+    expect(at(new Date(2026, 9, 1, 8).getTime())).toBe("Oct 1"); // Thursday again
+    expect(at(new Date(2026, 9, 2, 8).getTime())).toBe("Oct 2");
   });
 
   test("a reset in the past reads now, never a negative", () => {
-    expect(at("2026-09-24T08:00:00Z")).toBe("now");
+    expect(at(local(24, 8))).toBe("now");
   });
 
   test("a missing or unparseable time is simply blank", () => {
     expect(formatReset(undefined, now)).toBe("");
-    expect(at("whenever")).toBe("");
+    expect(formatReset("whenever", now)).toBe("");
   });
 });
 
