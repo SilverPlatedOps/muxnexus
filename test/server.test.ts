@@ -334,7 +334,8 @@ test("attaching to a group targets the base and does not move a tab session's wi
   c.send({ t: "attach", session: "ws" });
   await waitFor(() => (c.last("attached") as any)?.session === "ws", 2000, "attached to group");
   await waitFor(() => c.output().length > 0, 3000, "redraw");
-  c.send({ t: "select-window", session: "ws", index: 0 });
+  const first = (await tmux.run(["display-message", "-p", "-t", "=ws:0", "#{window_id}"])).trim();
+  c.send({ t: "select-window", session: "ws", id: first });
   await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", "=ws:0", "#{window_active}"])).trim() === "1", 2000, "browser on window 0");
   // the tab session keeps its own current window
   expect((await tmux.run(["list-sessions", "-F", "#{session_name}\t#{window_index}"])).trim().split("\n"))
@@ -586,20 +587,36 @@ test("reorder-windows rearranges tabs and keeps each window's stamped surface", 
   await tmux.run(["rename-window", "-t", "=wins:0", "one"]);
   await tmux.newWindow("wins");
   await tmux.newWindow("wins");
-  const live = (await tmux.run(["list-windows", "-t", "=wins", "-F", "#{window_index}"])).trim().split("\n").map(Number);
-  for (const i of live) await tmux.run(["set-option", "-w", "-t", `wins:${i}`, "@muxnexus_surface", `SURF-${i}`]);
+  const live = (await tmux.run(["list-windows", "-t", "=wins:", "-F", "#{window_id}"])).trim().split("\n");
+  for (const id of live) await tmux.run(["set-option", "-w", "-t", `=wins:${id}`, "@muxnexus_surface", `SURF-${id}`]);
 
   const c = await connect();
   await waitFor(() => c.last("state"), 2000, "state");
   const wanted = [live[2], live[0], live[1]];
-  c.send({ t: "reorder-windows", session: "wins", indices: wanted });
+  c.send({ t: "reorder-windows", session: "wins", ids: wanted });
 
   await waitFor(async () => {
-    const out = await tmux.run(["list-windows", "-t", "=wins", "-F", "#{window_index} #{@muxnexus_surface}"]);
-    return out.includes(`${live[0]} SURF-${live[2]}`);
+    const out = await tmux.run(["list-windows", "-t", "=wins:", "-F", "#{window_id}"]);
+    return out.trim().split("\n")[0] === live[2];
   }, 3000, "windows swapped");
 
-  const out = await tmux.run(["list-windows", "-t", "=wins", "-F", "#{@muxnexus_surface}"]);
-  expect(out.trim().split("\n")).toEqual([`SURF-${live[2]}`, `SURF-${live[0]}`, `SURF-${live[1]}`]);
+  const out = await tmux.run(["list-windows", "-t", "=wins:", "-F", "#{@muxnexus_surface}"]);
+  expect(out.trim().split("\n")).toEqual(wanted.map((id) => `SURF-${id}`));
+  c.ws.close();
+});
+
+test("window messages reject anything but window ids", async () => {
+  await tmux.newSession("w");
+  const c = await connect();
+  await waitFor(() => c.last("state"), 2000, "state");
+  c.send({ t: "kill-window", session: "w", id: 0 });
+  await waitFor(() => c.last("error"), 2000, "error");
+  c.send({ t: "reorder-windows", session: "w", ids: [0] });
+  await waitFor(() => c.messages.filter((m) => m.t === "error").length === 2, 2000, "second error");
+  expect(c.messages.filter((m) => m.t === "error").map((m: any) => m.message)).toEqual([
+    "invalid kill-window",
+    "invalid reorder-windows",
+  ]);
+  expect((c.last("state") as any).sessions[0].windows).toHaveLength(1);
   c.ws.close();
 });

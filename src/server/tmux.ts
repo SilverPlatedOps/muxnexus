@@ -183,6 +183,7 @@ export class TmuxError extends Error {
 
 const NO_SERVER = /no server running|no sessions|error connecting to/;
 const NOT_FOUND = /can't find session/;
+const WINDOW_ID = /^@\d+$/;
 
 /** One `list-sessions` row. `id` is `#{session_id}` without its `$`. */
 interface SessionRow {
@@ -421,12 +422,24 @@ export class Tmux {
     }
   }
 
-  async killWindow(session: string, index: number): Promise<void> {
-    await this.run(["kill-window", "-t", `${await this.target(session)}:${index}`]);
+  /**
+   * A window of a session, by tmux's window id (`@3`). Never by index: an index
+   * is a slot that swap-window moves windows through, so a kill confirmed
+   * against one tab could land on whatever another device reordered into it.
+   * The session part keeps select-window acting on this session alone, not on
+   * a grouped cmux tab session that shares the window.
+   */
+  private async windowTarget(session: string, id: string): Promise<string> {
+    if (!WINDOW_ID.test(id)) throw new TmuxError(`invalid window id: ${id}`);
+    return `${await this.target(session)}:${id}`;
   }
 
-  async selectWindow(session: string, index: number): Promise<void> {
-    await this.run(["select-window", "-t", `${await this.target(session)}:${index}`]);
+  async killWindow(session: string, id: string): Promise<void> {
+    await this.run(["kill-window", "-t", await this.windowTarget(session, id)]);
+  }
+
+  async selectWindow(session: string, id: string): Promise<void> {
+    await this.run(["select-window", "-t", await this.windowTarget(session, id)]);
   }
 
   async renameSession(session: string, name: string): Promise<void> {
@@ -438,8 +451,8 @@ export class Tmux {
     await this.run(["set-option", "-t", target, "@muxnexus_name", name]);
   }
 
-  async renameWindow(session: string, index: number, name: string): Promise<void> {
-    const target = `${await this.target(session)}:${index}`;
+  async renameWindow(session: string, id: string, name: string): Promise<void> {
+    const target = await this.windowTarget(session, id);
     await this.run(["rename-window", "-t", target, "--", name]);
     await this.run(["set-option", "-w", "-t", target, "@muxnexus_window_name", name]);
   }
@@ -457,14 +470,21 @@ export class Tmux {
   }
 
   /**
-   * Rearrange a session's windows into `wanted` (window indices, in order).
+   * Rearrange a session's windows into `wanted` (window ids, in order). The ids
+   * are turned into the indices they sit at right now, so an order made before
+   * another device moved things still means the windows the user dragged.
    * `move-window` cannot be used: tmux refuses an occupied target index.
    */
-  async reorderWindows(session: string, wanted: readonly number[]): Promise<void> {
+  async reorderWindows(session: string, wanted: readonly string[]): Promise<void> {
     const target = await this.target(session);
-    const out = await this.run(["list-windows", "-t", target, "-F", "#{window_index}"]);
-    const positions = lines(out).map(Number).sort((a, b) => a - b);
-    for (const [a, b] of swapPlan(positions, wanted)) {
+    const out = await this.run(["list-windows", "-t", target, "-F", "#{window_index}\t#{window_id}"]);
+    const at = new Map(lines(out).map((l) => {
+      const [index, id] = l.split("\t");
+      return [id, Number(index)] as const;
+    }));
+    const positions = [...at.values()].sort((a, b) => a - b);
+    const indices = wanted.map((id) => at.get(id)).filter((i): i is number => i !== undefined);
+    for (const [a, b] of swapPlan(positions, indices)) {
       await this.run(["swap-window", "-s", `${target}:${b}`, "-t", `${target}:${a}`]);
     }
   }

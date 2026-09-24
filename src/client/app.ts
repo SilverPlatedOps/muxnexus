@@ -121,15 +121,13 @@ function reorderSessions(names: string[]) {
   conn.send({ t: "reorder-sessions", names });
 }
 
-function reorderWindows(indices: number[]) {
+function reorderWindows(ids: string[]) {
   if (!current) return;
-  const live = sessions.find((s) => s.name === current)?.windows ?? [];
-  const ids = indices.map((i) => live.find((w) => w.index === i)?.id).filter((id): id is string => id !== undefined);
   pendingTabs = { session: current, ids };
   pendingTabsUntil = Date.now() + PENDING_MS;
   sessions = withTabOrder(sessions);
   paintAll();
-  conn.send({ t: "reorder-windows", session: current, indices });
+  conn.send({ t: "reorder-windows", session: current, ids });
 }
 
 /** The pending tab order applied to whichever session it was made for. */
@@ -209,10 +207,10 @@ const sidebar = createSidebar(sessionsEl, layout, {
 }, footEl);
 
 const tabs = createTabs(tabsEl, {
-  selectWindow: (index) => { if (current) conn.send({ t: "select-window", session: current, index }); },
+  selectWindow: (id) => { if (current) conn.send({ t: "select-window", session: current, id }); },
   newWindow: () => { if (current) conn.send({ t: "new-window", session: current }); },
-  renameWindow: (index, name) => { if (current) conn.send({ t: "rename-window", session: current, index, name }); },
-  killWindow: (index) => { if (current) conn.send({ t: "kill-window", session: current, index }); },
+  renameWindow: (id, name) => { if (current) conn.send({ t: "rename-window", session: current, id, name }); },
+  killWindow: (id) => { if (current) conn.send({ t: "kill-window", session: current, id }); },
   reorderWindows,
 });
 

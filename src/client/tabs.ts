@@ -13,13 +13,14 @@ export function tabLabel(w: WindowInfo): string {
   return w.customName ?? w.label ?? w.name;
 }
 
+/** Every window is addressed by tmux's id (`@3`): an index is a slot windows move through. */
 export interface TabActions {
-  selectWindow(index: number): void;
+  selectWindow(id: string): void;
   newWindow(): void;
-  renameWindow(index: number, name: string): void;
-  killWindow(index: number): void;
-  /** The whole wanted tab order, as window indices. */
-  reorderWindows(indices: number[]): void;
+  renameWindow(id: string, name: string): void;
+  killWindow(id: string): void;
+  /** The whole wanted tab order, as window ids. */
+  reorderWindows(ids: string[]): void;
 }
 
 export interface Tabs {
@@ -45,17 +46,19 @@ function button(cls: string, text?: string): HTMLButtonElement {
 }
 
 export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
-  const ui = { menu: -1, confirm: -1, editing: -1 };
+  // Keyed by window id, so an open menu or kill confirm stays on its own tab
+  // when a poll arrives with the windows in new slots.
+  const ui: { menu: string | null; confirm: string | null; editing: string | null } = { menu: null, confirm: null, editing: null };
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
 
   const rerender = () => draw(lastSessions, lastCurrent);
 
   /** Rename in place: the tab's label becomes an input. */
-  function inlineRename(tab: HTMLElement, index: number, initial: string) {
+  function inlineRename(tab: HTMLElement, id: string, initial: string) {
     const labelEl = tab.querySelector(".label");
     if (!labelEl) return;
-    ui.editing = index;
+    ui.editing = id;
     const input = el("input", "tab-rename") as HTMLInputElement;
     input.type = "text";
     input.value = initial;
@@ -65,9 +68,9 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const finish = (save: boolean) => {
       if (done) return;
       done = true;
-      ui.editing = -1;
+      ui.editing = null;
       const name = input.value.trim();
-      if (save && name && name !== initial) actions.renameWindow(index, name);
+      if (save && name && name !== initial) actions.renameWindow(id, name);
       rerender();
     };
     input.onkeydown = (e) => {
@@ -85,17 +88,17 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const rename = button("btn", "Rename");
     rename.onclick = (e) => {
       e.stopPropagation();
-      ui.menu = -1;
+      ui.menu = null;
       m.remove();
-      inlineRename(tab, w.index, tabLabel(w));
+      inlineRename(tab, w.id, tabLabel(w));
     };
     m.append(rename);
     // Dragging is the other half of this; on a phone the menu is the only half.
-    const order = tabsModel(lastSessions, lastCurrent).map((x) => x.index);
-    const at = order.indexOf(w.index);
+    const order = tabsModel(lastSessions, lastCurrent).map((x) => x.id);
+    const at = order.indexOf(w.id);
     const move = (delta: number) => {
       const to = at + delta + (delta > 0 ? 1 : 0); // insertion point, not position
-      ui.menu = -1;
+      ui.menu = null;
       actions.reorderWindows(moveItem(order, at, to));
     };
     if (at > 0) {
@@ -111,8 +114,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const kill = button("btn", "Kill");
     kill.onclick = (e) => {
       e.stopPropagation();
-      ui.menu = -1;
-      ui.confirm = w.index;
+      ui.menu = null;
+      ui.confirm = w.id;
       rerender();
     };
     m.append(kill);
@@ -125,13 +128,13 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const yes = button("btn danger", "Kill");
     yes.onclick = (e) => {
       e.stopPropagation();
-      ui.confirm = -1;
-      actions.killWindow(w.index);
+      ui.confirm = null;
+      actions.killWindow(w.id);
     };
     const no = button("btn", "Cancel");
     no.onclick = (e) => {
       e.stopPropagation();
-      ui.confirm = -1;
+      ui.confirm = null;
       rerender();
     };
     c.append(yes, no);
@@ -139,7 +142,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   }
 
   function renderTab(w: WindowInfo): HTMLElement {
-    const tab = el("div", `tab${w.active ? " active" : ""}${ui.menu === w.index || ui.confirm === w.index ? " menu-open" : ""}`);
+    const tab = el("div", `tab${w.active ? " active" : ""}${ui.menu === w.id || ui.confirm === w.id ? " menu-open" : ""}`);
 
     const name = button("name");
     // The same glyph as the sidebar row, so the eye that found the session in
@@ -153,11 +156,11 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       panes.title = `${w.panes} panes`;
       name.append(panes);
     }
-    name.onclick = () => actions.selectWindow(w.index);
+    name.onclick = () => actions.selectWindow(w.id);
     // Rename edits the label shown; the commit targets the window's tmux name.
     name.ondblclick = (e) => {
       e.preventDefault();
-      inlineRename(tab, w.index, tabLabel(w));
+      inlineRename(tab, w.id, tabLabel(w));
     };
 
     const menuBtn = button("row-btn tab-dots");
@@ -165,8 +168,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     menuBtn.innerHTML = ICON.dots;
     menuBtn.onclick = (e) => {
       e.stopPropagation();
-      ui.menu = ui.menu === w.index ? -1 : w.index;
-      ui.confirm = -1;
+      ui.menu = ui.menu === w.id ? null : w.id;
+      ui.confirm = null;
       rerender();
     };
 
@@ -174,15 +177,15 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     handle.title = "Drag to reorder";
     handle.setAttribute("aria-hidden", "true");
     tab.append(handle, name, menuBtn);
-    if (ui.menu === w.index) tab.append(menuFor(tab, w));
-    if (ui.confirm === w.index) tab.append(confirmFor(w));
+    if (ui.menu === w.id) tab.append(menuFor(tab, w));
+    if (ui.confirm === w.id) tab.append(confirmFor(w));
     return tab;
   }
 
   function draw(sessions: SessionInfo[], current: string | null) {
     lastSessions = sessions;
     lastCurrent = current;
-    if (ui.editing !== -1) return; // keep an open rename input alive
+    if (ui.editing !== null) return; // keep an open rename input alive
     const windows = tabsModel(sessions, current);
     root.replaceChildren();
     root.hidden = windows.length === 0;
@@ -202,8 +205,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     axis: "x",
     rows: () => [...root.querySelectorAll<HTMLElement>(":scope > .tab")],
     commit: (order) => {
-      const indices = tabsModel(lastSessions, lastCurrent).map((w) => w.index);
-      actions.reorderWindows(order.map((i) => indices[i]).filter((i) => i !== undefined));
+      const ids = tabsModel(lastSessions, lastCurrent).map((w) => w.id);
+      actions.reorderWindows(order.map((i) => ids[i]).filter((id) => id !== undefined));
     },
   });
 

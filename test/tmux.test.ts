@@ -48,18 +48,48 @@ describe("Tmux mutators", () => {
     await expect(tmux.newSession("dup")).rejects.toThrow(/duplicate session/);
   });
 
-  test("renameWindow, selectWindow, killWindow target by exact index", async () => {
+  /** Window ids of a session, in tab order. */
+  const windowIds = async (name: string) =>
+    (await tmux.listSessions()).find((s) => s.name === name)!.windows.map((w) => w.id);
+
+  test("renameWindow, selectWindow, killWindow target the window by id", async () => {
     await tmux.newSession("s");
     await tmux.newWindow("s");
     await tmux.newWindow("s");
-    await tmux.renameWindow("s", 1, "renamed one");
-    await tmux.selectWindow("s", 1);
-    await tmux.killWindow("s", 2);
+    const [, one, two] = await windowIds("s");
+    await tmux.renameWindow("s", one, "renamed one");
+    await tmux.selectWindow("s", one);
+    await tmux.killWindow("s", two);
     const [s] = await tmux.listSessions();
-    expect(s.windows.map((w) => [w.index, w.name, w.active])).toEqual([
-      [0, expect.any(String), false],
-      [1, "renamed one", true],
+    expect(s.windows.map((w) => [w.id, w.name, w.active])).toEqual([
+      [expect.any(String), expect.any(String), false],
+      [one, "renamed one", true],
     ]);
+  });
+
+  // An index is a slot: swap-window moves windows between them. A kill confirmed
+  // against the tab you saw must not land on whatever another device moved there.
+  test("killWindow follows the window after a reorder moved it to another index", async () => {
+    await tmux.newSession("s");
+    await tmux.newWindow("s");
+    const [first, second] = await windowIds("s");
+    await tmux.reorderWindows("s", [second, first]);
+    expect(await windowIds("s")).toEqual([second, first]);
+    await tmux.killWindow("s", first);
+    expect(await windowIds("s")).toEqual([second]);
+  });
+
+  test("reorderWindows ignores a window id that is gone", async () => {
+    await tmux.newSession("s");
+    await tmux.newWindow("s");
+    const [first, second] = await windowIds("s");
+    await tmux.reorderWindows("s", ["@9999", second, first]);
+    expect(await windowIds("s")).toEqual([second, first]);
+  });
+
+  test("a window action rejects anything that is not a window id", async () => {
+    await tmux.newSession("s");
+    await expect(tmux.killWindow("s", "0")).rejects.toThrow(/invalid window id/);
   });
 
   test("rename to a name starting with a dash", async () => {
@@ -67,9 +97,10 @@ describe("Tmux mutators", () => {
     await tmux.renameSession("s", "-dash");
     expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["-dash"]);
     await tmux.newWindow("-dash");
-    await tmux.renameWindow("-dash", 1, "-w");
+    const [, second] = await windowIds("-dash");
+    await tmux.renameWindow("-dash", second, "-w");
     const [session] = await tmux.listSessions();
-    expect(session.windows.find((w) => w.index === 1)?.name).toBe("-w");
+    expect(session.windows.find((w) => w.id === second)?.name).toBe("-w");
   });
 
   test("renameSession and killSession", async () => {
@@ -82,7 +113,7 @@ describe("Tmux mutators", () => {
 
   test("rename stamps the custom name, which is reported ahead of any title", async () => {
     await tmux.newSession("s");
-    await tmux.renameWindow("s", 0, "user name");
+    await tmux.renameWindow("s", (await windowIds("s"))[0], "user name");
     expect((await tmux.listSessions())[0].windows[0].customName).toBe("user name");
     await tmux.renameSession("s", "proj");
     const [renamed] = await tmux.listSessions();

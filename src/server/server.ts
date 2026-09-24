@@ -257,10 +257,12 @@ export function createServer(opts: ServerOptions): RunningServer {
           await tmux.newWindow(m.session);
           break;
         case "kill-window":
-          await tmux.killWindow(m.session, m.index);
+          if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid kill-window" });
+          await tmux.killWindow(m.session, m.id);
           break;
         case "select-window":
-          await tmux.selectWindow(m.session, m.index);
+          if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid select-window" });
+          await tmux.selectWindow(m.session, m.id);
           break;
         case "rename-session": {
           // Grab the stamped workspace id before the rename: cmux's own lookup
@@ -274,7 +276,8 @@ export function createServer(opts: ServerOptions): RunningServer {
           break;
         }
         case "rename-window":
-          await tmux.renameWindow(m.session, m.index, m.name);
+          if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid rename-window" });
+          await tmux.renameWindow(m.session, m.id, m.name);
           break;
         case "reorder-sessions": {
           if (!Array.isArray(m.names) || m.names.some((n) => typeof n !== "string")) {
@@ -284,10 +287,10 @@ export function createServer(opts: ServerOptions): RunningServer {
           break;
         }
         case "reorder-windows": {
-          if (!Array.isArray(m.indices) || m.indices.some((i) => !Number.isInteger(i))) {
+          if (!Array.isArray(m.ids) || m.ids.some((i) => typeof i !== "string")) {
             return send(ws, { t: "error", message: "invalid reorder-windows" });
           }
-          await tmux.reorderWindows(m.session, m.indices);
+          await tmux.reorderWindows(m.session, m.ids);
           break;
         }
         default:

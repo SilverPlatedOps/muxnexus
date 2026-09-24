@@ -92,14 +92,15 @@ export type ClientMessage =
   | { t: "new-session"; name: string }
   | { t: "kill-session"; session: string }
   | { t: "new-window"; session: string }
-  | { t: "kill-window"; session: string; index: number }
-  | { t: "select-window"; session: string; index: number }
+  /** Windows by tmux id (`@3`), never index: an index is a slot windows move through. */
+  | { t: "kill-window"; session: string; id: string }
+  | { t: "select-window"; session: string; id: string }
   | { t: "rename-session"; session: string; name: string }
-  | { t: "rename-window"; session: string; index: number; name: string }
+  | { t: "rename-window"; session: string; id: string; name: string }
   /** The whole wanted sidebar order, not one move: concurrent clients then settle on last-write-wins. */
   | { t: "reorder-sessions"; names: string[] }
-  /** The whole wanted tab order, as window indices. */
-  | { t: "reorder-windows"; session: string; indices: number[] }
+  /** The whole wanted tab order, as window ids. */
+  | { t: "reorder-windows"; session: string; ids: string[] }
   | { t: "ping" };
 
 export type DetachReason = "session-killed" | "exited";
