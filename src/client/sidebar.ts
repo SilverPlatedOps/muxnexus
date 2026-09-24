@@ -105,6 +105,8 @@ export function createSidebar(
   let sharing = new Map<string, Sharing>();
   /** The Claude profiles the quota panel knows, which is what a tag can name. */
   let profiles: string[] = [];
+  /** Whether any state has been drawn yet: until then there is nothing to redraw. */
+  let rendered = false;
 
   const rerender = () => draw(lastSessions, lastCurrent);
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -411,11 +413,16 @@ export function createSidebar(
   });
 
   return {
-    render: draw,
+    render(sessions, current) {
+      rendered = true;
+      draw(sessions, current);
+    },
     setProfiles(labels) {
       if (labels.join("\n") === profiles.join("\n")) return;
       profiles = labels;
-      rerender();
+      // Quota can land before the first state; drawing then would flash "No
+      // tmux server" for the sessions that simply have not arrived yet.
+      if (rendered) rerender();
     },
     toast(message) {
       const t = el("div", "toast");

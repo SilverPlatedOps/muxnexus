@@ -14,8 +14,9 @@ export interface Block<S> {
  * The sidebar's sessions gathered by category. A category sits where its first
  * session does in the stored order, and holds its sessions in that order; an
  * untagged session keeps its own place. So the order the user drags into is
- * still the order within a group, and dragging a group's first session moves
- * the group.
+ * still the order within a group. To put one group above another, drag the
+ * lower group's first session above the other group; dragging a group's first
+ * session down only hands "first" to the next one, and the group stays put.
  */
 export function groupSessions<S>(sessions: readonly S[], label: (s: S) => string): Block<S>[] {
   const blocks: Block<S>[] = [];
