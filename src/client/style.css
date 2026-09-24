@@ -111,6 +111,82 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   gap: 8px;
 }
 
+/* ---------- agent state ---------- */
+
+/* One column wide at the left edge of every row, so a thumb-scroll reads down
+   a single line of glyphs rather than hunting across each row. */
+.glyph {
+  flex: none;
+  width: 11px;
+  text-align: center;
+  color: var(--dim);
+}
+
+/* The one red in the sidebar. Everything else earns attention by weight, which
+   is the choice already made in cmux's attention-color.py: two more colours
+   made the one that matters harder to find. */
+.glyph.input { color: var(--red); }
+.glyph.unread { color: var(--fg-strong); }
+.glyph.seen { color: var(--faint); }
+.glyph.none { color: transparent; }
+
+.glyph.running {
+  color: var(--muted);
+  display: inline-block;
+  animation: spin 2.4s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Motion is an accent, not information: the glyph still differs without it. */
+@media (prefers-reduced-motion: reduce) {
+  .glyph.running { animation: none; }
+}
+
+/* How long a blocked agent has been waiting. Pushed to the right so the names
+   stay flush and the column of times is scannable on its own. */
+.elapsed {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--red);
+  font-size: 11px;
+}
+
+/* One dot per window, only when a session has more than one. */
+.wdots { display: flex; gap: 1px; padding-left: 6px; }
+.wdots .glyph { width: 9px; font-size: 10px; }
+
+#tabs .glyph { width: 10px; margin-right: 1px; }
+
+/* The count of sessions waiting, on the hamburger, so a closed drawer can
+   still say that something elsewhere needs you. */
+#hamburger { position: relative; }
+
+#hamburger[data-count=""]::after { display: none; }
+
+#hamburger::after {
+  content: attr(data-count);
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--red);
+  color: #fff;
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+  font-weight: 700;
+}
+
+#chip-dot.glyph {
+  width: auto;
+  border: 0;
+  background: none;
+  border-radius: 0;
+}
+
 /* ---------- quota ---------- */
 
 /* Above "New session" and below the sessions, in the space the sidebar has
@@ -149,6 +225,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .usage-pct { width: 32px; text-align: right; color: var(--fg); }
 .usage-reset { color: var(--faint); }
 .usage-note { color: var(--faint); font-style: italic; }
+
+.usage-toggle {
+  margin-left: auto;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.usage-toggle:hover { color: var(--fg); }
 
 /* A stale row still shows its last good numbers -- dimmed, not blanked. */
 .usage-row.stale { opacity: 0.5; }

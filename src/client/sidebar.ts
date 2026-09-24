@@ -1,8 +1,9 @@
-import type { SessionInfo } from "../shared/protocol";
+import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
+import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, windowGlyph } from "./agent";
 
 export type Row =
-  | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean }
+  | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
   | { kind: "window"; session: string; index: number; name: string; active: boolean; panes: number };
 
 export function sidebarModel(sessions: SessionInfo[], current: string | null): Row[] {
@@ -16,6 +17,7 @@ export function sidebarModel(sessions: SessionInfo[], current: string | null): R
       orphan: s.orphan === true,
       attached: s.attached > (s.name === current ? 1 : 0),
       current: s.name === current,
+      windows: s.windows,
     });
     for (const w of s.windows) {
       rows.push({ kind: "window", session: s.name, index: w.index, name: w.name, active: w.active, panes: w.panes });
@@ -174,11 +176,29 @@ export function createSidebar(
     const r = el("div", `row session${ui.menu === row.name ? " menu-open" : ""}${row.orphan ? " orphan" : ""}`);
 
     const name = button("name");
-    const dot = el("span", `dot${row.attached ? " on" : ""}`);
-    if (row.attached) dot.title = "another client is attached";
-    const count = el("span", "count", String(windows));
-    count.title = `${windows} window${windows === 1 ? "" : "s"}`;
-    name.append(dot, el("span", "label", row.label), count);
+    // The glyph replaces the old attached dot and window count: from a phone
+    // with cmux closed the dot was always off, and the count was never
+    // something you could act on. What an agent wants is.
+    const glyph = sessionGlyph(row.windows);
+    const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
+    mark.title = GLYPH_TITLE[glyph];
+    name.append(mark, el("span", "label", row.label));
+    // Only for a session that is blocked: how long it has been waiting changes
+    // what you do about it, where how long a turn has run does not.
+    const elapsed = glyph === "input" ? formatElapsed(sessionAgent(row.windows)?.since, Date.now()) : "";
+    if (elapsed) name.append(el("span", "elapsed", elapsed));
+    // One dot per window, in tab order, so a multi-window session says which
+    // of its tabs is the one shouting.
+    if (row.windows.length > 1) {
+      const dots = el("span", "wdots");
+      for (const w of row.windows) {
+        const g = windowGlyph(w);
+        const d = el("span", `glyph ${g}`, GLYPH[g]);
+        d.title = `${w.label ?? w.name}: ${GLYPH_TITLE[g]}`;
+        dots.append(d);
+      }
+      name.append(dots);
+    }
     if (row.orphan) name.title = `${row.name} — its cmux workspace is closed`;
     name.onclick = () => actions.attach(row.name);
     // Double-click renames in place. renameSession reaches cmux too, resolved by

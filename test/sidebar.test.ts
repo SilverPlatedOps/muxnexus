@@ -13,22 +13,27 @@ test("flattens sessions and windows into rows, marking current and attached", ()
     "work",
   );
   expect(rows).toEqual([
-    { kind: "session", name: "work", label: "work", orphan: false, attached: true, current: true },
+    { kind: "session", name: "work", label: "work", orphan: false, attached: true, current: true, windows: [
+      { id: "@0", index: 0, name: "claude", active: true, panes: 2 },
+      { id: "@1", index: 1, name: "zsh", active: false, panes: 1 },
+    ] },
     { kind: "window", session: "work", index: 0, name: "claude", active: true, panes: 2 },
     { kind: "window", session: "work", index: 1, name: "zsh", active: false, panes: 1 },
-    { kind: "session", name: "scratch", label: "scratch", orphan: false, attached: false, current: false },
+    { kind: "session", name: "scratch", label: "scratch", orphan: false, attached: false, current: false, windows: [
+      { id: "@0", index: 0, name: "zsh", active: true, panes: 1 },
+    ] },
     { kind: "window", session: "scratch", index: 0, name: "zsh", active: true, panes: 1 },
   ]);
 });
 
 test("attached: 1 on the current session is only our own client, not another", () => {
   const rows = sidebarModel([{ name: "solo", attached: 1, windows: [] }], "solo");
-  expect(rows[0]).toEqual({ kind: "session", name: "solo", label: "solo", orphan: false, attached: false, current: true });
+  expect(rows[0]).toEqual({ kind: "session", name: "solo", label: "solo", orphan: false, attached: false, current: true, windows: [] });
 });
 
 test("attached: 1 on a non-current session is another client", () => {
   const rows = sidebarModel([{ name: "other", attached: 1, windows: [] }], "work");
-  expect(rows[0]).toEqual({ kind: "session", name: "other", label: "other", orphan: false, attached: true, current: false });
+  expect(rows[0]).toEqual({ kind: "session", name: "other", label: "other", orphan: false, attached: true, current: false, windows: [] });
 });
 
 test("empty input yields no rows", () => {
@@ -43,7 +48,7 @@ test("shows the cmux workspace title but keeps tmux's name as the identity", () 
   );
   expect(rows[0]).toEqual({
     kind: "session", name: "me", label: "Personal - Cmux",
-    orphan: false, attached: false, current: false,
+    orphan: false, attached: false, current: false, windows: [],
   });
 });
 

@@ -1,5 +1,5 @@
 import { homedir, hostname } from "node:os";
-import type { SessionInfo } from "../shared/protocol";
+import type { AgentState, SessionInfo } from "../shared/protocol";
 
 /**
  * What to call a window. tmux names one after the command running in it, which
@@ -48,6 +48,122 @@ export function orderSessions<T extends { name: string; order?: number }>(sessio
     if (a.order === undefined && b.order === undefined) return a.name.localeCompare(b.name);
     return 0; // equal stamps keep their incoming order
   });
+}
+
+/**
+ * A window's `@muxnexus_agent` stamp: `"<state> <epoch> <pid>"`, written by the
+ * Claude Code hook. Anything else is no stamp at all rather than a guess -- the
+ * option is a string tmux will hand back whatever is in it.
+ */
+export interface Stamp {
+  state: AgentState;
+  /** Unix seconds: when the pane entered this state. */
+  since: number;
+  /** The agent process, so a stamp outliving its process can be dropped. */
+  pid: number;
+}
+
+export function parseStamp(raw: string): Stamp | null {
+  const parts = raw.trim().split(/\s+/);
+  if (parts.length !== 3) return null;
+  const [state, since, pid] = parts;
+  if (state !== "input" && state !== "running" && state !== "done") return null;
+  const at = Number(since);
+  const process = Number(pid);
+  if (!Number.isInteger(at) || !Number.isInteger(process) || process <= 0) return null;
+  return { state, since: at, pid: process };
+}
+
+/** Attention first: a window wanting the human outranks one merely working. */
+const RANK: Record<AgentState, number> = { input: 0, running: 1, done: 2 };
+
+export function worstState(states: readonly AgentState[]): AgentState | undefined {
+  let worst: AgentState | undefined;
+  for (const s of states) if (worst === undefined || RANK[s] < RANK[worst]) worst = s;
+  return worst;
+}
+
+/** A `running` stamp this long without the window redrawing is not running. */
+export const STALE_SECONDS = 10;
+
+/**
+ * The state to believe, given a stamp and the window's last activity.
+ *
+ * Two known ways a stamp lies. A killed agent never fires `SessionEnd`, so its
+ * stamp would sit there forever: a dead pid is no stamp. And `Stop` does not
+ * fire when the user interrupts a turn, so `running` would stick: a running
+ * Claude redraws several times a second, so a `running` window that has not
+ * moved in STALE_SECONDS is reported as done. `Notification[idle_prompt]`
+ * corrects it properly a minute later.
+ */
+export function guardStamp(
+  stamp: Stamp,
+  activity: number,
+  now: number,
+  alive: (pid: number) => boolean,
+): AgentState | null {
+  if (!alive(stamp.pid)) return null;
+  if (stamp.state === "running" && now - activity > STALE_SECONDS) return "done";
+  return stamp.state;
+}
+
+/**
+ * Whether a rung bell still means "nobody has looked".
+ *
+ * `links` is every winlink pointing at one window: the base session's and each
+ * grouped tab session's. Reading only the base's flag is not enough, which the
+ * live server showed while this was being built -- a bell sat on a tab
+ * session's winlink with the base's flag clear, because the base had been
+ * viewing the window when it rang. So the bell counts from any winlink, and it
+ * has been seen only if some *attached* session currently has the window
+ * current. With cmux closed there is one winlink and the flag is exact.
+ */
+export function unreadWindow(links: readonly { bell: boolean; attached: boolean; active: boolean }[]): boolean {
+  if (!links.some((l) => l.bell)) return false;
+  return !links.some((l) => l.attached && l.active);
+}
+
+/**
+ * The state of every window that has a live stamp, from the raw `list-panes`
+ * rows. A window with two panes running two agents takes the more urgent of
+ * them, since the row has one glyph and the question it answers is "does
+ * anything in here want me".
+ */
+export function windowStates(
+  panes: readonly { id: string; raw: string }[],
+  activity: ReadonlyMap<string, number>,
+  now: number,
+  alive: (pid: number) => boolean,
+): Map<string, { state: AgentState; since: number }> {
+  const seen = new Map<string, { state: AgentState; since: number }[]>();
+  for (const pane of panes) {
+    const stamp = parseStamp(pane.raw);
+    if (!stamp) continue;
+    const state = guardStamp(stamp, activity.get(pane.id) ?? 0, now, alive);
+    if (state === null) continue;
+    const list = seen.get(pane.id) ?? [];
+    list.push({ state, since: stamp.since });
+    seen.set(pane.id, list);
+  }
+  const out = new Map<string, { state: AgentState; since: number }>();
+  for (const [id, list] of seen) {
+    const state = worstState(list.map((x) => x.state));
+    if (state === undefined) continue;
+    // The oldest pane in that state: "waiting 12m" should be the longest wait.
+    const since = Math.min(...list.filter((x) => x.state === state).map((x) => x.since));
+    out.set(id, { state, since });
+  }
+  return out;
+}
+
+/** Whether a process exists. EPERM means it does and is not ours, which is still alive. */
+export function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === "EPERM";
+  }
 }
 
 export function windowLabel(windowName: string, paneTitle: string, host: string): string {
@@ -123,6 +239,29 @@ export class Tmux {
     }));
   }
 
+  /**
+   * Agent state per window, in one `list-panes` call (~5 ms) rather than
+   * anything per session. Panes are the unit because the hook knows its pane;
+   * grouped tab sessions share the pane, so they are covered for free.
+   */
+  private async agentStates(
+    rows: readonly { id: string; activity: number }[],
+  ): Promise<Map<string, { state: AgentState; since: number }>> {
+    let out: string;
+    try {
+      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{@muxnexus_agent}"]);
+    } catch (e) {
+      if (e instanceof TmuxError && NO_SERVER.test(e.message)) return new Map();
+      throw e;
+    }
+    const panes = lines(out).map((l) => {
+      const [id, raw] = l.split("\t");
+      return { id, raw: raw ?? "" };
+    });
+    const activity = new Map(rows.map((r) => [r.id, r.activity]));
+    return windowStates(panes, activity, Math.floor(Date.now() / 1000), processAlive);
+  }
+
   /** Members of the group `row` belongs to (just `row` when ungrouped), oldest first. */
   private groupOf(row: SessionRow, all: SessionRow[]): SessionRow[] {
     if (!row.grouped) return [row];
@@ -143,7 +282,7 @@ export class Tmux {
     try {
       winOut = await this.run([
         "list-windows", "-a", "-F",
-        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}",
+        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}\t#{window_bell_flag}\t#{window_activity}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
@@ -172,19 +311,38 @@ export class Tmux {
     }
     const byRep = new Map<string, SessionInfo>();
     for (const g of groups.values()) byRep.set(g.rep.name, g.info);
-    for (const line of lines(winOut)) {
-      const parts = line.split("\t");
-      if (parts.length !== 8) continue;
-      const [session, index, name, active, panes, paneTitle, surfaceId, id] = parts;
-      const s = byRep.get(session);
-      if (!s) continue; // a tab session, or a session that vanished between the two calls
-      s.windows.push({
-        id,
-        index: Number(index),
-        name: windowLabel(name, paneTitle, hostname()),
+
+    // Every winlink, including the tab sessions that share these windows: a
+    // window's bell means "unseen" only if no attached tab session is showing it.
+    const rows = lines(winOut)
+      .map((l) => l.split("\t"))
+      .filter((p) => p.length === 10)
+      .map(([session, index, name, active, panes, paneTitle, surfaceId, id, bell, activity]) => ({
+        session, index, name, paneTitle, surfaceId, id,
         active: active === "1",
         panes: Number(panes),
-        ...(surfaceId ? { surfaceId } : {}),
+        bell: bell === "1",
+        activity: Number(activity),
+        attached: (all.find((r) => r.name === session)?.attached ?? 0) > 0,
+      }));
+
+    const agents = await this.agentStates(rows);
+
+    for (const row of rows) {
+      const s = byRep.get(row.session);
+      if (!s) continue; // a tab session: it contributed its viewing above, nothing more
+      const state = agents.get(row.id);
+      s.windows.push({
+        id: row.id,
+        index: Number(row.index),
+        name: windowLabel(row.name, row.paneTitle, hostname()),
+        active: row.active,
+        panes: row.panes,
+        ...(row.surfaceId ? { surfaceId: row.surfaceId } : {}),
+        ...(state
+          ? { agent: { state: state.state, since: new Date(state.since * 1000).toISOString() } }
+          : {}),
+        ...(unreadWindow(rows.filter((o) => o.id === row.id)) ? { unread: true } : {}),
       });
     }
     // Creation order was only ever a stand-in; `@muxnexus_order` is the real one

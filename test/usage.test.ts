@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   accessToken,
+  backoffMs,
   createUsageReader,
   findProfiles,
   keychainService,
@@ -237,6 +238,76 @@ describe("the reader, with the network and Keychain injected", () => {
     expect((await withIt.read()).map((s) => s.id)).toContain("opencode");
     const without = createUsageReader({ ...base, secret: async () => null, fetch: async () => ({ status: 200, body: ok }) });
     expect((await without.read()).map((s) => s.id)).not.toContain("opencode");
+  });
+});
+
+describe("backoff", () => {
+  test("doubles per consecutive failure and then stops growing", () => {
+    expect(backoffMs(0, 60_000)).toBe(0);
+    expect(backoffMs(1, 60_000)).toBe(60_000);
+    expect(backoffMs(2, 60_000)).toBe(120_000);
+    expect(backoffMs(3, 60_000)).toBe(240_000);
+    expect(backoffMs(20, 60_000)).toBe(15 * 60_000);
+  });
+
+  test("a failing source is not asked again until its backoff elapses", async () => {
+    // The endpoint answered 429 during the build because nothing backed off.
+    let calls = 0;
+    let clock = 0;
+    let status = 200;
+    const ok = JSON.stringify({ limits: [{ kind: "session", percent: 12 }] });
+    const reader = createUsageReader({
+      home: "/h",
+      list: () => [".claude"],
+      has: (p) => p.endsWith("/projects"),
+      readFile: async () => null,
+      secret: async () => JSON.stringify({ claudeAiOauth: { accessToken: "t" } }),
+      fetch: async () => { calls++; return { status, body: ok }; },
+      backoffBaseMs: 1000,
+      now: () => clock,
+    });
+    await reader.read();
+    expect(calls).toBe(1);
+
+    status = 500;
+    await reader.read();            // fails, arms a 1s backoff
+    expect(calls).toBe(2);
+
+    clock = 500;
+    await reader.read();            // still inside it: no request
+    expect(calls).toBe(2);
+
+    clock = 1500;
+    status = 200;
+    const got = await reader.read(); // past it: asks again and recovers
+    expect(calls).toBe(3);
+    expect(got[0].state).toBe("ok");
+
+    // Recovery clears the backoff, so the next tick is not skipped.
+    clock = 1600;
+    await reader.read();
+    expect(calls).toBe(4);
+  });
+
+  test("the last good numbers survive the whole backoff", async () => {
+    let clock = 0;
+    let status = 200;
+    const reader = createUsageReader({
+      home: "/h",
+      list: () => [".claude"],
+      has: (p) => p.endsWith("/projects"),
+      readFile: async () => null,
+      secret: async () => JSON.stringify({ claudeAiOauth: { accessToken: "t" } }),
+      fetch: async () => ({ status, body: JSON.stringify({ limits: [{ kind: "session", percent: 12 }] }) }),
+      backoffBaseMs: 1000,
+      now: () => clock,
+    });
+    await reader.read();
+    status = 429;
+    await reader.read();
+    clock = 500;
+    const got = await reader.read();
+    expect(got[0].windows).toEqual([{ kind: "session", percent: 12 }]);
   });
 });
 

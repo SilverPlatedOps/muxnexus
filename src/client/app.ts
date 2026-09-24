@@ -4,6 +4,7 @@ import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { renderUsage } from "./usage";
+import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo } from "../shared/protocol";
 
 const SESSION_KEY = "muxnexus.session";
@@ -82,9 +83,26 @@ function showTerminal(on: boolean) {
 function updateChip() {
   chipName.textContent = current ?? "";
   const session = sessions.find((s) => s.name === current);
-  const shared = (session?.attached ?? 0) > 1;
-  chipDot.classList.toggle("on", shared);
-  chipDot.title = shared ? "another client is attached" : "";
+  // The chip's dot is the current session's own state, so the drawer does not
+  // have to be opened to see that the thing you are looking at is waiting.
+  const glyph = session ? sessionGlyph(session.windows) : "none";
+  chipDot.className = `dot glyph ${glyph}`;
+  chipDot.textContent = GLYPH[glyph];
+  chipDot.title = GLYPH_TITLE[glyph];
+}
+
+/**
+ * How many sessions are blocked, on the hamburger. With the drawer closed --
+ * most of the time on a phone -- this is the only thing on screen that can say
+ * something elsewhere needs you.
+ */
+function updateAttention() {
+  const n = needsYouCount(sessions);
+  hamburger.dataset.count = n > 0 ? String(n) : "";
+  hamburger.setAttribute(
+    "aria-label",
+    n > 0 ? `Show sessions (${n} waiting for you)` : "Show sessions",
+  );
 }
 
 /**
@@ -124,6 +142,7 @@ function paintAll() {
   sidebar.render(sessions, current);
   tabs.render(sessions, current);
   updateChip();
+  updateAttention();
 }
 
 // ---- find in scrollback ----
@@ -284,6 +303,13 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" && !wrapEl.hidden) {
     e.preventDefault();
     openFind();
+  } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
+    // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
+    // ⌘J for itself -- it costs one clause and saves finding out the hard way.
+    const next = nextAttention(sessions, current);
+    if (!next) return;
+    e.preventDefault();
+    attach(next);
   }
 });
 

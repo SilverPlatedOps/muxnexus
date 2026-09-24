@@ -14,6 +14,26 @@ export interface WindowInfo {
   surfaceId?: string;
   /** What to show instead of `name`: the cmux tab's own title. */
   label?: string;
+  /**
+   * What the agent in this window is doing, from `@muxnexus_agent` -- stamped by
+   * a Claude Code hook and already checked against the two ways a stamp goes
+   * stale. Absent when no agent has spoken in this window.
+   */
+  agent?: AgentInfo;
+  /**
+   * The window rang the bell and nobody has looked since. tmux's own flag, so
+   * it survives cmux being closed and costs nothing to read.
+   */
+  unread?: boolean;
+}
+
+/** The three things a window can say about the agent running in it. */
+export type AgentState = "input" | "running" | "done";
+
+export interface AgentInfo {
+  state: AgentState;
+  /** When the window entered this state, so a row can say how long it has waited. */
+  since: string;
 }
 
 export interface SessionInfo {

@@ -176,6 +176,21 @@ export function merge(previous: UsageSource | undefined, next: {
   };
 }
 
+/**
+ * How long to leave a failing source alone, doubling per consecutive failure.
+ *
+ * Without this the server asks a source that is refusing every 60 s forever,
+ * which is how `/api/oauth/usage` came to answer 429 during the build: quota
+ * moves slowly enough that nothing is lost by waiting, and a provider that is
+ * rate-limiting us is the last thing to keep poking.
+ */
+export function backoffMs(failures: number, baseMs: number): number {
+  if (failures <= 0) return 0;
+  return Math.min(baseMs * 2 ** (failures - 1), MAX_BACKOFF_MS);
+}
+
+const MAX_BACKOFF_MS = 15 * 60_000;
+
 export interface UsageOptions {
   home?: string;
   fetch?: Fetcher;
@@ -183,6 +198,9 @@ export interface UsageOptions {
   list?: (dir: string) => string[];
   has?: (p: string) => boolean;
   readFile?: (p: string) => Promise<string | null>;
+  /** First backoff step after a failed read; doubles from there. */
+  backoffBaseMs?: number;
+  now?: () => number;
 }
 
 /** A plain HTTPS GET. Any failure is a status of 0 rather than a throw. */
@@ -213,12 +231,40 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
   const has = opts.has ?? ((p: string) => existsSync(p));
   const readFile = opts.readFile ?? (async (p: string) => { try { return await Bun.file(p).text(); } catch { return null; } });
 
+  const baseMs = opts.backoffBaseMs ?? 60_000;
+  const now = opts.now ?? (() => Date.now());
   let last = new Map<string, UsageSource>();
+  /** Consecutive failures per source, and when each may be tried again. */
+  const failures = new Map<string, number>();
+  const nextAttempt = new Map<string, number>();
+
+  /** Whether this source is still serving out a backoff. */
+  function waiting(id: string): boolean {
+    return now() < (nextAttempt.get(id) ?? 0);
+  }
+
+  function record(source: UsageSource): UsageSource {
+    // Signed out is a settled answer, not a failure: it costs one Keychain read
+    // and no request, so there is nothing to back off from.
+    if (source.state === "error") {
+      const n = (failures.get(source.id) ?? 0) + 1;
+      failures.set(source.id, n);
+      nextAttempt.set(source.id, now() + backoffMs(n, baseMs));
+    } else {
+      failures.delete(source.id);
+      nextAttempt.delete(source.id);
+    }
+    return source;
+  }
 
   async function claude(dir: string): Promise<UsageSource> {
     const id = dir;
     const label = profileLabel(dir);
-    const now = new Date().toISOString();
+    const stamp = new Date().toISOString();
+    const previous = last.get(id);
+    // Still backing off: report what we last knew rather than asking again.
+    if (waiting(id) && previous) return previous;
+    const now = stamp;
     const item = await secret(keychainService(dir, home));
     const token = item ? accessToken(item) : null;
     if (!token) return merge(last.get(id), { id, label, windows: [], state: "signed-out", now });
@@ -238,7 +284,10 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
 
   async function opencode(): Promise<UsageSource | null> {
     const id = "opencode";
-    const now = new Date().toISOString();
+    const stamp = new Date().toISOString();
+    const previous = last.get(id);
+    if (waiting(id) && previous) return previous;
+    const now = stamp;
     const env = await readFile(join(home, ".claude", "opencode-go", ".env"));
     if (env === null) return null; // not installed: no row at all, rather than an empty one
     const token = parseEnv(env).get("OPENCODE_GO_API_KEY");
@@ -257,7 +306,12 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     async read() {
       const dirs = findProfiles(home, list, has);
       const settled = await Promise.all([...dirs.map(claude), opencode()]);
-      const sources = settled.filter((s): s is UsageSource => s !== null);
+      // A source returned unchanged was skipped for backoff, not attempted, so
+      // it must not count as another failure -- that would let a source extend
+      // its own backoff indefinitely without ever being asked again.
+      const sources = settled
+        .filter((s): s is UsageSource => s !== null)
+        .map((s) => (s === last.get(s.id) ? s : record(s)));
       last = new Map(sources.map((s) => [s.id, s]));
       return sources;
     },

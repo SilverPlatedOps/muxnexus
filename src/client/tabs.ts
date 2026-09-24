@@ -1,5 +1,6 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
+import { GLYPH, GLYPH_TITLE, windowGlyph } from "./agent";
 
 /** The windows of the attached session, in tmux order. Empty when nothing is attached. */
 export function tabsModel(sessions: SessionInfo[], current: string | null): WindowInfo[] {
@@ -141,7 +142,12 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const tab = el("div", `tab${w.active ? " active" : ""}${ui.menu === w.index || ui.confirm === w.index ? " menu-open" : ""}`);
 
     const name = button("name");
-    name.append(el("span", "idx", String(w.index)), el("span", "label", tabLabel(w)));
+    // The same glyph as the sidebar row, so the eye that found the session in
+    // the list lands on the right tab without re-reading anything.
+    const glyph = windowGlyph(w);
+    const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
+    mark.title = GLYPH_TITLE[glyph];
+    name.append(el("span", "idx", String(w.index)), mark, el("span", "label", tabLabel(w)));
     if (w.panes > 1) {
       const panes = el("span", "panes", String(w.panes));
       panes.title = `${w.panes} panes`;

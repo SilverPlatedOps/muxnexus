@@ -74,6 +74,38 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 
+const EXPANDED_KEY = "muxnexus.usage.expanded";
+
+/**
+ * The one window that speaks for an account when the panel is collapsed: the
+ * one the provider itself calls most severe, else simply the fullest. Which
+ * account has room is the question the panel answers that the statusline in
+ * every attached pane does not, and that takes one number, not three.
+ */
+export function summaryWindow(windows: readonly UsageWindow[]): UsageWindow | undefined {
+  if (windows.length === 0) return undefined;
+  const severe = windows.filter((w) => w.severity && w.severity !== "normal");
+  const pool = severe.length > 0 ? severe : windows;
+  return [...pool].sort((a, b) => b.percent - a.percent)[0];
+}
+
+/** Whether the panel is expanded, remembered per browser -- a per-viewer preference. */
+function expanded(): boolean {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === "1";
+  } catch {
+    return false; // private window, blocked storage: collapsed is the safe default
+  }
+}
+
+function setExpanded(on: boolean): void {
+  try {
+    localStorage.setItem(EXPANDED_KEY, on ? "1" : "0");
+  } catch {
+    /* the panel still toggles for this view */
+  }
+}
+
 /**
  * Draw the panel. An empty list empties the element, so a machine with no
  * Claude and no opencode gets the sidebar it had before this existed.
@@ -81,6 +113,9 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 export function renderUsage(root: HTMLElement, sources: UsageSource[], now: number = Date.now()): void {
   root.replaceChildren();
   if (sources.length === 0) return;
+  const open = expanded();
+  root.classList.toggle("expanded", open);
+  if (!open) return renderCollapsed(root, sources, now);
   for (const s of sources) {
     const block = el("div", "usage-src");
     if (s.state !== "ok" && s.windows.length === 0) {
@@ -111,4 +146,44 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
     });
     root.append(block);
   }
+  root.firstElementChild?.firstElementChild?.append(toggle(root, sources, now, true));
+}
+
+/** One row per account: the account, its worst window, and the toggle. */
+function renderCollapsed(root: HTMLElement, sources: UsageSource[], now: number): void {
+  const block = el("div", "usage-src");
+  for (const s of sources) {
+    const row = el("div", `usage-row${s.state !== "ok" ? " stale" : ""}`);
+    row.append(el("span", "usage-name", s.label));
+    const w = summaryWindow(s.windows);
+    if (!w) {
+      // "signed out" keeps its row: an account that vanished looks like a bug.
+      row.append(el("span", "usage-note", s.state === "signed-out" ? "signed out" : "unavailable"));
+    } else {
+      row.append(el("span", "usage-kind", kindLabel(w.kind)));
+      const b = bar(w.percent);
+      const meter = el("span", "usage-meter");
+      meter.append(el("span", `usage-fill${tone(w)}`, b.fill), el("span", "usage-track", b.track));
+      row.append(meter, el("span", "usage-pct", `${Math.round(w.percent)}%`), el("span", "usage-reset", formatReset(w.resetsAt, now)));
+      if (s.state !== "ok") row.title = `last read ${new Date(s.checkedAt).toLocaleTimeString()}`;
+    }
+    block.append(row);
+  }
+  block.firstElementChild?.append(toggle(root, sources, now, false));
+  root.append(block);
+}
+
+function toggle(root: HTMLElement, sources: UsageSource[], now: number, open: boolean): HTMLElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "usage-toggle";
+  b.textContent = open ? "\u25be" : "\u25b8";
+  b.setAttribute("aria-label", open ? "Collapse quota" : "Expand quota");
+  b.setAttribute("aria-expanded", String(open));
+  b.onclick = (e) => {
+    e.stopPropagation();
+    setExpanded(!open);
+    renderUsage(root, sources, now);
+  };
+  return b;
 }
