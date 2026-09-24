@@ -1,5 +1,6 @@
 import { homedir, hostname } from "node:os";
 import type { AgentState, SessionInfo } from "../shared/protocol";
+import { profileLabel } from "./usage";
 
 /**
  * The swaps that rearrange `positions` into `wanted`, as pairs of window
@@ -45,9 +46,11 @@ export function orderSessions<T extends { name: string; order?: number }>(sessio
 }
 
 /**
- * A window's `@muxnexus_agent` stamp: `"<state> <epoch> <pid>"`, written by the
- * Claude Code hook. Anything else is no stamp at all rather than a guess -- the
- * option is a string tmux will hand back whatever is in it.
+ * A window's `@muxnexus_agent` stamp: `"<state> <epoch> <pid> [<config dir>]"`,
+ * written by the Claude Code hook. The config dir is the rest of the line, since
+ * a path may hold spaces, and is absent from stamps written before it was added.
+ * Anything else is no stamp at all rather than a guess -- the option is a string
+ * tmux will hand back whatever is in it.
  */
 export interface Stamp {
   state: AgentState;
@@ -55,17 +58,19 @@ export interface Stamp {
   since: number;
   /** The agent process, so a stamp outliving its process can be dropped. */
   pid: number;
+  /** The agent's `CLAUDE_CONFIG_DIR`: which account, and so which quota, it spends. */
+  configDir?: string;
 }
 
 export function parseStamp(raw: string): Stamp | null {
-  const parts = raw.trim().split(/\s+/);
-  if (parts.length !== 3) return null;
-  const [state, since, pid] = parts;
+  const m = /^(\S+)\s+(\S+)\s+(\S+)(?:\s+(.+))?$/.exec(raw.trim());
+  if (!m) return null;
+  const [, state, since, pid, configDir] = m;
   if (state !== "input" && state !== "running" && state !== "done") return null;
   const at = Number(since);
   const process = Number(pid);
   if (!Number.isInteger(at) || !Number.isInteger(process) || process <= 0) return null;
-  return { state, since: at, pid: process };
+  return { state, since: at, pid: process, ...(configDir ? { configDir } : {}) };
 }
 
 /** Attention first: a window wanting the human outranks one merely working. */
@@ -128,26 +133,34 @@ export function windowStates(
   activity: ReadonlyMap<string, number>,
   now: number,
   alive: (pid: number) => boolean,
-): Map<string, { state: AgentState; since: number }> {
-  const seen = new Map<string, { state: AgentState; since: number }[]>();
+): Map<string, WindowAgent> {
+  const seen = new Map<string, WindowAgent[]>();
   for (const pane of panes) {
     const stamp = parseStamp(pane.raw);
     if (!stamp) continue;
     const state = guardStamp(stamp, activity.get(pane.id) ?? 0, now, alive);
     if (state === null) continue;
     const list = seen.get(pane.id) ?? [];
-    list.push({ state, since: stamp.since });
+    list.push({ state, since: stamp.since, ...(stamp.configDir ? { configDir: stamp.configDir } : {}) });
     seen.set(pane.id, list);
   }
-  const out = new Map<string, { state: AgentState; since: number }>();
+  const out = new Map<string, WindowAgent>();
   for (const [id, list] of seen) {
     const state = worstState(list.map((x) => x.state));
     if (state === undefined) continue;
-    // The oldest pane in that state: "waiting 12m" should be the longest wait.
-    const since = Math.min(...list.filter((x) => x.state === state).map((x) => x.since));
-    out.set(id, { state, since });
+    // The oldest pane in that state: "waiting 12m" should be the longest wait,
+    // and the rest of what the window says comes from that same pane.
+    const oldest = list.filter((x) => x.state === state).sort((a, b) => a.since - b.since)[0]!;
+    out.set(id, oldest);
   }
   return out;
+}
+
+/** What `windowStates` reports for one window: the pane speaking for it. */
+export interface WindowAgent {
+  state: AgentState;
+  since: number;
+  configDir?: string;
 }
 
 /** Whether a process exists. EPERM means it does and is not ours, which is still alive. */
@@ -258,7 +271,7 @@ export class Tmux {
    */
   private async agentStates(
     rows: readonly { id: string; activity: number }[],
-  ): Promise<Map<string, { state: AgentState; since: number }>> {
+  ): Promise<Map<string, WindowAgent>> {
     let out: string;
     try {
       out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{@muxnexus_agent}"]);
@@ -355,7 +368,13 @@ export class Tmux {
         ...(row.customName ? { customName: row.customName } : {}),
         ...(row.surfaceId ? { surfaceId: row.surfaceId } : {}),
         ...(state
-          ? { agent: { state: state.state, since: new Date(state.since * 1000).toISOString() } }
+          ? {
+              agent: {
+                state: state.state,
+                since: new Date(state.since * 1000).toISOString(),
+                ...(state.configDir ? { profile: profileLabel(state.configDir) } : {}),
+              },
+            }
           : {}),
         ...(unreadWindow(rows.filter((o) => o.id === row.id)) ? { unread: true } : {}),
       });

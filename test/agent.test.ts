@@ -25,9 +25,14 @@ describe("parseStamp", () => {
     expect(parseStamp("  input 1 2  ")).toEqual({ state: "input", since: 1, pid: 2 });
   });
 
+  test("reads the config dir after the pid, spaces and all", () => {
+    expect(parseStamp("done 1 2 /Users/me/.claude-work")).toEqual({ state: "done", since: 1, pid: 2, configDir: "/Users/me/.claude-work" });
+    expect(parseStamp("done 1 2 /Users/me/My Profiles/.claude")?.configDir).toBe("/Users/me/My Profiles/.claude");
+  });
+
   test("anything else is no stamp rather than a guess", () => {
     // The option is a string tmux hands back verbatim; it can hold anything.
-    for (const raw of ["", "running", "running 1", "sleeping 1 2", "running x 2", "running 1 0", "running 1 2 3"]) {
+    for (const raw of ["", "running", "running 1", "sleeping 1 2", "running x 2", "running 1 0"]) {
       expect(parseStamp(raw)).toBeNull();
     }
   });
@@ -82,6 +87,14 @@ describe("windowStates", () => {
       activity, 100, alive,
     );
     expect(got.get("@1")).toEqual({ state: "input", since: 60 });
+  });
+
+  test("the profile is the speaking pane's", () => {
+    const got = windowStates(
+      [{ id: "@1", raw: "done 50 7 /h/.claude" }, { id: "@1", raw: "input 60 8 /h/.claude-work" }],
+      activity, 100, alive,
+    );
+    expect(got.get("@1")).toEqual({ state: "input", since: 60, configDir: "/h/.claude-work" });
   });
 
   test("reports the longest wait when two panes agree", () => {

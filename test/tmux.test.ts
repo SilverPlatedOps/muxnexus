@@ -29,6 +29,15 @@ describe("Tmux.listSessions", () => {
     expect(sessions[0].windows[0]).toMatchObject({ index: 0, active: true, panes: 1 });
   });
 
+  test("reports an agent's profile, named as the quota panel names it", async () => {
+    await tmux.newSession("work");
+    const pane = (await tmux.run(["display-message", "-p", "-t", "=work:", "#{pane_id}"])).trim();
+    const now = Math.floor(Date.now() / 1000);
+    await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_agent", `done ${now} ${process.pid} /Users/me/.claude-work`]);
+    const [s] = await tmux.listSessions();
+    expect(s.windows[0].agent).toMatchObject({ state: "done", profile: "work" });
+  });
+
   test("handles names with spaces and groups windows by session", async () => {
     await tmux.newSession("a b");
     await tmux.newSession("c");

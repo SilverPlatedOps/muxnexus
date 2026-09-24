@@ -36,6 +36,11 @@ export interface AgentInfo {
   state: AgentState;
   /** When the window entered this state, so a row can say how long it has waited. */
   since: string;
+  /**
+   * The Claude profile the agent runs under, named as the quota panel names it
+   * (`personal`, `work`). Absent for an agent stamped before the hook recorded it.
+   */
+  profile?: string;
 }
 
 export interface SessionInfo {
