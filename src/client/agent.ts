@@ -16,7 +16,7 @@ export const GLYPH: Record<Glyph, string> = {
   input: "●",   // filled circle, the only red thing in the sidebar
   running: "",  // the ASCII spinner is drawn by .glyph.running::before in style.css
   unread: "●",  // filled, but foreground rather than red
-  seen: "·",    // middle dot
+  seen: "○",    // the empty counterpart of unread's ●, as mail marks read against unread
   none: " ",    // a space that still takes its column
 };
 

@@ -136,7 +136,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    made the one that matters harder to find. */
 .glyph.input { color: var(--red); }
 .glyph.unread { color: var(--fg-strong); }
-.glyph.seen { color: var(--faint); }
+/* Quiet but legible: --faint vanished on the attached row's tint. */
+.glyph.seen { color: var(--dim); }
 .glyph.none { color: transparent; }
 
 .glyph.running {
@@ -144,7 +145,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   display: inline-block;
 }
 /* The ASCII spinner: `|/-\` frames. `content` animation needs no timer, and the
-   base "◔" is what remains under reduced motion -- still distinct from "·" idle. */
+   base "◔" is what remains under reduced motion -- still distinct from "○" idle. */
 .glyph.running::before {
   content: "◔";
   animation: ascii-spin 0.5s steps(1) infinite;
