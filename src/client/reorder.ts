@@ -137,7 +137,10 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
       container.append(marker);
     }
     const all = rects();
-    const base = at < all.length ? all[at].top : (all.length ? all[all.length - 1].top + all[all.length - 1].height : 0);
+    const edge = at < all.length ? all[at].top : (all.length ? all[all.length - 1].top + all[all.length - 1].height : 0);
+    // rects() are measured from the container's visible edge; the marker is laid
+    // out from its scrolled content, which the tab strip usually is.
+    const base = edge + (horizontal ? container.scrollLeft : container.scrollTop);
     if (horizontal) {
       marker.style.left = `${base}px`;
       marker.style.top = "";
