@@ -117,7 +117,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    a single line of glyphs rather than hunting across each row. */
 .glyph {
   flex: none;
-  width: 11px;
+  width: 13px;
+  /* Larger than the row's text on purpose: at body size these read as specks
+     and the column stops being glanceable, which is the only thing it is for. */
+  font-size: 15px;
+  line-height: 1;
   text-align: center;
   color: var(--dim);
 }
@@ -131,7 +135,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .glyph.none { color: transparent; }
 
 .glyph.running {
-  color: var(--muted);
+  color: var(--fg);
   display: inline-block;
   animation: spin 2.4s linear infinite;
 }
@@ -154,9 +158,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* One dot per window, only when a session has more than one. */
 .wdots { display: flex; gap: 1px; padding-left: 6px; }
-.wdots .glyph { width: 9px; font-size: 10px; }
+.wdots .glyph { width: 11px; font-size: 12px; }
 
-#tabs .glyph { width: 10px; margin-right: 1px; }
+#tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
 
 /* The count of sessions waiting, on the hamburger, so a closed drawer can
    still say that something elsewhere needs you. */
