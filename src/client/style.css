@@ -166,8 +166,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   font-size: 11px;
 }
 
-/* One dot per window, only when a session has more than one. */
-.wdots { display: flex; gap: 1px; padding-left: 6px; }
+/* One dot per window, only when a session has more than one. With many windows
+   the dots clip rather than squeeze the name out: the row's own glyph already
+   carries the most urgent state of them all. */
+.wdots { display: flex; gap: 1px; padding-left: 6px; min-width: 0; overflow: hidden; }
 .wdots .glyph { width: 11px; font-size: 12px; }
 
 #tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
@@ -298,7 +300,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   cursor: pointer;
 }
 .group.current .row.session .name { padding-left: 10px; }
-.row .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row .label { flex: 1; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; }
 .group.current .row.session .name { font-weight: 700; color: var(--fg-strong); }
 .row.session:hover, .row.session.menu-open { background: var(--hover); }
 /* Its cmux workspace is gone: the session still runs, but nothing there matches it. */
