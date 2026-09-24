@@ -1,5 +1,6 @@
 import { createSidebar, sessionLabel } from "./sidebar";
 import { visualOrder } from "./groups";
+import { splitCategory } from "../shared/category";
 import { createTabs } from "./tabs";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
@@ -86,7 +87,16 @@ function updateChip() {
   const session = sessions.find((s) => s.name === current);
   // The whole name, tag included: the sidebar row drops the tag under its
   // group's header, and up here there is no header to carry it.
-  chipName.textContent = session ? sessionLabel(session) : current ?? "";
+  const label = session ? sessionLabel(session) : current ?? "";
+  const cat = splitCategory(label);
+  if (cat && cat.rest !== cat.category) {
+    const tag = document.createElement("span");
+    tag.className = "chip-tag";
+    tag.textContent = `[${cat.category}] `;
+    chipName.replaceChildren(tag, cat.rest);
+  } else {
+    chipName.textContent = label;
+  }
   // The chip says only that the session you are looking at is waiting on you.
   // Its other states are already on the tabs right under it, and with the
   // drawer closed the hamburger's count covers every other session; the red is

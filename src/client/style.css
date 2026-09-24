@@ -5,10 +5,12 @@
   --panel: #20242b;
   --group: #232830;
   /* The attached session: the one row tinted with the accent, so "where am I"
-     is answered by colour before anything is read. */
-  --current: color-mix(in oklab, var(--accent) 15%, var(--panel));
-  --current-hover: color-mix(in oklab, var(--accent) 21%, var(--panel));
-  --current-ring: color-mix(in oklab, var(--accent) 38%, transparent);
+     is answered by colour before anything is read. A fill and no outline: an
+     accent outline is what keyboard focus looks like, and a focused row could
+     not be told from the attached one. 24% is as far as the fill goes while
+     the red "needs you" and the idle ring still clear 3:1 on it. */
+  --current: color-mix(in oklab, var(--accent) 24%, var(--panel));
+  --current-hover: color-mix(in oklab, var(--accent) 27%, var(--panel));
   --hover: #2a2f38;
   --sel: #323844;
   --chip: #3d4552;
@@ -50,6 +52,17 @@ html, body {
 
 button { font: inherit; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A row or tab clips what spills past it, which cut the ring to one edge; drawn
+   inside, it now reads as focus, where the attached row is a fill. */
+.row .name:focus-visible, .tab .name:focus-visible, .cat-head:focus-visible { outline-offset: -2px; border-radius: 6px; }
+
+/* The parts no component draws: text selection and scrollbars in the palette,
+   not the browser's white. The terminal draws its own selection. */
+::selection { background: color-mix(in oklab, var(--accent) 38%, transparent); color: var(--fg-strong); }
+:root { scrollbar-color: var(--edge) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
 
 #layout {
   display: grid;
@@ -234,6 +247,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    it, at the row's weight, with the red "needs you" before it and nothing for
    any other state (app.ts updateChip). */
 .chip { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* The category tag, when the name has one: quieter than the name, as the
+   sidebar's header is, so the name is what reads first. */
+#chip-name .chip-tag { color: var(--muted); font-weight: 500; }
 #chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -339,10 +355,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .cat.folded.current .cat-head { background: var(--current); color: var(--fg-strong); }
 
 .group { display: flex; flex-direction: column; border-radius: 6px; }
-/* A filled, ringed row rather than a stripe at the edge: the stripe was two
-   pixels at the sidebar's border, the same shape as the running spinner's "|",
-   and a hovered neighbour looked more selected than it did. */
-.group.current { background: var(--current); box-shadow: inset 0 0 0 1px var(--current-ring); }
+/* A filled row rather than a stripe at the edge: the stripe was two pixels at
+   the sidebar's border, the same shape as the old spinner's "|", and a hovered
+   neighbour looked more selected than it did. No outline either (see --current). */
+.group.current { background: var(--current); }
 
 .row {
   display: flex;
