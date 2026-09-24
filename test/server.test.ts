@@ -620,3 +620,113 @@ test("window messages reject anything but window ids", async () => {
   expect((c.last("state") as any).sessions[0].windows).toHaveLength(1);
   c.ws.close();
 });
+
+// ---- polling cost ----
+// A server left running in the background must not keep reading tmux, cmux, the
+// Keychain and the usage API for nobody. And one slow read must not overlap the
+// next, or an older answer can be broadcast after a newer one.
+
+/** A fake cmux that logs when each call starts and ends, and takes `delay` seconds. */
+function slowCmux(dir: string, delay: string) {
+  const log = join(dir, "calls.log");
+  const bin = join(dir, "cmux");
+  writeFileSync(bin, `#!/bin/sh
+printf 'start %s\n' "$*" >> "${log}"
+sleep ${delay}
+if [ "$1" = "workspace" ] && [ "$2" = "list" ]; then
+  printf '%s' '{"workspaces":[{"custom_title":"w","ref":"workspace:1","id":"W"}]}'
+fi
+printf 'end %s\n' "$*" >> "${log}"
+`);
+  chmodSync(bin, 0o755);
+  return { bin, read: () => (existsSync(log) ? readFileSync(log, "utf8") : "") };
+}
+
+test("nothing is polled while no browser is connected", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-idle-"));
+  const cmux = slowCmux(dir, "0");
+  let reads = 0;
+  const usage = { read: async () => { reads++; return []; } };
+  await tmux.newSession("w");
+  await tmux.run(["set-option", "-t", "=w:", "@muxnexus_workspace", "W"]); // makes every poll ask cmux
+  const mirror = createCmuxMirror({ cmuxBin: cmux.bin, socketPath: "/tmp/fake.sock" });
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 30, mirror, usage, usageMs: 30 });
+  try {
+    await Bun.sleep(400);
+    expect(cmux.read()).toBe("");
+    expect(reads).toBe(1); // the one read at startup, so the first page is not blank
+    const c = await connect(srv.port);
+    await waitFor(() => cmux.read().includes("workspace list"), 2000, "polling resumed");
+    await waitFor(() => reads > 1, 2000, "usage resumed");
+    c.ws.close();
+  } finally {
+    srv.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a slow poll is never overlapped by the next one", async () => {
+  // A mirror whose title lookup is slow and counts how many run at once.
+  let running = 0;
+  let most = 0;
+  let calls = 0;
+  const mirror = {
+    sessionCreated: async () => {},
+    sessionRenamed: async () => {},
+    sessionKilled: async () => {},
+    surfaceTitles: async () => new Map<string, string>(),
+    workspaceTitles: async () => {
+      calls++;
+      most = Math.max(most, ++running);
+      await Bun.sleep(150);
+      running--;
+      return new Map([["W", "w"]]);
+    },
+  };
+  await tmux.newSession("w");
+  await tmux.run(["set-option", "-t", "=w:", "@muxnexus_workspace", "W"]); // makes every poll ask the mirror
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 20, mirror });
+  try {
+    const c = await connect(srv.port);
+    c.send({ t: "new-window", session: "w" }); // a command-triggered poll on top of the timer's
+    await Bun.sleep(1000);
+    c.ws.close();
+    expect(calls).toBeGreaterThan(2);
+    expect(most).toBe(1);
+  } finally {
+    srv.stop();
+  }
+});
+
+test("a reconnect reuses a fresh quota read instead of asking again", async () => {
+  let reads = 0;
+  const usage = { read: async () => { reads++; return []; } };
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 10_000, usage, usageMs: 60_000 });
+  try {
+    await waitFor(() => reads === 1, 2000, "startup read");
+    for (let i = 0; i < 3; i++) {
+      const c = await connect(srv.port);
+      await waitFor(() => c.last("usage"), 2000, "usage sent on connect");
+      c.ws.close();
+    }
+    expect(reads).toBe(1);
+  } finally {
+    srv.stop();
+  }
+});
+
+test("connecting after a quiet spell reads quota straight away", async () => {
+  let reads = 0;
+  const usage = { read: async () => { reads++; return []; } };
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 10_000, usage, usageMs: 150 });
+  try {
+    await waitFor(() => reads === 1, 2000, "startup read");
+    await Bun.sleep(400); // stale now, and nobody was connected to refresh it
+    expect(reads).toBe(1);
+    const c = await connect(srv.port);
+    await waitFor(() => reads === 2, 500, "read on connect");
+    c.ws.close();
+  } finally {
+    srv.stop();
+  }
+});

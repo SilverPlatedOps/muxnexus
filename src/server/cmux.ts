@@ -68,16 +68,28 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
     return stdout;
   }
 
+  let listing: Promise<WorkspaceRow[]> | null = null;
+
+  /**
+   * `workspace list --json`, shared by callers that overlap: a poll asks for
+   * workspace and tab titles together, and both start from this list.
+   */
+  function listWorkspaces(): Promise<WorkspaceRow[]> {
+    listing ??= run(["workspace", "list", "--json"])
+      .then((out) => {
+        try {
+          return (JSON.parse(out) as { workspaces?: WorkspaceRow[] }).workspaces ?? [];
+        } catch {
+          throw new CmuxError("cmux workspace list returned invalid JSON");
+        }
+      })
+      .finally(() => { listing = null; });
+    return listing;
+  }
+
   /** The `workspace:N` ref of the workspace titled exactly `name`, or undefined. */
   async function findWorkspace(name: string): Promise<string | undefined> {
-    const out = await run(["workspace", "list", "--json"]);
-    let rows: WorkspaceRow[] = [];
-    try {
-      rows = (JSON.parse(out) as { workspaces?: WorkspaceRow[] }).workspaces ?? [];
-    } catch {
-      throw new CmuxError("cmux workspace list returned invalid JSON");
-    }
-    return rows.find((w) => w.custom_title === name)?.ref;
+    return (await listWorkspaces()).find((w) => w.custom_title === name)?.ref;
   }
 
   /**
@@ -86,14 +98,7 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
    * exactly the one where the title and the tmux session name have diverged.
    */
   async function findWorkspaceById(id: string): Promise<string | undefined> {
-    const out = await run(["workspace", "list", "--json"]);
-    let rows: WorkspaceRow[] = [];
-    try {
-      rows = (JSON.parse(out) as { workspaces?: WorkspaceRow[] }).workspaces ?? [];
-    } catch {
-      throw new CmuxError("cmux workspace list returned invalid JSON");
-    }
-    return rows.find((w) => w.id === id)?.ref;
+    return (await listWorkspaces()).find((w) => w.id === id)?.ref;
   }
 
   return {
@@ -118,19 +123,15 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
     },
     async workspaceTitles() {
       const titles = new Map<string, string>();
-      let out: string;
+      let rows: WorkspaceRow[];
       try {
-        out = await run(["workspace", "list", "--json"]);
+        rows = await listWorkspaces();
       } catch {
         return titles; // cmux not answering: callers fall back to tmux's own names
       }
-      try {
-        for (const w of (JSON.parse(out) as { workspaces?: WorkspaceRow[] }).workspaces ?? []) {
-          const title = w.custom_title || w.title;
-          if (w.id && title) titles.set(w.id, title);
-        }
-      } catch {
-        return titles;
+      for (const w of rows) {
+        const title = w.custom_title || w.title;
+        if (w.id && title) titles.set(w.id, title);
       }
       return titles;
     },
@@ -142,8 +143,7 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
       const titles = new Map<string, string>();
       let refs: string[];
       try {
-        refs = ((JSON.parse(await run(["workspace", "list", "--json"])) as { workspaces?: WorkspaceRow[] })
-          .workspaces ?? []).map((w) => w.ref).filter((r): r is string => !!r);
+        refs = (await listWorkspaces()).map((w) => w.ref).filter((r): r is string => !!r);
       } catch {
         return surfaceCache?.titles ?? titles; // keep the last good answer over none
       }

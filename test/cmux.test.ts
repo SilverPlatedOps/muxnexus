@@ -69,3 +69,10 @@ test("a failing cmux command rejects with its stderr", async () => {
   const m = createCmuxMirror({ cmuxBin: bad, socketPath: "/tmp/fake.sock" });
   await expect(m.sessionCreated("x")).rejects.toThrow(/socket unavailable/);
 });
+
+test("titles for one poll share a single workspace list", async () => {
+  // The poll asks for workspace and tab titles together; each used to list
+  // workspaces on its own.
+  await Promise.all([mirror.workspaceTitles(), mirror.surfaceTitles()]);
+  expect(calls().filter((c) => c === "workspace list --json")).toHaveLength(1);
+});

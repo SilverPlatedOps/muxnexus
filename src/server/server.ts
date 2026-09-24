@@ -36,6 +36,8 @@ interface ConnData {
   session: string | null;
   /** The attached session's id (`$3`): what `session` is re-derived from after a rename. */
   sessionId: string | null;
+  /** The last `state` this socket was sent, so each gets every change exactly once. */
+  sentState: string | null;
   cols: number;
   rows: number;
   attachSeq: number;
@@ -89,7 +91,6 @@ export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
   const clients = new Set<Socket>();
   const allowedHosts = allowedHostList(opts.hosts, opts.allowHosts ?? []);
-  let lastState = "";
   /** The last quota read, so a socket opening between polls is not blank for a minute. */
   let lastUsage: ServerMessage | null = null;
 
@@ -138,14 +139,40 @@ export function createServer(opts: ServerOptions): RunningServer {
     }
   }
 
-  /** Re-read tmux state; broadcast only when it changed since the last broadcast. */
-  async function poll(): Promise<void> {
+  /** Re-read tmux state and send it to each socket that has not seen it yet. */
+  async function readState(): Promise<void> {
     const sessions = await label(await tmux.listSessions().catch(() => []));
     followRenames(sessions);
     const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
-    if (json === lastState) return;
-    lastState = json;
-    for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
+    for (const ws of clients) {
+      if (ws.data.sentState === json || ws.readyState !== WebSocket.OPEN) continue;
+      ws.data.sentState = json;
+      ws.sendText(json);
+    }
+  }
+
+  let polling: Promise<void> | null = null;
+  let pollAgain: Promise<void> | null = null;
+
+  /**
+   * One read at a time. Reads overlapped when cmux was slow, and the older one
+   * could finish last and broadcast state from before the newer. A call that
+   * arrives mid-read may be reporting a change that read began too early to
+   * see, so it gets exactly one more read after it -- shared by every caller
+   * that arrives meanwhile.
+   */
+  function poll(): Promise<void> {
+    if (!polling) {
+      polling = readState().finally(() => { polling = null; });
+      return polling;
+    }
+    // After the current read however it ended: a failed one must not strand
+    // every later caller on a promise that never re-polls.
+    pollAgain ??= polling.catch(() => {}).then(() => {
+      pollAgain = null;
+      return poll();
+    });
+    return pollAgain;
   }
 
   function detach(ws: Socket) {
@@ -302,14 +329,27 @@ export function createServer(opts: ServerOptions): RunningServer {
     }
   }
 
+  const usageMs = opts.usageMs ?? 60_000;
+  /** When quota was last asked for, whether or not the answer was good. */
+  let usageAskedAt = -Infinity;
+  let usageReading: Promise<void> | null = null;
+  const usageDue = () => Date.now() - usageAskedAt >= usageMs;
+
   /**
    * Quota moves slowly, so it gets its own timer rather than riding the session
    * poll. A failed read is already folded into the reader's own last-good
    * values; the catch here is for the read throwing outright, which must not
-   * become an unhandled rejection inside an interval.
+   * become an unhandled rejection inside an interval. Never two at once: the
+   * timer and a connecting socket can both find a read due.
    */
-  async function pollUsage(): Promise<void> {
+  function pollUsage(): Promise<void> {
+    usageReading ??= readUsage().finally(() => { usageReading = null; });
+    return usageReading;
+  }
+
+  async function readUsage(): Promise<void> {
     if (!opts.usage) return;
+    usageAskedAt = Date.now();
     const sources = await opts.usage.read().catch(() => null);
     if (!sources) return;
     const message = { t: "usage", sources } satisfies ServerMessage;
@@ -318,10 +358,19 @@ export function createServer(opts: ServerOptions): RunningServer {
     for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
   }
 
-  const timer = setInterval(() => void poll(), opts.pollMs ?? 2000);
+  // Nobody connected, nothing read: a server left running in the background
+  // would otherwise shell out to tmux and cmux every couple of seconds, and ask
+  // the Keychain and the usage API every minute, for no one. A socket that
+  // connects triggers its own read.
+  const timer = setInterval(() => { if (clients.size > 0) void poll(); }, opts.pollMs ?? 2000);
+  // Checked four times an interval so that a read triggered by a connecting
+  // socket moves the schedule rather than being followed moments later by the
+  // timer's own.
+  const usageTimer = opts.usage
+    ? setInterval(() => { if (clients.size > 0 && usageDue()) void pollUsage(); }, usageMs / 4)
+    : undefined;
   // setInterval does not fire at zero, and a cold load would show an empty
   // footer until it did.
-  const usageTimer = opts.usage ? setInterval(() => void pollUsage(), opts.usageMs ?? 60_000) : undefined;
   if (opts.usage) void pollUsage();
 
   const serveOn = (hostname: string, port: number) => Bun.serve<ConnData>({
@@ -353,7 +402,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, cols: 80, rows: 24, attachSeq: 0 } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0 } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -362,17 +411,13 @@ export function createServer(opts: ServerOptions): RunningServer {
       idleTimeout: 120,
       open(ws) {
         clients.add(ws);
-        void tmux.listSessions().catch(() => []).then(label).then((sessions) => {
-          const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
-          if (json !== lastState) {
-            lastState = json;
-            for (const other of clients) if (other !== ws && other.readyState === WebSocket.OPEN) other.sendText(json);
-          }
-          if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
-        });
+        void poll();
         // Reconnects are routine on a phone that slept; send what we already
-        // know rather than making this client wait out the usage interval.
+        // know rather than making this client wait out the usage interval. Ask
+        // again only if that is stale -- a read per reconnect is how the usage
+        // endpoint came to answer 429.
         if (lastUsage && ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(lastUsage));
+        if (opts.usage && usageDue()) void pollUsage();
       },
       message(ws, msg) {
         if (typeof msg === "string") void handleControl(ws, msg);
