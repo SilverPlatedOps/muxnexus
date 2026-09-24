@@ -20,6 +20,9 @@ const KIND: Record<string, string> = {
 
 const BARS = 8;
 
+/** The label every provider's short rolling window shares. */
+const SHORT_WINDOW = "5h";
+
 /**
  * Time until a reset, at a glance: "3h44", "2d22", "12m". Coarse on purpose --
  * the exact second a limit lifts has never mattered, and a ticking clock in the
@@ -78,12 +81,21 @@ const EXPANDED_KEY = "muxnexus.usage.expanded";
 
 /**
  * The one window that speaks for an account when the panel is collapsed: the
- * one the provider itself calls most severe, else simply the fullest. Which
- * account has room is the question the panel answers that the statusline in
- * every attached pane does not, and that takes one number, not three.
+ * 5h rolling one, for every account.
+ *
+ * Picking each account's worst window instead made the rows incomparable --
+ * personal showing 5h beside work showing 7d, which is three numbers about
+ * three different things stacked in a column. The question the collapsed panel
+ * answers is "which account can I work in right now", and that is the short
+ * window, the same one for everybody. Providers name it differently
+ * (`session`, `rolling`), so it is found through the label rather than by key.
+ *
+ * An account with no short window falls back to its most severe, else fullest.
  */
 export function summaryWindow(windows: readonly UsageWindow[]): UsageWindow | undefined {
   if (windows.length === 0) return undefined;
+  const short = windows.find((w) => kindLabel(w.kind) === SHORT_WINDOW);
+  if (short) return short;
   const severe = windows.filter((w) => w.severity && w.severity !== "normal");
   const pool = severe.length > 0 ? severe : windows;
   return [...pool].sort((a, b) => b.percent - a.percent)[0];

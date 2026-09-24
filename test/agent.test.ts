@@ -214,16 +214,32 @@ describe("needsYouCount and nextAttention", () => {
 });
 
 describe("summaryWindow", () => {
-  test("the provider's own severe window wins over a fuller one", () => {
-    const got = summaryWindow([
-      { kind: "session", percent: 20, severity: "warning" },
-      { kind: "weekly", percent: 90, severity: "normal" },
-    ]);
-    expect(got?.kind).toBe("session");
+  test("every account shows its 5h window, so the rows can be compared", () => {
+    // Claude calls it `session`, opencode calls it `rolling`.
+    expect(summaryWindow([
+      { kind: "weekly_all", percent: 90 },
+      { kind: "session", percent: 12 },
+    ])?.kind).toBe("session");
+    expect(summaryWindow([
+      { kind: "weekly", percent: 49 },
+      { kind: "rolling", percent: 4 },
+    ])?.kind).toBe("rolling");
   });
 
-  test("otherwise the fullest", () => {
-    expect(summaryWindow([{ kind: "a", percent: 20 }, { kind: "b", percent: 41 }])?.kind).toBe("b");
+  test("the 5h window wins even when a longer one is the severe one", () => {
+    // Otherwise one account's row silently changes meaning.
+    expect(summaryWindow([
+      { kind: "weekly_all", percent: 95, severity: "warning" },
+      { kind: "session", percent: 3, severity: "normal" },
+    ])?.kind).toBe("session");
+  });
+
+  test("with no 5h window, the severe one, else the fullest", () => {
+    expect(summaryWindow([
+      { kind: "weekly_all", percent: 20, severity: "warning" },
+      { kind: "monthly", percent: 90 },
+    ])?.kind).toBe("weekly_all");
+    expect(summaryWindow([{ kind: "weekly", percent: 20 }, { kind: "monthly", percent: 41 }])?.kind).toBe("monthly");
   });
 
   test("nothing to summarise is undefined", () => {
