@@ -12,7 +12,7 @@ import {
   parseOpencodeUsage,
   profileLabel,
 } from "../src/server/usage";
-import { bar, formatReset, kindLabel } from "../src/client/usage";
+import { badgesShown, bar, formatReset, kindLabel, setBadgesShown, type Store } from "../src/client/usage";
 import type { UsageSource } from "../src/shared/protocol";
 
 const HOME = "/Users/someone";
@@ -398,5 +398,28 @@ describe("kindLabel", () => {
 
   test("an unknown kind is shown as-is rather than dropped", () => {
     expect(kindLabel("quarterly_something")).toBe("quarterly_something");
+  });
+});
+
+describe("badgesShown", () => {
+  const memory = (): Store & { data: Map<string, string> } => {
+    const data = new Map<string, string>();
+    return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v); } };
+  };
+
+  test("on until a browser switches it off, and remembered there", () => {
+    const store = memory();
+    expect(badgesShown(store)).toBe(true);
+    setBadgesShown(false, store);
+    expect(badgesShown(store)).toBe(false);
+    expect(store.data.get("muxnexus.badges")).toBe("0");
+    setBadgesShown(true, store);
+    expect(badgesShown(store)).toBe(true);
+  });
+
+  test("blocked storage shows the badges and swallows the write", () => {
+    const blocked: Store = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+    expect(badgesShown(blocked)).toBe(true);
+    expect(() => setBadgesShown(false, blocked)).not.toThrow();
   });
 });

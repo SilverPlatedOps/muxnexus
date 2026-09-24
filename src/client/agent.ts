@@ -64,21 +64,53 @@ export function windowDots(windows: readonly Pick<WindowInfo, "agent" | "unread"
 }
 
 /**
- * The profiles a session's agents run on that its tag says they should not: a
- * `[Work]` session whose agent spends the personal account. Only when the tag
- * names a profile the machine has (`profiles`, as the quota panel names them);
- * `[Project]` names none, so it asks nothing of its agents.
+ * A profile's badge: its initial, and a slot number that picks its colour. The
+ * slot is the profile's row in the quota panel (`profiles`, as the server
+ * orders them, `personal` first), so the panel is the legend. A profile the
+ * panel does not list gets no slot and draws in the plain text colour.
+ *
+ * Identity, not state: worn by every tab with an agent, since a tab is exactly
+ * one agent, because "which account is this burning" is what the user balances
+ * quota by. It replaced a yellow "mismatch" tag on the session row that showed
+ * only when a `[Work]` session ran on personal; the user switches accounts on
+ * purpose to balance them, so that was a hazard colour on a choice.
  */
-export function profileMismatch(
-  category: string | null,
-  windows: readonly Pick<WindowInfo, "agent">[],
-  profiles: readonly string[],
-): string[] {
-  if (!category) return [];
-  const want = category.toLowerCase();
-  if (!profiles.includes(want)) return [];
-  const used = windows.map((w) => w.agent?.profile).filter((p): p is string => p !== undefined && p !== want);
-  return [...new Set(used)];
+export interface ProfileBadge {
+  profile: string;
+  initial: string;
+  slot: number | null;
+}
+
+/**
+ * Initials for a list of profiles: the first letter, or the first two when
+ * another profile shares it (`work`/`wife` -> `WO`/`WI`), so the letter alone
+ * always tells them apart.
+ */
+export function profileInitials(profiles: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const p of profiles) {
+    const first = p.slice(0, 1).toUpperCase();
+    const clash = profiles.some((q) => q !== p && q.slice(0, 1).toUpperCase() === first);
+    out.set(p, clash ? p.slice(0, 2).toUpperCase() : first);
+  }
+  return out;
+}
+
+export function profileBadge(profile: string, profiles: readonly string[]): ProfileBadge {
+  const known = profiles.includes(profile);
+  const initials = profileInitials(known ? profiles : [...profiles, profile]);
+  return { profile, initial: initials.get(profile) ?? profile.slice(0, 1).toUpperCase(), slot: known ? profiles.indexOf(profile) : null };
+}
+
+/**
+ * The distinct profiles among a set of windows' agents, in panel order, so a
+ * session with two agents on one account shows one badge and a session with
+ * agents on two accounts shows two, in the same order everywhere.
+ */
+export function profileBadges(windows: readonly Pick<WindowInfo, "agent">[], profiles: readonly string[]): ProfileBadge[] {
+  const used = new Set(windows.map((w) => w.agent?.profile).filter((p): p is string => p !== undefined));
+  const ordered = [...profiles.filter((p) => used.has(p)), ...[...used].filter((p) => !profiles.includes(p)).sort()];
+  return ordered.map((p) => profileBadge(p, profiles));
 }
 
 /** A glyph's tooltip, with the account the agent spends when it is known. */

@@ -263,9 +263,10 @@ const conn = new Connection(wsUrl, {
         break;
       }
       case "usage":
-        renderUsage(usageEl, m.sources);
-        // Claude's accounts, which a session's tag can name; opencode is not one.
-        sidebar.setProfiles(m.sources.filter((s) => s.id !== "opencode").map((s) => s.label));
+        // The badge switch lives in the panel; the tabs wear the badges.
+        renderUsage(usageEl, m.sources, Date.now(), () => tabs.render(sessions, current));
+        // Claude's accounts, in the panel's order; opencode is not one.
+        tabs.setProfiles(m.sources.filter((s) => s.id !== "opencode").map((s) => s.label));
         break;
       case "attached":
         current = m.session;

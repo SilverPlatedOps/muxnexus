@@ -216,10 +216,51 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    and rare, so it is loud only when it is true. */
 .shared-checkout { flex: none; display: inline-flex; color: var(--yellow); }
 .shared-checkout svg { display: block; }
-/* The account an agent spends, shown only when the session's tag names a
-   different one. The same hazard yellow: nothing is broken yet, but the wrong
-   quota is draining. */
-.profile-tag { flex: none; color: var(--yellow); font-size: 10.5px; font-weight: 500; }
+/* The account a tab's agent spends: its initial in the account's own colour,
+   the same letter and colour the quota panel puts before that account's name,
+   so the panel is the legend. Identity hues, not state: purple and cyan are
+   the two hues in the palette that red, yellow, blue and green have not
+   claimed, tinted up until they clear 4.5:1 on the attached row's fill. A
+   letter in a 1px outline, no fill: a tint behind it drops it under 3:1. */
+:root {
+  --profile-0: #d6a4ea;
+  --profile-1: #6cc6d1;
+}
+.pbadge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 12px;
+  height: 15px;
+  padding: 0 2px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px currentColor;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}
+.pbadge.p0 { color: var(--profile-0); }
+.pbadge.p1 { color: var(--profile-1); }
+.pbadge.blank { box-shadow: none; }
+#usage .pbadge { height: 14px; font-size: 9px; align-self: center; }
+
+/* The badge switch, under the accounts it is the legend for. Its own line:
+   the account rows are full at 280px. */
+.usage-foot { display: flex; justify-content: flex-end; margin-top: 1px; }
+.usage-badges {
+  padding: 3px 4px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--dim);
+  font: 500 10px/1 var(--mono);
+  cursor: pointer;
+}
+.usage-badges:hover { color: var(--fg); background: var(--hover); }
 
 /* The count of sessions waiting, on the hamburger, so a closed drawer can
    still say that something elsewhere needs you. */
@@ -731,6 +772,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   #find { left: 12px; right: 12px; top: 8px; }
   #find-input { flex: 1; width: auto; }
   #usage { font-size: 12px; }
+  .usage-badges { padding: 6px 6px; margin-right: -6px; font-size: 11px; }
   #side-foot { padding-bottom: 22px; }
   #side-foot .btn.block { height: 44px; border-radius: 8px; }
 }

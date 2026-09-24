@@ -15,7 +15,9 @@ import {
   sessionGlyph,
   sharedCheckouts,
   sharingTitle,
-  profileMismatch,
+  profileBadge,
+  profileBadges,
+  profileInitials,
   agentTitle,
   windowDots,
   windowGlyph,
@@ -213,19 +215,34 @@ describe("formatElapsed", () => {
   });
 });
 
-describe("profileMismatch", () => {
+describe("profile badges", () => {
   const on = (profile?: string) => ({ agent: { state: "done" as const, since: "", ...(profile ? { profile } : {}) } });
   const profiles = ["personal", "work"];
 
-  test("names the accounts a tagged session's agents spend instead of its own", () => {
-    expect(profileMismatch("Work", [on("personal"), on("work"), on("personal")], profiles)).toEqual(["personal"]);
-    expect(profileMismatch("Personal", [on("work")], profiles)).toEqual(["work"]);
+  test("an initial each, two letters when two profiles share one", () => {
+    expect([...profileInitials(profiles)]).toEqual([["personal", "P"], ["work", "W"]]);
+    expect([...profileInitials(["personal", "work", "wife"])]).toEqual([["personal", "P"], ["work", "WO"], ["wife", "WI"]]);
   });
 
-  test("nothing when the tag names no profile, or the agents agree", () => {
-    expect(profileMismatch("Project", [on("personal")], profiles)).toEqual([]);
-    expect(profileMismatch(null, [on("work")], profiles)).toEqual([]);
-    expect(profileMismatch("work", [on("work"), on(), {}], profiles)).toEqual([]);
+  test("the colour slot is the profile's row in the quota panel", () => {
+    expect(profileBadge("personal", profiles)).toEqual({ profile: "personal", initial: "P", slot: 0 });
+    expect(profileBadge("work", profiles)).toEqual({ profile: "work", initial: "W", slot: 1 });
+  });
+
+  test("a profile the panel does not list keeps its letter and gets no colour", () => {
+    expect(profileBadge("client", profiles)).toEqual({ profile: "client", initial: "C", slot: null });
+    // Its initial still avoids a listed profile's.
+    expect(profileBadge("wife", profiles)).toEqual({ profile: "wife", initial: "WI", slot: null });
+  });
+
+  test("a session shows each account once, in panel order, whatever its tabs' order", () => {
+    expect(profileBadges([on("work"), on("personal"), on("work"), on(), {}], profiles).map((b) => b.initial)).toEqual(["P", "W"]);
+    expect(profileBadges([on("personal"), on("personal")], profiles).map((b) => b.initial)).toEqual(["P"]);
+    expect(profileBadges([on(), {}], profiles)).toEqual([]);
+  });
+
+  test("unlisted profiles follow the listed ones, alphabetically", () => {
+    expect(profileBadges([on("zed"), on("client"), on("work")], profiles).map((b) => b.profile)).toEqual(["work", "client", "zed"]);
   });
 
   test("the tooltip names the account", () => {

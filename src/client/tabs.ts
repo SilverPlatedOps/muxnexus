@@ -1,8 +1,9 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
-import { agentTitle, GLYPH, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
+import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
+import { badgesShown } from "./usage";
 
 /** The windows of the attached session, in tmux order. Empty when nothing is attached. */
 export function tabsModel(sessions: SessionInfo[], current: string | null): WindowInfo[] {
@@ -24,6 +25,8 @@ export interface TabActions {
 
 export interface Tabs {
   render(sessions: SessionInfo[], current: string | null): void;
+  /** The Claude profiles on this machine, in the quota panel's order, which picks each badge's colour. */
+  setProfiles(labels: string[]): void;
 }
 
 const ICON = {
@@ -64,6 +67,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
+  let profiles: string[] = [];
 
   const rerender = () => draw(lastSessions, lastCurrent);
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -169,6 +173,15 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
     mark.title = agentTitle(w);
     name.append(mark, el("span", "label", tabLabel(w)));
+    // The account this agent spends, when the viewer wants to see it: the tab
+    // is the one place, since a tab is exactly one agent. The glyph's tooltip
+    // names it either way.
+    if (w.agent?.profile && badgesShown()) {
+      const b = profileBadge(w.agent.profile, profiles);
+      const mark = el("span", `pbadge${b.slot === null ? "" : ` p${b.slot}`}`, b.initial);
+      mark.title = `${b.profile} profile`;
+      name.append(mark);
+    }
     const shared = sharing.get(w.id);
     if (shared) name.append(checkoutMark(shared));
     if (w.panes > 1) {
@@ -238,5 +251,12 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     },
   });
 
-  return { render: draw };
+  return {
+    render: draw,
+    setProfiles(labels) {
+      if (labels.join("\n") === profiles.join("\n")) return;
+      profiles = labels;
+      if (lastCurrent) rerender();
+    },
+  };
 }
