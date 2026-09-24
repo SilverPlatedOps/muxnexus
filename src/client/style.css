@@ -4,6 +4,11 @@
   --chrome: #1b1f25;
   --panel: #20242b;
   --group: #232830;
+  /* The attached session: the one row tinted with the accent, so "where am I"
+     is answered by colour before anything is read. */
+  --current: color-mix(in oklab, var(--accent) 15%, var(--panel));
+  --current-hover: color-mix(in oklab, var(--accent) 21%, var(--panel));
+  --current-ring: color-mix(in oklab, var(--accent) 38%, transparent);
   --hover: #2a2f38;
   --sel: #323844;
   --chip: #3d4552;
@@ -104,7 +109,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 0;
+  padding: 10px 6px;
   position: relative;   /* the drop marker is positioned against this box */
   display: flex;
   flex-direction: column;
@@ -263,8 +268,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border-top: 1px solid var(--line-soft);
 }
 
-.group { display: flex; flex-direction: column; }
-.group.current { background: var(--group); border-radius: 0 6px 6px 0; }
+.group { display: flex; flex-direction: column; border-radius: 6px; }
+/* A filled, ringed row rather than a stripe at the edge: the stripe was two
+   pixels at the sidebar's border, the same shape as the running spinner's "|",
+   and a hovered neighbour looked more selected than it did. */
+.group.current { background: var(--current); box-shadow: inset 0 0 0 1px var(--current-ring); }
 
 .row {
   display: flex;
@@ -282,8 +290,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   cursor: pointer;
 }
 
-.row.session { height: var(--row); padding: 0 4px 0 0; cursor: default; }
-.group.current .row.session { border-left: 2px solid var(--accent); }
+.row.session { height: var(--row); padding: 0 4px 0 0; border-radius: 6px; cursor: default; }
 .row.session .name {
   display: flex;
   align-items: center;
@@ -291,18 +298,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   flex: 1;
   min-width: 0;
   height: 100%;
-  padding: 0 6px 0 12px;
+  padding: 0 6px 0 6px;
   border: 0;
   background: none;
-  font: 600 12.5px/1 var(--mono);
+  /* Medium, so the attached session's bold stands apart: 600 against 700 did not. */
+  font: 500 12.5px/1 var(--mono);
   color: var(--fg);
   text-align: left;
   cursor: pointer;
 }
-.group.current .row.session .name { padding-left: 10px; }
 .row .label { flex: 1; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; }
 .group.current .row.session .name { font-weight: 700; color: var(--fg-strong); }
 .row.session:hover, .row.session.menu-open { background: var(--hover); }
+.group.current .row.session:hover, .group.current .row.session.menu-open { background: var(--current-hover); }
 /* Its cmux workspace is gone: the session still runs, but nothing there matches it. */
 .row.session.orphan .label { color: var(--dim); font-style: italic; }
 
@@ -338,7 +346,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .menu { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 10px 8px 12px; }
 .menu .btn { text-align: left; }
 .menu.window { padding-left: 28px; }
-.group.current .menu.window { padding-left: 26px; }
 
 /* The grip that starts a drag. A span, not a button, so reorder.ts arms on it
    with a mouse (it ignores buttons) and the row's own clicks stay attached. */
