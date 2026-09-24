@@ -266,6 +266,17 @@ fi
   }
 });
 
+test("attaching to a dotted name reaches that session, not the one its prefix names", async () => {
+  await tmux.newSession("api");
+  await tmux.newSession("api.v2");
+  const c = await connect();
+  c.send({ t: "attach", session: "api.v2" });
+  await waitFor(() => (c.last("attached") as any)?.session === "api.v2", 2000, "attached");
+  const clients = await waitFor(async () => (await tmux.run(["list-clients", "-F", "#{session_name}"])).trim(), 3000, "client");
+  expect(clients).toBe("api.v2");
+  c.ws.close();
+});
+
 test("attaching to a group targets the base and does not move a tab session's window", async () => {
   await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24", "sh"]);
   await tmux.run(["new-window", "-d", "-t", "=ws", "sh"]);

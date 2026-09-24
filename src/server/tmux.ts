@@ -357,16 +357,23 @@ export class Tmux {
     return orderSessions(byAge);
   }
 
+  /** The session a sidebar name refers to, by exact name. */
+  private async row(name: string): Promise<SessionRow> {
+    const r = (await this.rows()).find((x) => x.name === name);
+    if (!r) throw new TmuxError(`can't find session: ${name}`);
+    return r;
+  }
+
   /**
-   * The tmux session to address for a sidebar name: an exact-name lookup, since
-   * every name the sidebar shows is a real session.
+   * The tmux target for a sidebar name: the session's id (`$3`), never its name.
+   * tmux accepts '.' and ':' in a session name yet splits a target on them, so
+   * `=api.v2` is session `api`, window `v2` -- set-option stamped the wrong
+   * session with it, and kill-session could not find the right one. An id has
+   * neither character.
    * Rejects with TmuxError("can't find session: <name>") when it does not exist.
    */
   async target(name: string): Promise<string> {
-    if (name === "") await this.run(["has-session", "-t", "="]); // let tmux report its own error
-    const r = (await this.rows()).find((x) => x.name === name);
-    if (!r) throw new TmuxError(`can't find session: ${name}`);
-    return name;
+    return idTarget((await this.row(name)).id);
   }
 
   async hasSession(name: string): Promise<boolean> {
@@ -384,7 +391,7 @@ export class Tmux {
   }
 
   async newWindow(session: string): Promise<void> {
-    await this.run(["new-window", "-t", `=${await this.target(session)}`]);
+    await this.run(["new-window", "-t", `${await this.target(session)}:`]);
   }
 
   async killSession(session: string): Promise<void> {
@@ -392,7 +399,7 @@ export class Tmux {
     const row = all.find((r) => r.name === session);
     if (!row) throw new TmuxError(`can't find session: ${session}`);
     for (const m of this.groupOf(row, all)) {
-      await this.run(["kill-session", "-t", `=${m.name}`]).catch((e) => {
+      await this.run(["kill-session", "-t", idTarget(m.id)]).catch((e) => {
         if (e instanceof TmuxError && NOT_FOUND.test(e.message)) return; // already gone
         throw e;
       });
@@ -400,33 +407,37 @@ export class Tmux {
   }
 
   async killWindow(session: string, index: number): Promise<void> {
-    await this.run(["kill-window", "-t", `=${await this.target(session)}:${index}`]);
+    await this.run(["kill-window", "-t", `${await this.target(session)}:${index}`]);
   }
 
   async selectWindow(session: string, index: number): Promise<void> {
-    await this.run(["select-window", "-t", `=${await this.target(session)}:${index}`]);
+    await this.run(["select-window", "-t", `${await this.target(session)}:${index}`]);
   }
 
   async renameSession(session: string, name: string): Promise<void> {
-    await this.run(["rename-session", "-t", `=${await this.target(session)}`, "--", name]);
+    const target = await this.target(session);
+    await this.run(["rename-session", "-t", target, "--", name]);
     // The stamp is what the client displays: it survives cmux re-titling and, on
     // a session whose name is a cmux workspace, keeps the rename from racing the
     // guard's own name sync.
-    await this.run(["set-option", "-t", name, "@muxnexus_name", name]);
+    await this.run(["set-option", "-t", target, "@muxnexus_name", name]);
   }
 
   async renameWindow(session: string, index: number, name: string): Promise<void> {
-    const target = `=${await this.target(session)}:${index}`;
+    const target = `${await this.target(session)}:${index}`;
     await this.run(["rename-window", "-t", target, "--", name]);
     await this.run(["set-option", "-w", "-t", target, "@muxnexus_window_name", name]);
   }
 
-  /** Kill the whole server on this socket. Never throws (used by tests). */
-  /** Stamp the sidebar position of each name, in the order given. */
+  /**
+   * Stamp the sidebar position of each name, in the order given. A name that is
+   * gone -- killed between the drag and now -- is skipped, not an error.
+   */
   async setSessionOrder(names: readonly string[]): Promise<void> {
-    // set-option takes no "=" target prefix; exact names are matched first.
+    const all = await this.rows();
     for (const [i, name] of names.entries()) {
-      await this.run(["set-option", "-t", name, "@muxnexus_order", String(i)]);
+      const row = all.find((r) => r.name === name);
+      if (row) await this.run(["set-option", "-t", idTarget(row.id), "@muxnexus_order", String(i)]);
     }
   }
 
@@ -435,13 +446,15 @@ export class Tmux {
    * `move-window` cannot be used: tmux refuses an occupied target index.
    */
   async reorderWindows(session: string, wanted: readonly number[]): Promise<void> {
-    const out = await this.run(["list-windows", "-t", `=${session}`, "-F", "#{window_index}"]);
+    const target = await this.target(session);
+    const out = await this.run(["list-windows", "-t", target, "-F", "#{window_index}"]);
     const positions = lines(out).map(Number).sort((a, b) => a - b);
     for (const [a, b] of swapPlan(positions, wanted)) {
-      await this.run(["swap-window", "-s", `=${session}:${b}`, "-t", `=${session}:${a}`]);
+      await this.run(["swap-window", "-s", `${target}:${b}`, "-t", `${target}:${a}`]);
     }
   }
 
+  /** Kill the whole server on this socket. Never throws (used by tests). */
   async killServer(): Promise<void> {
     try {
       await this.run(["kill-server"]);
@@ -449,6 +462,11 @@ export class Tmux {
       /* no server: nothing to do */
     }
   }
+}
+
+/** A session id as a tmux target. */
+function idTarget(id: number): string {
+  return `$${id}`;
 }
 
 /** tmux socket selection flags: `-S path` wins over `-L name`; neither means tmux's default. */

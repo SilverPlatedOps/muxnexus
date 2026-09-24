@@ -150,7 +150,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     if (seq !== ws.data.attachSeq || !clients.has(ws)) return;
     detach(ws);
     const handle: PtyHandle = attachSession({
-      session: target,
+      target,
       socketName: opts.socketName,
       socketPath: opts.socketPath,
       cols: ws.data.cols,

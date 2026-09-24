@@ -2,7 +2,8 @@ import { spawn } from "bun-pty";
 import { socketArgs } from "./tmux";
 
 export interface AttachOptions {
-  session: string;
+  /** A tmux target, used as given: a session id (`$3`) or an exact `=name`. */
+  target: string;
   socketName?: string;
   socketPath?: string;
   cols: number;
@@ -24,7 +25,7 @@ export function attachSession(opts: AttachOptions): PtyHandle {
     ...socketArgs(opts.socketName, opts.socketPath),
     "attach-session",
     "-t",
-    `=${opts.session}`,
+    opts.target,
   ];
 
   // Copy the environment, drop TMUX so attaching works from inside tmux/cmux,

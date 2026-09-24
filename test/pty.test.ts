@@ -17,7 +17,7 @@ test("attaches, forwards input and output", async () => {
   let out = "";
   const exits: number[] = [];
   const pty = attachSession({
-    session: "s", socketName: SOCKET, cols: 100, rows: 30,
+    target: "=s", socketName: SOCKET, cols: 100, rows: 30,
     onData: (d) => { out += d; },
     onExit: (c) => { exits.push(c); },
   });
@@ -33,7 +33,7 @@ test("attaches, forwards input and output", async () => {
 
 test("resize propagates to the tmux window", async () => {
   const pty = attachSession({
-    session: "s", socketName: SOCKET, cols: 100, rows: 30,
+    target: "=s", socketName: SOCKET, cols: 100, rows: 30,
     onData: () => {}, onExit: () => {},
   });
   await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", "=s:0", "#{window_width}"])).trim() === "100", 3000, "initial width");
@@ -45,7 +45,7 @@ test("resize propagates to the tmux window", async () => {
 test("onExit fires once when the session is killed underneath the client", async () => {
   const exits: number[] = [];
   const pty = attachSession({
-    session: "s", socketName: SOCKET, cols: 80, rows: 24,
+    target: "=s", socketName: SOCKET, cols: 80, rows: 24,
     onData: () => {}, onExit: (c) => { exits.push(c); },
   });
   await waitFor(() => (async () => (await tmux.listSessions())[0]?.attached === 1)(), 3000, "client attached");

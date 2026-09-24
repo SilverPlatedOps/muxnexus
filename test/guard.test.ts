@@ -102,14 +102,14 @@ test("pick_window adopts the lowest window no attached tab shows, else creates o
   // a tab session attached on window 0
   await tmux.run(["new-session", "-d", "-t", "ws", "-s", "ws~t1"]);
   await tmux.run(["select-window", "-t", "=ws~t1:0"]);
-  ptys.push(attachSession({ session: "ws~t1", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
+  ptys.push(attachSession({ target: "=ws~t1", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
   await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", "=ws~t1:0", "#{session_attached}"])).trim() === "1", 3000, "t1 attached");
   expect(await pick()).toBe("1");
   // second tab on window 1, third on window 2: all shown -> a new window 3 is created
   for (const [name, win] of [["ws~t2", "1"], ["ws~t3", "2"]] as const) {
     await tmux.run(["new-session", "-d", "-t", "ws", "-s", name]);
     await tmux.run(["select-window", "-t", `=${name}:${win}`]);
-    ptys.push(attachSession({ session: name, socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
+    ptys.push(attachSession({ target: `=${name}`, socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
     await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", `=${name}:0`, "#{session_attached}"])).trim() === "1", 3000, `${name} attached`);
   }
   expect(await pick()).toBe("3");
@@ -126,7 +126,7 @@ test("pick_window follows the group after the base is renamed", async () => {
   const sock = await sockOf("ws");
   await tmux.run(["new-session", "-d", "-t", "=ws", "-s", "ws~t1"]);
   await tmux.run(["select-window", "-t", "=ws~t1:0"]);
-  ptys.push(attachSession({ session: "ws~t1", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
+  ptys.push(attachSession({ target: "=ws~t1", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} }));
   await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", "=ws~t1:0", "#{session_attached}"])).trim() === "1", 3000, "t1 attached");
   // tmux keeps #{session_group} at "ws"; the guard must resolve the group, not assume the name.
   await tmux.run(["rename-session", "-t", "=ws", "--", "proj"]);

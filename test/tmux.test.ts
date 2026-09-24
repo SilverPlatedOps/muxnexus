@@ -7,6 +7,10 @@ import { waitFor } from "./helpers";
 const SOCKET = "cmux-viewer-test-tmux";
 const tmux = new Tmux(SOCKET);
 
+/** tmux's own id for an exact session name, to check what target() resolved to. */
+const idOf = async (name: string) =>
+  (await tmux.run(["display-message", "-p", "-t", `=${name}:`, "#{session_id}"])).trim();
+
 beforeEach(async () => { await tmux.killServer(); });
 afterEach(async () => { await tmux.killServer(); });
 
@@ -86,6 +90,38 @@ describe("Tmux mutators", () => {
     expect(renamed.name).toBe("proj");
   });
 
+  // tmux reads `api.v2` in a target as session `api`, window `v2`, and `a:b` as
+  // session `a`, window `b` -- yet it accepts both as session names. Found live:
+  // set-option on `=api.v2` stamped `api`, and kill-session could not find it.
+  test("a name with '.' or ':' never reaches the session it starts with", async () => {
+    await tmux.newSession("api");
+    await tmux.newSession("api.v2");
+    await tmux.newSession("a");
+    await tmux.newSession("a:b");
+    await tmux.setSessionOrder(["api.v2", "a:b", "api", "a"]);
+    expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["api.v2", "a:b", "api", "a"]);
+
+    await tmux.renameSession("api.v2", "api.v3");
+    const byName = new Map((await tmux.listSessions()).map((s) => [s.name, s]));
+    expect(byName.get("api.v3")?.customName).toBe("api.v3");
+    expect(byName.get("api")?.customName).toBeUndefined();
+
+    await tmux.newWindow("a:b");
+    expect((await tmux.listSessions()).find((s) => s.name === "a:b")?.windows).toHaveLength(2);
+    expect((await tmux.listSessions()).find((s) => s.name === "a")?.windows).toHaveLength(1);
+
+    await tmux.killSession("api.v3");
+    await tmux.killSession("a:b");
+    expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["api", "a"]);
+  });
+
+  test("setSessionOrder skips a name that has gone since the drag", async () => {
+    await tmux.newSession("x");
+    await tmux.newSession("y");
+    await tmux.setSessionOrder(["y", "gone", "x"]);
+    expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["y", "x"]);
+  });
+
   test("hasSession", async () => {
     await tmux.newSession("here");
     expect(await tmux.hasSession("here")).toBe(true);
@@ -97,10 +133,9 @@ describe("Tmux mutators", () => {
     expect(await tmux.hasSession("any")).toBe(false);
   });
 
-  test("rethrows tmux errors that are not not-found", async () => {
+  test("an empty name is no session, rather than a target tmux misreads", async () => {
     await tmux.newSession("s");
-    // An empty name yields target "=", which tmux rejects with an unrelated error.
-    await expect(tmux.hasSession("")).rejects.toThrow(/no mouse target/);
+    expect(await tmux.hasSession("")).toBe(false);
   });
 });
 
@@ -141,7 +176,7 @@ describe("Tmux session groups", () => {
     await makeGroup();
     // A detached "attach" is impossible; simulate one client via a PTY.
     const { attachSession } = await import("../src/server/pty");
-    const pty = attachSession({ session: "ws~a1b2c3d4", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} });
+    const pty = attachSession({ target: "=ws~a1b2c3d4", socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} });
     try {
       await waitFor(async () => (await tmux.listSessions())[0]?.attached === 1, 3000, "group attached");
     } finally {
@@ -151,12 +186,12 @@ describe("Tmux session groups", () => {
 
   test("target() is the base when present, else the sidebar shows the oldest surviving member", async () => {
     await makeGroup();
-    expect(await tmux.target("ws")).toBe("ws");
+    expect(await tmux.target("ws")).toBe(await idOf("ws"));
     await tmux.run(["kill-session", "-t", "=ws"]);
     const sessions = await tmux.listSessions();
     // the group still answers to "ws", but only real session names are shown
     expect(sessions.map((s) => s.name)).toEqual(["ws~a1b2c3d4"]);
-    expect(await tmux.target("ws~a1b2c3d4")).toBe("ws~a1b2c3d4");
+    expect(await tmux.target("ws~a1b2c3d4")).toBe(await idOf("ws~a1b2c3d4"));
     await expect(tmux.target("ws")).rejects.toThrow(/can't find session/);
     expect(await tmux.hasSession("ws")).toBe(false);
     await tmux.newWindow("ws~a1b2c3d4");
@@ -181,7 +216,7 @@ describe("Tmux session groups", () => {
     await makeGroup();
     await tmux.renameSession("ws", "proj");
     expect((await tmux.listSessions()).map((s) => s.name)).toEqual(["proj"]);
-    expect(await tmux.target("proj")).toBe("proj");
+    expect(await tmux.target("proj")).toBe(await idOf("proj"));
     // still one group: a window added through the new name reaches every member
     await tmux.newWindow("proj");
     expect((await tmux.listSessions())[0].windows).toHaveLength(3);
@@ -192,7 +227,7 @@ describe("Tmux session groups", () => {
     await tmux.newSession("plain");
     const [s] = await tmux.listSessions();
     expect(s.name).toBe("plain");
-    expect(await tmux.target("plain")).toBe("plain");
+    expect(await tmux.target("plain")).toBe(await idOf("plain"));
   });
 });
 
