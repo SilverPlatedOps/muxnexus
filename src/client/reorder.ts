@@ -5,6 +5,13 @@
  * iOS, and this has to work from an iPad. On touch the drag arms on a long press
  * so it does not fight the page's own scrolling; with a mouse it arms as soon as
  * the pointer has moved far enough to mean it.
+ *
+ * A whole row drags, not a grip on it. The row's body is a button whose click
+ * attaches or selects and whose double-click renames; the travel a mouse drag
+ * needs before arming is what keeps a click a click, and the click the browser
+ * fires after a drag is swallowed so dropping a row does not also open it.
+ * Only the row's real controls -- its rename field, its menu button, the menu's
+ * own buttons -- never start a drag.
  */
 
 export interface Rect {
@@ -150,13 +157,37 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     }
   }
 
+  /**
+   * Eat the click the browser fires after a drag ends, wherever it lands:
+   * pointer capture on the container can retarget it. Whichever comes first
+   * clears it -- the click itself, the next pointerdown, or a short wait for
+   * a drop that produced no click at all.
+   */
+  function swallowNextClick() {
+    const off = () => {
+      document.removeEventListener("click", eat, true);
+      document.removeEventListener("pointerdown", off, true);
+      clearTimeout(timer);
+    };
+    const eat = (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      off();
+    };
+    const timer = setTimeout(off, 200);
+    document.addEventListener("click", eat, true);
+    document.addEventListener("pointerdown", off, true);
+  }
+
   function onPointerDown(e: PointerEvent) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     const rows = opts.rows();
     const row = rows.find((r) => r.contains(e.target as Node));
     if (!row) return;
-    // Buttons inside a row keep working; only the row's own body starts a drag.
-    if ((e.target as HTMLElement).closest("button, input") && e.pointerType !== "touch") return;
+    // The row's controls keep their own press: the rename field selects text,
+    // the icon buttons and the menu's buttons act. The row's body is a button
+    // too, but its click is a tap, and the slop below tells a tap from a drag.
+    if ((e.target as HTMLElement).closest("input, .row-btn, .btn")) return;
     from = rows.indexOf(row);
     dragged = row;
     startPos = pos(e);
@@ -195,6 +226,9 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
   function onPointerUp(e: PointerEvent) {
     if (from < 0) return;
     if (!armed) return clear();
+    // Armed at all, moved or not: a long press that went nowhere still ends
+    // with a click, and that press was not a tap either.
+    swallowNextClick();
     const base = container.getBoundingClientRect();
     const to = dropIndex(rects(), pos(e) - (horizontal ? base.left : base.top));
     const n = opts.rows().length;
@@ -204,16 +238,26 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     if (moved) opts.commit(order);
   }
 
+  // Pointer events cannot stop a touch from turning into a scroll; only a
+  // non-passive touchmove can. The finger has not moved during the hold, so
+  // nothing is scrolling yet, and refusing the first move keeps it that way.
+  // Before the hold elapses the move is left alone, and it is a scroll.
+  function onTouchMove(e: TouchEvent) {
+    if (armed) e.preventDefault();
+  }
+
   container.addEventListener("pointerdown", onPointerDown);
   container.addEventListener("pointermove", onPointerMove);
   container.addEventListener("pointerup", onPointerUp);
   container.addEventListener("pointercancel", clear);
+  container.addEventListener("touchmove", onTouchMove, { passive: false });
 
   return () => {
     container.removeEventListener("pointerdown", onPointerDown);
     container.removeEventListener("pointermove", onPointerMove);
     container.removeEventListener("pointerup", onPointerUp);
     container.removeEventListener("pointercancel", clear);
+    container.removeEventListener("touchmove", onTouchMove);
     clear();
   };
 }

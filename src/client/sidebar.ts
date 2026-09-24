@@ -1,6 +1,6 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
-import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, windowGlyph } from "./agent";
+import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, windowDots } from "./agent";
 
 export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
@@ -192,16 +192,18 @@ export function createSidebar(
     // what you do about it, where how long a turn has run does not.
     const elapsed = glyph === "input" ? formatElapsed(sessionAgent(row.windows)?.since, Date.now()) : "";
     if (elapsed) name.append(el("span", "elapsed", elapsed));
-    // One dot per window, in tab order, so a multi-window session says which
-    // of its tabs is the one shouting.
-    if (row.windows.length > 1) {
+    // One dot per window, in tab order, so a session with several agents says
+    // which of its tabs is the one shouting. windowDots says when that is
+    // worth the space; a session with one agent gets nothing beyond its glyph.
+    const dotGlyphs = windowDots(row.windows);
+    if (dotGlyphs.length > 0) {
       const dots = el("span", "wdots");
-      for (const w of row.windows) {
-        const g = windowGlyph(w);
+      dotGlyphs.forEach((g, i) => {
+        const w = row.windows[i]!;
         const d = el("span", `glyph ${g}`, GLYPH[g]);
         d.title = `${w.label ?? w.name}: ${GLYPH_TITLE[g]}`;
         dots.append(d);
-      }
+      });
       name.append(dots);
     }
     if (row.orphan) name.title = `${row.name} — its cmux workspace is closed`;
@@ -213,10 +215,9 @@ export function createSidebar(
       inlineRename(r, row.label, (next) => actions.renameSession(row.name, next));
     };
 
-    const handle = el("span", "drag-handle", "⠿");
-    handle.title = "Drag to reorder";
-    handle.setAttribute("aria-hidden", "true");
-    r.append(name, handle, menuButton(row.name));
+    // The whole row drags: reorder.ts arms on the name after enough travel, so
+    // a click still attaches and a double-click still renames.
+    r.append(name, menuButton(row.name));
     group.append(r);
 
     if (ui.menu === row.name) {

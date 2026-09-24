@@ -146,13 +146,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   align-items: center;
   justify-content: center;
 }
-/* Running: an open arc turning in the space of "○". Drawn rather than typed
-   so every frame has the same size and weight; the old `|/-\` frames flashed
-   between a tall stroke and a dash, and several side by side read as
-   punctuation. Open, not a ring with a bright segment, so it cannot be taken
-   for idle "○" even when it stands still -- under reduced motion, and in the
-   window dots. app.ts pins every arc to one clock, so a page of them turns
-   as one. */
+/* Running: an open arc in the space of "○". Drawn rather than typed so it has
+   the same size and weight everywhere; the old `|/-\` frames flashed between a
+   tall stroke and a dash, and several side by side read as punctuation. Open,
+   not a ring with a bright segment, so it cannot be taken for idle "○": in the
+   sidebar it stands still, a state mark like the other four. */
 .glyph.running::before {
   content: "";
   box-sizing: border-box;
@@ -162,8 +160,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border-left-color: transparent;
   border-radius: 50%;
   transform: rotate(45deg);
-  animation: spin 1.2s linear infinite;
 }
+
+/* The one place an arc turns: the tab, because the tab is the window and the
+   window is what runs. The sidebar row said the same thing a second time, its
+   window dots a third and the top bar a fourth, and four spinners for one
+   agent read as noise. Only the attached session has tabs, so at most one
+   session's arcs move, and app.ts pins them to one clock so a rebuild does not
+   restart them. */
+#tabs .glyph.running::before { animation: spin 1.2s linear infinite; }
 
 @keyframes spin {
   from { transform: rotate(45deg); }
@@ -172,7 +177,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* Motion is an accent, not information: the arc still differs from "○" without it. */
 @media (prefers-reduced-motion: reduce) {
-  .glyph.running::before { animation: none; }
+  #tabs .glyph.running::before { animation: none; }
 }
 
 /* How long a blocked agent has been waiting. Pushed to the right so the names
@@ -184,14 +189,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   font-size: 11px;
 }
 
-/* One dot per window, only when a session has more than one. With many windows
-   the dots clip rather than squeeze the name out: the row's own glyph already
-   carries the most urgent state of them all. */
+/* One dot per window, only when a session has agents in more than one (agent.ts
+   windowDots). With many windows the dots clip rather than squeeze the name out:
+   the row's own glyph already carries the most urgent state of them all. */
 .wdots { display: flex; gap: 1px; padding-left: 6px; min-width: 0; overflow: hidden; }
 .wdots .glyph { width: 11px; font-size: 12px; }
-/* One moving thing per row: the row's own glyph turns, and its window dots
-   only say which tabs are running. */
-.wdots .glyph.running::before { animation: none; }
 
 #tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
 
@@ -217,8 +219,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   font-weight: 700;
 }
 
-/* The attached session, above the terminal: its state glyph, then its name as
-   the sidebar row shows it, at the row's weight. */
+/* The attached session, above the terminal: its name as the sidebar row shows
+   it, at the row's weight, with the red "needs you" before it and nothing for
+   any other state (app.ts updateChip). */
 .chip { display: flex; align-items: center; gap: 8px; min-width: 0; }
 #chip-name {
   overflow: hidden;
@@ -311,7 +314,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   cursor: pointer;
 }
 
-.row.session { height: var(--row); padding: 0 4px 0 0; border-radius: 6px; cursor: default; }
+/* The whole row drags (reorder.ts), so nothing in it may be selected on the
+   way to arming, and a long press on a phone must not raise the callout. */
+.row.session { height: var(--row); padding: 0 4px 0 0; border-radius: 6px; cursor: default; user-select: none; -webkit-touch-callout: none; }
 .row.session .name {
   display: flex;
   align-items: center;
@@ -367,25 +372,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .menu { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 10px 8px 12px; }
 .menu .btn { text-align: left; }
 .menu.window { padding-left: 28px; }
-
-/* The grip that starts a drag. A span, not a button, so reorder.ts arms on it
-   with a mouse (it ignores buttons) and the row's own clicks stay attached. */
-.drag-handle {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 100%;
-  font-size: 11px;
-  color: var(--faint);
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-.drag-handle:hover { color: var(--muted); }
-.reordering .drag-handle { cursor: grabbing; }
-.tab .drag-handle { width: 14px; font-size: 10px; }
 
 .btn {
   height: 26px;
@@ -556,6 +542,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   padding: 0 2px 0 10px;
   border-radius: 7px 7px 0 0;
   color: var(--muted);
+  /* Drags whole, as the session row does. */
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .tab:hover { background: var(--hover); color: var(--fg); }
 /* The active tab is the terminal's surface, grown up over the strip. */
@@ -579,8 +568,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   cursor: pointer;
 }
 .tab.active .name { font-weight: 600; }
-.tab .idx { color: var(--faint); flex: none; }
-.tab.active .idx { color: var(--muted); }
 .tab .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab .panes {
   padding: 1px 5px;

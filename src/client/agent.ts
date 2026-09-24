@@ -14,7 +14,7 @@ const RANK: Record<Glyph, number> = { input: 0, running: 1, unread: 2, seen: 3, 
 /** The character for each. Red is applied by CSS, and only to `input`. */
 export const GLYPH: Record<Glyph, string> = {
   input: "●",   // filled circle, the only red thing in the sidebar
-  running: "",  // an open arc that turns, drawn by .glyph.running::before in style.css
+  running: "",  // an open arc, drawn by .glyph.running::before in style.css; it turns on the tab only
   unread: "●",  // filled, but foreground rather than red
   seen: "○",    // the empty counterpart of unread's ●, as mail marks read against unread
   none: " ",    // a space that still takes its column
@@ -48,6 +48,19 @@ export function worstGlyph(glyphs: readonly Glyph[]): Glyph {
 
 export function sessionGlyph(windows: readonly Pick<WindowInfo, "agent" | "unread">[]): Glyph {
   return worstGlyph(windows.map(windowGlyph));
+}
+
+/**
+ * The per-window dots after a session's name, one per window in tab order, or
+ * none. The row's own glyph already carries the worst of its windows, so the
+ * dots earn their space only when at least two windows have something to say:
+ * a session with one agent among plain shells would just repeat its own glyph
+ * a few pixels to the right. Plain windows keep their slot, so a dot still
+ * points at a tab.
+ */
+export function windowDots(windows: readonly Pick<WindowInfo, "agent" | "unread">[]): Glyph[] {
+  const glyphs = windows.map(windowGlyph);
+  return glyphs.filter((g) => g !== "none").length > 1 ? glyphs : [];
 }
 
 /**

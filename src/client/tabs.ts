@@ -124,7 +124,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
 
   function confirmFor(w: WindowInfo): HTMLElement {
     const c = el("div", "tab-menu confirm");
-    c.append(el("span", "label", `Kill ${w.index}?`));
+    // Named by what the tab shows: its index is not on screen any more.
+    c.append(el("span", "label", `Kill ${tabLabel(w)}?`));
     const yes = button("btn danger", "Kill");
     yes.onclick = (e) => {
       e.stopPropagation();
@@ -146,11 +147,14 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
 
     const name = button("name");
     // The same glyph as the sidebar row, so the eye that found the session in
-    // the list lands on the right tab without re-reading anything.
+    // the list lands on the right tab without re-reading anything. This is the
+    // one place a running arc turns: the tab is the window, and the window is
+    // what runs. No index before it -- tmux's slot number told you nothing the
+    // tab's position does not, and reordering changes it anyway.
     const glyph = windowGlyph(w);
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
     mark.title = GLYPH_TITLE[glyph];
-    name.append(el("span", "idx", String(w.index)), mark, el("span", "label", tabLabel(w)));
+    name.append(mark, el("span", "label", tabLabel(w)));
     if (w.panes > 1) {
       const panes = el("span", "panes", String(w.panes));
       panes.title = `${w.panes} panes`;
@@ -173,10 +177,9 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       rerender();
     };
 
-    const handle = el("span", "drag-handle", "⠿");
-    handle.title = "Drag to reorder";
-    handle.setAttribute("aria-hidden", "true");
-    tab.append(handle, name, menuBtn);
+    // The whole tab drags: reorder.ts arms on the name after enough travel, so
+    // a click still selects and a double-click still renames.
+    tab.append(name, menuBtn);
     if (ui.menu === w.id) tab.append(menuFor(tab, w));
     if (ui.confirm === w.id) tab.append(confirmFor(w));
     return tab;

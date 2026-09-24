@@ -85,9 +85,12 @@ function updateChip() {
   const session = sessions.find((s) => s.name === current);
   // The same name the sidebar row shows, so the two never disagree about where you are.
   chipName.textContent = session ? sessionLabel(session) : current ?? "";
-  // The chip's dot is the current session's own state, so the drawer does not
-  // have to be opened to see that the thing you are looking at is waiting.
+  // The chip says only that the session you are looking at is waiting on you.
+  // Its other states are already on the tabs right under it, and with the
+  // drawer closed the hamburger's count covers every other session; the red is
+  // kept here because a tab that needs you can be scrolled out of the strip.
   const glyph = session ? sessionGlyph(session.windows) : "none";
+  chipDot.hidden = glyph !== "input";
   chipDot.className = `glyph ${glyph}`;
   chipDot.textContent = GLYPH[glyph];
   chipDot.title = GLYPH_TITLE[glyph];
@@ -309,8 +312,8 @@ findNextBtn.onclick = () => paintFind(term.findNext());
 findCloseBtn.onclick = () => closeFind();
 
 // Every running arc turns in step: each is pinned to the page's clock as it
-// starts. The sidebar and tabs are rebuilt on every state push, and left alone
-// each rebuild restarted its arcs from the top while the chip's kept going.
+// starts. The tabs are rebuilt on every state push, which with agents running
+// is often, and left alone each rebuild restarted its arcs from the top.
 document.addEventListener("animationstart", (e) => {
   if (e.animationName !== "spin") return;
   for (const a of (e.target as Element).getAnimations({ subtree: true })) {

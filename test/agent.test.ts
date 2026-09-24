@@ -13,6 +13,7 @@ import {
   nextAttention,
   sessionAgent,
   sessionGlyph,
+  windowDots,
   windowGlyph,
 } from "../src/client/agent";
 import { summaryWindow } from "../src/client/usage";
@@ -147,6 +148,18 @@ describe("glyphs", () => {
     expect(sessionGlyph([w({ state: "done", since: "" }), w({ state: "input", since: "" })])).toBe("input");
     expect(sessionGlyph([w(undefined), w({ state: "done", since: "" }, true)])).toBe("unread");
     expect(sessionGlyph([])).toBe("none");
+  });
+
+  test("window dots appear only when two or more windows have something to say", () => {
+    // One agent among plain shells would only repeat the row's own glyph.
+    expect(windowDots([w({ state: "running", since: "" }), w(undefined), w(undefined)])).toEqual([]);
+    expect(windowDots([w({ state: "input", since: "" })])).toEqual([]);
+    expect(windowDots([])).toEqual([]);
+    // Two agents: every window keeps its slot, so a dot still points at a tab.
+    expect(windowDots([w({ state: "running", since: "" }), w(undefined), w({ state: "done", since: "" })]))
+      .toEqual(["running", "none", "seen"]);
+    // A bell counts as something to say, agent or not.
+    expect(windowDots([w(undefined, true), w({ state: "input", since: "" })])).toEqual(["unread", "input"]);
   });
 });
 
