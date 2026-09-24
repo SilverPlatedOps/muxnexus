@@ -1,6 +1,6 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
-import { GLYPH, GLYPH_TITLE, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
+import { agentTitle, GLYPH, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
 
@@ -167,7 +167,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     // tab's position does not, and reordering changes it anyway.
     const glyph = windowGlyph(w);
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
-    mark.title = GLYPH_TITLE[glyph];
+    mark.title = agentTitle(w);
     name.append(mark, el("span", "label", tabLabel(w)));
     const shared = sharing.get(w.id);
     if (shared) name.append(checkoutMark(shared));

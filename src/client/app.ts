@@ -254,6 +254,8 @@ const conn = new Connection(wsUrl, {
       }
       case "usage":
         renderUsage(usageEl, m.sources);
+        // Claude's accounts, which a session's tag can name; opencode is not one.
+        sidebar.setProfiles(m.sources.filter((s) => s.id !== "opencode").map((s) => s.label));
         break;
       case "attached":
         current = m.session;

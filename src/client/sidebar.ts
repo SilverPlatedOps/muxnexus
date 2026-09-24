@@ -1,6 +1,6 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable } from "./reorder";
-import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
+import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, profileMismatch, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { sessionLabel, windowPlace } from "./labels";
 import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
@@ -43,6 +43,8 @@ export interface SidebarActions {
 
 export interface Sidebar {
   render(sessions: SessionInfo[], current: string | null): void;
+  /** The Claude profiles on this machine, as the quota panel names them. */
+  setProfiles(labels: string[]): void;
   toast(message: string): void;
   toggle(): void;
   /** Open the "new session" prompt in the footer and focus it. */
@@ -101,6 +103,8 @@ export function createSidebar(
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
+  /** The Claude profiles the quota panel knows, which is what a tag can name. */
+  let profiles: string[] = [];
 
   const rerender = () => draw(lastSessions, lastCurrent);
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -214,6 +218,15 @@ export function createSidebar(
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
     mark.title = GLYPH_TITLE[glyph];
     name.append(mark, el("span", "label", shown));
+    // The account an agent here spends, when the session's tag names another:
+    // a [Work] session burning the personal quota says "personal".
+    const category = splitCategory(row.label)?.category ?? null;
+    const wrong = profileMismatch(category, row.windows, profiles);
+    if (wrong.length > 0) {
+      const tag = el("span", "profile-tag", wrong.join(" "));
+      tag.title = `An agent here runs on the ${wrong.join(" and ")} profile, not ${category!.toLowerCase()}`;
+      name.append(tag);
+    }
     // A session with an agent in someone else's checkout says so here as well
     // as on the tab: the tab strip only shows the session you are attached to.
     const shared = row.windows.map((w) => sharing.get(w.id)).filter((x): x is Sharing => x !== undefined);
@@ -238,7 +251,7 @@ export function createSidebar(
       dotGlyphs.forEach((g, i) => {
         const w = row.windows[i]!;
         const d = el("span", `glyph ${g}`, GLYPH[g]);
-        d.title = `${w.label ?? w.name}: ${GLYPH_TITLE[g]}`;
+        d.title = `${w.label ?? w.name}: ${agentTitle(w)}`;
         dots.append(d);
       });
       name.append(dots);
@@ -399,6 +412,11 @@ export function createSidebar(
 
   return {
     render: draw,
+    setProfiles(labels) {
+      if (labels.join("\n") === profiles.join("\n")) return;
+      profiles = labels;
+      rerender();
+    },
     toast(message) {
       const t = el("div", "toast");
       t.append(el("span", "", message));

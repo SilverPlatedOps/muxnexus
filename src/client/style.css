@@ -203,6 +203,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    and rare, so it is loud only when it is true. */
 .shared-checkout { flex: none; display: inline-flex; color: var(--yellow); }
 .shared-checkout svg { display: block; }
+/* The account an agent spends, shown only when the session's tag names a
+   different one. The same hazard yellow: nothing is broken yet, but the wrong
+   quota is draining. */
+.profile-tag { flex: none; color: var(--yellow); font-size: 10.5px; font-weight: 500; }
 
 /* The count of sessions waiting, on the hamburger, so a closed drawer can
    still say that something elsewhere needs you. */

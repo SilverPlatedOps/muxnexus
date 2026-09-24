@@ -15,6 +15,8 @@ import {
   sessionGlyph,
   sharedCheckouts,
   sharingTitle,
+  profileMismatch,
+  agentTitle,
   windowDots,
   windowGlyph,
 } from "../src/client/agent";
@@ -208,6 +210,27 @@ describe("formatElapsed", () => {
   test("a missing or unparseable stamp is blank", () => {
     expect(formatElapsed(undefined, now)).toBe("");
     expect(formatElapsed("soon", now)).toBe("");
+  });
+});
+
+describe("profileMismatch", () => {
+  const on = (profile?: string) => ({ agent: { state: "done" as const, since: "", ...(profile ? { profile } : {}) } });
+  const profiles = ["personal", "work"];
+
+  test("names the accounts a tagged session's agents spend instead of its own", () => {
+    expect(profileMismatch("Work", [on("personal"), on("work"), on("personal")], profiles)).toEqual(["personal"]);
+    expect(profileMismatch("Personal", [on("work")], profiles)).toEqual(["work"]);
+  });
+
+  test("nothing when the tag names no profile, or the agents agree", () => {
+    expect(profileMismatch("Project", [on("personal")], profiles)).toEqual([]);
+    expect(profileMismatch(null, [on("work")], profiles)).toEqual([]);
+    expect(profileMismatch("work", [on("work"), on(), {}], profiles)).toEqual([]);
+  });
+
+  test("the tooltip names the account", () => {
+    expect(agentTitle({ agent: { state: "running", since: "", profile: "work" } })).toBe("running · work profile");
+    expect(agentTitle({ agent: { state: "running", since: "" } })).toBe("running");
   });
 });
 

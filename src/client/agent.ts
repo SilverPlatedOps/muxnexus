@@ -63,6 +63,30 @@ export function windowDots(windows: readonly Pick<WindowInfo, "agent" | "unread"
   return glyphs.filter((g) => g !== "none").length > 1 ? glyphs : [];
 }
 
+/**
+ * The profiles a session's agents run on that its tag says they should not: a
+ * `[Work]` session whose agent spends the personal account. Only when the tag
+ * names a profile the machine has (`profiles`, as the quota panel names them);
+ * `[Project]` names none, so it asks nothing of its agents.
+ */
+export function profileMismatch(
+  category: string | null,
+  windows: readonly Pick<WindowInfo, "agent">[],
+  profiles: readonly string[],
+): string[] {
+  if (!category) return [];
+  const want = category.toLowerCase();
+  if (!profiles.includes(want)) return [];
+  const used = windows.map((w) => w.agent?.profile).filter((p): p is string => p !== undefined && p !== want);
+  return [...new Set(used)];
+}
+
+/** A glyph's tooltip, with the account the agent spends when it is known. */
+export function agentTitle(w: Pick<WindowInfo, "agent" | "unread">): string {
+  const base = GLYPH_TITLE[windowGlyph(w)];
+  return w.agent?.profile ? `${base} · ${w.agent.profile} profile` : base;
+}
+
 /** Two or more agents in one git checkout, as one of them sees it. */
 export interface Sharing {
   checkout: string;
