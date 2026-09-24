@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   accessToken,
   backoffMs,
+  categoryProfile,
   createUsageReader,
   findProfiles,
   keychainService,
@@ -15,6 +16,20 @@ import { bar, formatReset, kindLabel } from "../src/client/usage";
 import type { UsageSource } from "../src/shared/protocol";
 
 const HOME = "/Users/someone";
+
+describe("categoryProfile", () => {
+  const dirs = [`${HOME}/.claude`, `${HOME}/.claude-work`];
+
+  test("a tag naming a profile gets that profile's dir, whatever its case", () => {
+    expect(categoryProfile("Work", dirs, HOME)).toBe(`${HOME}/.claude-work`);
+    expect(categoryProfile("work", dirs, HOME)).toBe(`${HOME}/.claude-work`);
+  });
+
+  test("the default profile and unknown tags get nothing", () => {
+    expect(categoryProfile("Personal", dirs, HOME)).toBeNull();
+    expect(categoryProfile("Project", dirs, HOME)).toBeNull();
+  });
+});
 
 describe("keychainService", () => {
   test("the default profile's item is unsuffixed", () => {

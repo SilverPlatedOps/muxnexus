@@ -475,8 +475,10 @@ export class Tmux {
     }
   }
 
-  async newSession(name: string, cwd: string = homedir()): Promise<void> {
-    await this.run(["new-session", "-d", "-s", name, "-c", cwd]);
+  /** `env` lands in the session's environment, so every window made in it later inherits it too. */
+  async newSession(name: string, cwd: string = homedir(), env: Record<string, string> = {}): Promise<void> {
+    const vars = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+    await this.run(["new-session", "-d", "-s", name, "-c", cwd, ...vars]);
   }
 
   async newWindow(session: string): Promise<void> {

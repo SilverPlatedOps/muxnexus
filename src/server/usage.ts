@@ -68,6 +68,25 @@ export function findProfiles(home: string, list: (dir: string) => string[], has:
 }
 
 /**
+ * The config dir a new session's agents should use, when its `[Category]` tag
+ * names a profile: `[Work] Voucher` gets `.claude-work`. Null for the default
+ * profile -- Claude Code keys the default's Keychain item on the variable being
+ * unset, so setting it to `~/.claude` explicitly could look signed out -- and
+ * for a tag that names no profile.
+ */
+export function categoryProfile(category: string, dirs: readonly string[], home: string): string | null {
+  const want = category.toLowerCase();
+  const dir = dirs.find((d) => profileLabel(d) === want);
+  if (!dir || dir === join(home, ".claude")) return null;
+  return dir;
+}
+
+/** The Claude config dirs on this machine, read from disk. */
+export function localProfiles(home: string = homedir()): string[] {
+  return findProfiles(home, (dir) => { try { return readdirSync(dir); } catch { return []; } }, existsSync);
+}
+
+/**
  * `KEY=value` pairs from a shell env file. The lines are `export KEY=value`, so
  * the prefix has to be stripped; quotes and comments are handled because the
  * file is written by hand.

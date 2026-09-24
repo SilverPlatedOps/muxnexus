@@ -3,7 +3,7 @@ import type { ServerMessage } from "../src/shared/protocol";
 import { allowedHostList, createServer, hostAllowed, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCmuxMirror } from "../src/server/cmux";
 import { waitFor } from "./helpers";
@@ -65,6 +65,32 @@ test("sends state on connect", async () => {
   const state = await waitFor(() => c.last("state"), 2000, "initial state");
   expect(state).toEqual({ t: "state", sessions: [] });
   c.ws.close();
+});
+
+test("a session tagged with a profile's name starts on that profile", async () => {
+  const home = homedir();
+  const srv = createServer({
+    hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200,
+    profiles: () => [join(home, ".claude"), join(home, ".claude-work")],
+  });
+  try {
+    const c = await connect(srv.port);
+    await waitFor(() => c.last("state"));
+    c.send({ t: "new-session", name: "[Work] Voucher" });
+    c.send({ t: "new-session", name: "[Personal] Notes" });
+    c.send({ t: "new-session", name: "Debug" });
+    await waitFor(() => (c.last("state") as any)?.sessions.length === 3, 2000, "three sessions");
+    const env = async (name: string) =>
+      (await tmux.run(["show-environment", "-t", await tmux.target(name), "CLAUDE_CONFIG_DIR"]).catch(() => "")).trim();
+    expect(await env("[Work] Voucher")).toBe(`CLAUDE_CONFIG_DIR=${join(home, ".claude-work")}`);
+    // The default profile is left unset rather than set to ~/.claude: Claude
+    // Code keys the default's credentials on the variable being absent.
+    expect(await env("[Personal] Notes")).toBe("");
+    expect(await env("Debug")).toBe("");
+    c.ws.close();
+  } finally {
+    srv.stop();
+  }
 });
 
 test("new-session pushes updated state without waiting for the poll", async () => {

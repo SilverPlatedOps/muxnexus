@@ -1,6 +1,8 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, ServerMessage, SessionInfo } from "../shared/protocol";
-import type { UsageReader } from "./usage";
+import { categoryProfile, type UsageReader } from "./usage";
+import { splitCategory } from "../shared/category";
+import { homedir } from "node:os";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
@@ -24,6 +26,13 @@ export interface ServerOptions {
    */
   usage?: UsageReader;
   usageMs?: number;
+  /**
+   * The Claude config dirs on this machine. A session created here whose tag
+   * names one (`[Work] ...`) starts with `CLAUDE_CONFIG_DIR` set to it, so
+   * `claude` inside it spends that account. Absent, nothing is set: the tests
+   * must not depend on which profiles the machine running them has.
+   */
+  profiles?: () => string[];
 }
 
 export interface RunningServer {
@@ -266,10 +275,13 @@ export function createServer(opts: ServerOptions): RunningServer {
           ws.data.pty?.resize(m.cols, m.rows);
           return;
         }
-        case "new-session":
-          await tmux.newSession(m.name);
+        case "new-session": {
+          const cat = splitCategory(m.name);
+          const dir = cat && opts.profiles ? categoryProfile(cat.category, opts.profiles(), homedir()) : null;
+          await tmux.newSession(m.name, undefined, dir ? { CLAUDE_CONFIG_DIR: dir } : {});
           await mirrorStep(ws, (mirror) => mirror.sessionCreated(m.name));
           break;
+        }
         case "kill-session": {
           // The stamp, read before the session and its options are gone: the
           // title lookup would close whichever workspace shares the name.
