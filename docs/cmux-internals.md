@@ -92,7 +92,15 @@ so `@muxnexus_surface` -- and therefore a tab's cmux title -- survives a reorder
 
 Because `swap-window` moves windows *between* indices, an index names a slot and
 never the window in it. Anything that has to identify a window across a reorder
-uses `#{window_id}` (`@3`), which is what `WindowInfo.id` carries.
+uses `#{window_id}` (`@3`), which is what `WindowInfo.id` carries -- so every
+window command from the browser (select, rename, kill, reorder) names the window
+by id.
+
+Sessions are addressed by id too (`$3`), never by name. tmux accepts `.` and `:`
+in a session name but splits a target on them: `=api.v2` is session `api`,
+window `v2`, and no trailing colon rescues `a:b`. The id also survives a rename,
+which is how the server notices that the session a browser is attached to has
+been renamed -- in cmux, with `C-b $`, or from another browser -- and tells it.
 
 None of this is visible to cmux: reordering tabs here does not reorder cmux's,
 and session order is invisible there. cmux exposes no verb to set either.
