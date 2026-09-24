@@ -384,6 +384,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   text-align: left;
   cursor: pointer;
 }
+/* A group's rows step in under their header, as a tree does, so membership is
+   a property of the row itself and holds in every state: an untagged session
+   after a group sits flush with the header, a peer of the group and not its
+   last member. Padding rather than margin, so the attached row's fill still
+   runs the full width and lines up with the rows outside the group. */
+.cat .row.session { padding-left: 12px; }
+.cat .menu { padding-left: 24px; }
 .cat-head:hover { color: var(--fg); background: var(--hover); }
 .cat-head .chevron { flex: none; display: inline-flex; justify-content: center; width: 13px; transition: transform 120ms ease-out; }
 .cat.folded .chevron { transform: rotate(-90deg); }
