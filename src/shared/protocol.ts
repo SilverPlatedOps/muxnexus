@@ -41,6 +41,11 @@ export interface AgentInfo {
 export interface SessionInfo {
   /** tmux's name for the session. Identity: every command targets this. */
   name: string;
+  /**
+   * tmux's own session id (`$3`). Stable across renames, which is how the server
+   * notices that the session a client is attached to now has another name.
+   */
+  id: string;
   /** Number of clients currently attached (cmux, other browsers, ...). */
   attached: number;
   windows: WindowInfo[];
@@ -104,5 +109,11 @@ export type ServerMessage =
   /** Quota, on its own cadence: folding it into `state` would tie it to the session poll. */
   | { t: "usage"; sources: UsageSource[] }
   | { t: "attached"; session: string }
+  /**
+   * The attached session now has this name -- renamed here, in cmux, or with
+   * `C-b $`. The terminal is unchanged; only the name to address it by moved.
+   * Sent before the `state` that carries the new name.
+   */
+  | { t: "renamed"; session: string }
   | { t: "detached"; reason: DetachReason }
   | { t: "error"; message: string };

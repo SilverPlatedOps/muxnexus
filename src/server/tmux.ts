@@ -303,6 +303,7 @@ export class Tmux {
       groups.set(key, {
         info: {
           name: rep.name,
+          id: idTarget(rep.id),
           attached: members.reduce((n, m) => n + m.attached, 0),
           windows: [],
           ...(rep.workspaceId ? { workspaceId: rep.workspaceId } : {}),
@@ -379,6 +380,20 @@ export class Tmux {
   async hasSession(name: string): Promise<boolean> {
     try {
       await this.target(name);
+      return true;
+    } catch (e) {
+      if (e instanceof TmuxError && (NO_SERVER.test(e.message) || NOT_FOUND.test(e.message))) return false;
+      throw e;
+    }
+  }
+
+  /**
+   * Whether a session id (`$3`) still names a live session. By id rather than
+   * name, so a session renamed since it was looked up still counts.
+   */
+  async alive(target: string): Promise<boolean> {
+    try {
+      await this.run(["has-session", "-t", target]);
       return true;
     } catch (e) {
       if (e instanceof TmuxError && (NO_SERVER.test(e.message) || NOT_FOUND.test(e.message))) return false;

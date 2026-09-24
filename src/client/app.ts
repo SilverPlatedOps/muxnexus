@@ -257,6 +257,16 @@ const conn = new Connection(wsUrl, {
         showTerminal(true);
         paintAll();
         break;
+      case "renamed":
+        // Same terminal, new name: follow it without re-attaching, which would
+        // reset the screen for nothing.
+        if (desired === current) {
+          desired = m.session;
+          localStorage.setItem(SESSION_KEY, m.session);
+        }
+        current = m.session;
+        paintAll();
+        break;
       case "detached":
         current = null;
         desired = null;

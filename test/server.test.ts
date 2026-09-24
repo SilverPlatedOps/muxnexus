@@ -277,6 +277,54 @@ test("attaching to a dotted name reaches that session, not the one its prefix na
   c.ws.close();
 });
 
+// ---- renaming the attached session ----
+// The PTY follows a rename on its own -- tmux clients track the session, not its
+// name -- but everything else addressed the old name until the row was clicked.
+
+/** Index of the first message matching `pred`, or -1. */
+const indexOf = (c: { messages: ServerMessage[] }, pred: (m: any) => boolean) => c.messages.findIndex(pred);
+
+test("renaming the attached session from the browser moves the attachment to the new name", async () => {
+  await tmux.run(["new-session", "-d", "-s", "old", "sh"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "old" });
+  await waitFor(() => (c.last("attached") as any)?.session === "old", 2000, "attached");
+  c.send({ t: "rename-session", session: "old", name: "new" });
+  await waitFor(() => (c.last("renamed") as any)?.session === "new", 2000, "renamed");
+  // before any state naming it, so the client never paints a list without its session
+  const renamedAt = indexOf(c, (m) => m.t === "renamed");
+  const stateAt = indexOf(c, (m) => m.t === "state" && m.sessions.some((s: any) => s.name === "new"));
+  expect(renamedAt).toBeLessThan(stateAt);
+  // and the new name is the one that works now
+  c.send({ t: "new-window", session: "new" });
+  await waitFor(() => (c.last("state") as any)?.sessions.find((s: any) => s.name === "new")?.windows.length === 2, 2000, "window");
+  expect(c.messages.filter((m) => m.t === "error")).toHaveLength(0);
+  c.ws.close();
+});
+
+test("a rename made outside muxnexus reaches the attached client on the next poll", async () => {
+  await tmux.run(["new-session", "-d", "-s", "before", "sh"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "before" });
+  await waitFor(() => c.last("attached"), 2000, "attached");
+  await tmux.run(["rename-session", "-t", "=before:", "after"]); // cmux, or C-b $
+  await waitFor(() => (c.last("renamed") as any)?.session === "after", 2000, "renamed by poll");
+  c.ws.close();
+});
+
+test("detaching after a rename says the client exited, not that the session was killed", async () => {
+  await tmux.run(["new-session", "-d", "-s", "first", "sh"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "first" });
+  await waitFor(() => c.last("attached"), 2000, "attached");
+  await waitFor(() => c.output().length > 0, 3000, "redraw");
+  await tmux.run(["rename-session", "-t", "=first:", "second"]);
+  await tmux.run(["detach-client", "-s", "=second:"]);
+  const d = await waitFor(() => c.last("detached"), 3000, "detached");
+  expect((d as any).reason).toBe("exited");
+  c.ws.close();
+});
+
 test("attaching to a group targets the base and does not move a tab session's window", async () => {
   await tmux.run(["new-session", "-d", "-s", "ws", "-x", "80", "-y", "24", "sh"]);
   await tmux.run(["new-window", "-d", "-t", "=ws", "sh"]);

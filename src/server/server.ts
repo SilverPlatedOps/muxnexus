@@ -34,6 +34,8 @@ export interface RunningServer {
 interface ConnData {
   pty: PtyHandle | null;
   session: string | null;
+  /** The attached session's id (`$3`): what `session` is re-derived from after a rename. */
+  sessionId: string | null;
   cols: number;
   rows: number;
   attachSeq: number;
@@ -121,9 +123,25 @@ export function createServer(opts: ServerOptions): RunningServer {
     });
   }
 
+  /**
+   * Point each attached client at its session's current name. The tmux client in
+   * the PTY follows a rename by itself; the name every other command addresses
+   * does not, so it is re-derived from the id on every read. Runs before the
+   * `state` broadcast, so no client sees a list its own session is missing from.
+   */
+  function followRenames(sessions: SessionInfo[]) {
+    for (const ws of clients) {
+      const s = ws.data.sessionId ? sessions.find((x) => x.id === ws.data.sessionId) : undefined;
+      if (!s || s.name === ws.data.session) continue;
+      ws.data.session = s.name;
+      send(ws, { t: "renamed", session: s.name });
+    }
+  }
+
   /** Re-read tmux state; broadcast only when it changed since the last broadcast. */
   async function poll(): Promise<void> {
     const sessions = await label(await tmux.listSessions().catch(() => []));
+    followRenames(sessions);
     const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
     if (json === lastState) return;
     lastState = json;
@@ -134,6 +152,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     const pty = ws.data.pty;
     ws.data.pty = null;
     ws.data.session = null;
+    ws.data.sessionId = null;
     pty?.kill();
   }
 
@@ -163,8 +182,10 @@ export function createServer(opts: ServerOptions): RunningServer {
         if (ws.data.pty !== handle) return;
         ws.data.pty = null;
         ws.data.session = null;
+        ws.data.sessionId = null;
+        // By id: the session may have been renamed while attached.
         void tmux
-          .hasSession(session)
+          .alive(target)
           .catch(() => true)
           .then((alive) => {
             const reason: DetachReason = alive ? "exited" : "session-killed";
@@ -175,6 +196,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     });
     ws.data.pty = handle;
     ws.data.session = session; // the sidebar name, not the tmux target
+    ws.data.sessionId = target;
     send(ws, { t: "attached", session });
     void poll();
   }
@@ -328,7 +350,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, cols: 80, rows: 24, attachSeq: 0 } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, cols: 80, rows: 24, attachSeq: 0 } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
