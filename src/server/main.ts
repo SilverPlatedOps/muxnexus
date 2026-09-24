@@ -4,6 +4,7 @@ import { join } from "node:path";
 import index from "../client/index.html";
 import { createCmuxMirror } from "./cmux";
 import { createServer } from "./server";
+import { createUsageReader } from "./usage";
 
 export interface Args {
   /** Addresses to bind (`--host`, repeatable). Empty means "work it out from Tailscale". */
@@ -120,7 +121,8 @@ if (import.meta.main) {
   const cmuxBin = socketPath === CMUX_TMUX_SOCKET ? Bun.which("cmux") : null;
   const mirror = socketPath && cmuxBin ? createCmuxMirror({ cmuxBin, socketPath }) : undefined;
   const allowHosts = [...args.allowHosts, ...magicDnsNames(await tailscaleStatus())];
-  const running = createServer({ hosts, port: args.port, socketPath, index, mirror, allowHosts });
+  const usage = createUsageReader();
+  const running = createServer({ hosts, port: args.port, socketPath, index, mirror, allowHosts, usage });
   for (const h of hosts) console.log(`muxnexus listening on http://${h}:${running.port}`);
   if (hosts.some((h) => h === "0.0.0.0" || h === "::")) {
     console.warn("warning: a wildcard bind answers on every network this machine joins, including untrusted ones.");

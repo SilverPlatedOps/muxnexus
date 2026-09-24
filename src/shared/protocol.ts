@@ -32,6 +32,31 @@ export interface SessionInfo {
   order?: number;
 }
 
+/** One quota window of one account: a 5h session limit, a weekly limit, and so on. */
+export interface UsageWindow {
+  /** The provider's own name for the window (`session`, `weekly_all`, `rolling`, ...). */
+  kind: string;
+  percent: number;
+  resetsAt?: string;
+  /** The provider's own judgement (`normal`, `warning`, ...), which is what colours the bar. */
+  severity?: string;
+}
+
+/**
+ * Quota for one account. `windows` is whatever the provider reported -- the set
+ * of kinds differs between accounts, so nothing here is looked up by a fixed
+ * key. On a failure the last good `windows` are kept and `state` says so, which
+ * is why a row can be both `error` and populated.
+ */
+export interface UsageSource {
+  id: string;
+  label: string;
+  windows: UsageWindow[];
+  state: "ok" | "signed-out" | "error";
+  /** When the numbers were last read, not when they were last requested. */
+  checkedAt: string;
+}
+
 export type ClientMessage =
   | { t: "attach"; session: string }
   | { t: "resize"; cols: number; rows: number }
@@ -52,6 +77,8 @@ export type DetachReason = "session-killed" | "exited";
 
 export type ServerMessage =
   | { t: "state"; sessions: SessionInfo[] }
+  /** Quota, on its own cadence: folding it into `state` would tie it to the session poll. */
+  | { t: "usage"; sources: UsageSource[] }
   | { t: "attached"; session: string }
   | { t: "detached"; reason: DetachReason }
   | { t: "error"; message: string };

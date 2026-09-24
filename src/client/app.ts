@@ -3,6 +3,7 @@ import { createTabs } from "./tabs";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
+import { renderUsage } from "./usage";
 import type { SessionInfo } from "../shared/protocol";
 
 const SESSION_KEY = "muxnexus.session";
@@ -12,6 +13,7 @@ const layout = document.getElementById("layout")!;
 const overlay = document.getElementById("overlay")!;
 const sessionsEl = document.getElementById("sessions")!;
 const footEl = document.getElementById("side-foot")!;
+const usageEl = document.getElementById("usage")!;
 const topbar = document.getElementById("topbar")!;
 const chipDot = document.getElementById("chip-dot")!;
 const chipName = document.getElementById("chip-name")!;
@@ -226,6 +228,9 @@ const conn = new Connection(wsUrl, {
         paintAll();
         break;
       }
+      case "usage":
+        renderUsage(usageEl, m.sources);
+        break;
       case "attached":
         current = m.session;
         term.reset();

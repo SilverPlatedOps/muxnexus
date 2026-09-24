@@ -1,5 +1,6 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, ServerMessage, SessionInfo } from "../shared/protocol";
+import type { UsageReader } from "./usage";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
@@ -17,6 +18,12 @@ export interface ServerOptions {
   mirror?: CmuxMirror;
   /** Extra names this server answers to, beyond `host` and loopback (`--allow-host`). */
   allowHosts?: string[];
+  /**
+   * Optional quota panel. Absent, no timer runs and nothing is read: the tests
+   * create servers constantly and must not spawn `security` or reach the network.
+   */
+  usage?: UsageReader;
+  usageMs?: number;
 }
 
 export interface RunningServer {
@@ -81,6 +88,8 @@ export function createServer(opts: ServerOptions): RunningServer {
   const clients = new Set<Socket>();
   const allowedHosts = allowedHostList(opts.hosts, opts.allowHosts ?? []);
   let lastState = "";
+  /** The last quota read, so a socket opening between polls is not blank for a minute. */
+  let lastUsage: ServerMessage | null = null;
 
   function send(ws: Socket, m: ServerMessage) {
     if (ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(m));
@@ -262,7 +271,27 @@ export function createServer(opts: ServerOptions): RunningServer {
     }
   }
 
+  /**
+   * Quota moves slowly, so it gets its own timer rather than riding the session
+   * poll. A failed read is already folded into the reader's own last-good
+   * values; the catch here is for the read throwing outright, which must not
+   * become an unhandled rejection inside an interval.
+   */
+  async function pollUsage(): Promise<void> {
+    if (!opts.usage) return;
+    const sources = await opts.usage.read().catch(() => null);
+    if (!sources) return;
+    const message = { t: "usage", sources } satisfies ServerMessage;
+    lastUsage = message;
+    const json = JSON.stringify(message);
+    for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
+  }
+
   const timer = setInterval(() => void poll(), opts.pollMs ?? 2000);
+  // setInterval does not fire at zero, and a cold load would show an empty
+  // footer until it did.
+  const usageTimer = opts.usage ? setInterval(() => void pollUsage(), opts.usageMs ?? 60_000) : undefined;
+  if (opts.usage) void pollUsage();
 
   const serveOn = (hostname: string, port: number) => Bun.serve<ConnData>({
     hostname,
@@ -310,6 +339,9 @@ export function createServer(opts: ServerOptions): RunningServer {
           }
           if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
         });
+        // Reconnects are routine on a phone that slept; send what we already
+        // know rather than making this client wait out the usage interval.
+        if (lastUsage && ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(lastUsage));
       },
       message(ws, msg) {
         if (typeof msg === "string") void handleControl(ws, msg);
@@ -339,6 +371,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     port,
     stop() {
       clearInterval(timer);
+      clearInterval(usageTimer);
       for (const ws of clients) {
         ws.data.attachSeq++; // invalidate any in-flight attach
         detach(ws);

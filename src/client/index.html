@@ -37,6 +37,9 @@
       </header>
 
       <div id="sessions"></div>
+      <!-- A sibling of the footer, not a child: the footer is rebuilt on every
+           session render and would take the panel with it. -->
+      <div id="usage" aria-label="Quota"></div>
       <footer id="side-foot"></footer>
     </aside>
 

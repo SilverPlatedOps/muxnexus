@@ -111,6 +111,48 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   gap: 8px;
 }
 
+/* ---------- quota ---------- */
+
+/* Above "New session" and below the sessions, in the space the sidebar has
+   always had spare. It collapses to nothing when nothing reports, so a machine
+   with neither Claude nor opencode sees the sidebar it had before. */
+#usage {
+  padding: 8px 12px 2px;
+  background: var(--chrome);
+  border-top: 1px solid var(--line-soft);
+  color: var(--dim);
+  font-size: 11px;
+}
+
+#usage:empty { display: none; }
+
+.usage-src + .usage-src { margin-top: 5px; }
+
+.usage-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+
+/* Fixed columns so the bars line up down the panel rather than stepping in and
+   out with the length of each account's name. */
+.usage-name { width: 58px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.usage-kind { width: 22px; color: var(--faint); }
+.usage-meter { letter-spacing: -0.5px; }
+.usage-fill { color: var(--accent); }
+/* The provider's own judgement of its own limits, not a threshold of ours. */
+.usage-fill.warning { color: var(--yellow); }
+.usage-fill.critical, .usage-fill.exceeded { color: var(--red); }
+.usage-track { color: var(--line); }
+.usage-pct { width: 32px; text-align: right; color: var(--fg); }
+.usage-reset { color: var(--faint); }
+.usage-note { color: var(--faint); font-style: italic; }
+
+/* A stale row still shows its last good numbers -- dimmed, not blanked. */
+.usage-row.stale { opacity: 0.5; }
+
 #side-foot {
   padding: 10px 12px 12px;
   background: var(--chrome);
@@ -466,6 +508,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .tab .tab-dots { opacity: 1; width: 30px; height: 30px; }
   #find { left: 12px; right: 12px; top: 8px; }
   #find-input { flex: 1; width: auto; }
+  #usage { font-size: 12px; }
   #side-foot { padding-bottom: 22px; }
   #side-foot .btn.block { height: 44px; border-radius: 8px; }
 }
