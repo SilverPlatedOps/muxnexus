@@ -1,4 +1,5 @@
 import { createSidebar, sessionLabel } from "./sidebar";
+import { visualOrder } from "./groups";
 import { createTabs } from "./tabs";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
@@ -83,7 +84,8 @@ function showTerminal(on: boolean) {
 /** The attached session, as one chip. Its windows are the tab strip. */
 function updateChip() {
   const session = sessions.find((s) => s.name === current);
-  // The same name the sidebar row shows, so the two never disagree about where you are.
+  // The whole name, tag included: the sidebar row drops the tag under its
+  // group's header, and up here there is no header to carry it.
   chipName.textContent = session ? sessionLabel(session) : current ?? "";
   // The chip says only that the session you are looking at is waiting on you.
   // Its other states are already on the tabs right under it, and with the
@@ -333,7 +335,8 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
     // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
     // ⌘J for itself -- it costs one clause and saves finding out the hard way.
-    const next = nextAttention(sessions, current);
+    // In the order the sidebar draws, so ⌘J walks down the list you can see.
+    const next = nextAttention(visualOrder(sessions, sessionLabel), current);
     if (!next) return;
     e.preventDefault();
     attach(next);

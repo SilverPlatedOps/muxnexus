@@ -1,8 +1,10 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
-import { makeReorderable, moveItem } from "./reorder";
+import { makeReorderable } from "./reorder";
 import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { sessionLabel, windowPlace } from "./labels";
+import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
+import { categoryKey, splitCategory } from "../shared/category";
 
 export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
@@ -50,7 +52,24 @@ export interface Sidebar {
 const ICON = {
   dots: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="8" r="1.1"></circle><circle cx="8" cy="8" r="1.1"></circle><circle cx="12" cy="8" r="1.1"></circle></svg>',
   plus: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="3.5" x2="8" y2="12.5"></line><line x1="3.5" y1="8" x2="12.5" y2="8"></line></svg>',
+  chevron: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg>',
 };
+
+const COLLAPSED_KEY = "muxnexus.collapsed";
+
+/** Which groups this browser keeps folded. A convenience, so a failed read is just "none". */
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsed(keys: Set<string>) {
+  try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...keys])); } catch { /* not remembered, still folded */ }
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -78,11 +97,13 @@ export function createSidebar(
   foot?: HTMLElement | null,
 ): Sidebar {
   const ui: UiState = { menu: null, confirm: null, editing: null };
+  const collapsed = loadCollapsed();
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
 
   const rerender = () => draw(lastSessions, lastCurrent);
+  let retry: ReturnType<typeof setTimeout> | undefined;
 
   function menuButton(name: string): HTMLElement {
     const b = button("row-btn menu-btn");
@@ -121,18 +142,18 @@ export function createSidebar(
     return m;
   }
 
-  /** Current sidebar order, by tmux name -- what every reorder is expressed against. */
+  /**
+   * The sidebar's order as drawn, by tmux name, collapsed groups included --
+   * what every reorder is expressed against. Grouping moves a session away
+   * from its stored position, so the stored order is not the one on screen.
+   */
   function orderNames(): string[] {
-    return lastSessions.map((s) => s.name);
+    return visualOrder(lastSessions, sessionLabel).map((s) => s.name);
   }
 
-  function moveSession(name: string, delta: number) {
-    const names = orderNames();
-    const from = names.indexOf(name);
-    if (from < 0) return;
-    const to = from + delta + (delta > 0 ? 1 : 0); // insertion point, not position
-    if (to < 0 || to > names.length) return;
-    actions.reorderSessions(moveItem(names, from, to));
+  function moveSession(name: string, delta: -1 | 1) {
+    const next = moveWithinBlocks(groupSessions(lastSessions, sessionLabel), (s) => s.name, name, delta);
+    if (next) actions.reorderSessions(next);
   }
 
   function confirmFor(label: string, onYes: () => void): HTMLElement {
@@ -176,8 +197,13 @@ export function createSidebar(
     input.select();
   }
 
-  function renderSession(row: Extract<Row, { kind: "session" }>, windows: number, at: number, total: number) {
+  function renderSession(row: Extract<Row, { kind: "session" }>, windows: number, move: { up: boolean; down: boolean }) {
     const group = el("div", `group${row.current ? " current" : ""}`);
+    group.dataset.name = row.name;
+    // Under its group's header the tag would only repeat the header; the rename
+    // box still starts from the whole name, so renaming keeps the session in
+    // its group unless the tag itself is edited.
+    const shown = splitCategory(row.label)?.rest ?? row.label;
     const r = el("div", `row session${ui.menu === row.name ? " menu-open" : ""}${row.orphan ? " orphan" : ""}`);
 
     const name = button("name");
@@ -187,7 +213,7 @@ export function createSidebar(
     const glyph = sessionGlyph(row.windows);
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
     mark.title = GLYPH_TITLE[glyph];
-    name.append(mark, el("span", "label", row.label));
+    name.append(mark, el("span", "label", shown));
     // A session with an agent in someone else's checkout says so here as well
     // as on the tab: the tab strip only shows the session you are attached to.
     const shared = row.windows.map((w) => sharing.get(w.id)).filter((x): x is Sharing => x !== undefined);
@@ -236,8 +262,8 @@ export function createSidebar(
         () => inlineRename(r, row.label, (next) => actions.renameSession(row.name, next)),
         () => { ui.menu = null; ui.confirm = row.name; rerender(); },
         {
-          up: at > 0 ? () => moveSession(row.name, -1) : undefined,
-          down: at < total - 1 ? () => moveSession(row.name, 1) : undefined,
+          up: move.up ? () => moveSession(row.name, -1) : undefined,
+          down: move.down ? () => moveSession(row.name, 1) : undefined,
         },
       ));
     }
@@ -284,6 +310,14 @@ export function createSidebar(
     lastSessions = sessions;
     lastCurrent = current;
     if (ui.editing && ui.editing !== "new-session") return; // keep an open rename input alive
+    // Mid-drag, a rebuild would take the dragged row and the drop marker with
+    // it, and with agents running a state push lands every few seconds. Try
+    // again shortly: a drag that ends without a move sends nothing to redraw on.
+    if (root.classList.contains("reordering")) {
+      clearTimeout(retry);
+      retry = setTimeout(rerender, 250);
+      return;
+    }
     root.replaceChildren();
     if (sessions.length === 0) {
       root.append(el("div", "row note", "No tmux server"));
@@ -292,22 +326,74 @@ export function createSidebar(
     }
     sharing = sharedCheckouts(sessions, windowPlace);
     // Windows live in the tab strip now; the sidebar is one row per session.
-    const sessionRows = sidebarModel(sessions, current).filter((r) => r.kind === "session");
-    sessionRows.forEach((row, i) => {
-      if (row.kind !== "session") return;
-      const windows = sessions.find((s) => s.name === row.name)?.windows.length ?? 0;
-      root.append(renderSession(row, windows, i, sessionRows.length));
+    const sessionRows = sidebarModel(sessions, current).filter(
+      (r): r is Extract<Row, { kind: "session" }> => r.kind === "session",
+    );
+    const windowCount = (name: string) => sessions.find((s) => s.name === name)?.windows.length ?? 0;
+    const blocks = groupSessions(sessionRows, (r) => r.label);
+    blocks.forEach((block, bi) => {
+      if (block.category === null) {
+        const row = block.sessions[0]!;
+        root.append(renderSession(row, windowCount(row.name), { up: bi > 0, down: bi < blocks.length - 1 }));
+        return;
+      }
+      root.append(renderCategory(block, (row, i) =>
+        renderSession(row, windowCount(row.name), { up: i > 0, down: i < block.sessions.length - 1 })));
     });
     drawFoot();
   }
 
+  /**
+   * A category's header and, unless folded, its sessions. Folded, the header
+   * still carries the group's most urgent glyph -- a session needing you is
+   * never hidden by a fold -- and the attached session's tint, so "where am I"
+   * is answered with its group closed.
+   */
+  function renderCategory(
+    block: Block<Extract<Row, { kind: "session" }>>,
+    renderRow: (row: Extract<Row, { kind: "session" }>, i: number) => HTMLElement,
+  ): HTMLElement {
+    const category = block.category!;
+    const key = categoryKey(category);
+    const folded = collapsed.has(key);
+    const holdsCurrent = block.sessions.some((r) => r.current);
+    const section = el("section", `cat${folded ? " folded" : ""}${folded && holdsCurrent ? " current" : ""}`);
+
+    const head = button("cat-head");
+    head.setAttribute("aria-expanded", String(!folded));
+    const chevron = el("span", "chevron");
+    chevron.innerHTML = ICON.chevron;
+    head.append(chevron, el("span", "cat-name", category));
+    // The count only when folded: open, the rows below already are the count.
+    if (folded) {
+      const glyph = sessionGlyph(block.sessions.flatMap((r) => r.windows));
+      const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
+      mark.title = GLYPH_TITLE[glyph];
+      head.append(mark, el("span", "cat-count", String(block.sessions.length)));
+    }
+    head.onclick = () => {
+      if (collapsed.has(key)) collapsed.delete(key);
+      else collapsed.add(key);
+      saveCollapsed(collapsed);
+      rerender();
+    };
+    section.append(head);
+    if (!folded) block.sessions.forEach((row, i) => section.append(renderRow(row, i)));
+    return section;
+  }
+
   drawFoot();
 
+  // Every drawn session row, in or out of a group, in the order shown. A folded
+  // group's sessions are not drawn, so the drag sees only some of the order and
+  // mergeOrder puts the rest back in their places.
+  const drawnRows = () => [...root.querySelectorAll<HTMLElement>(".group")];
   makeReorderable(root, {
-    rows: () => [...root.querySelectorAll<HTMLElement>(":scope > .group")],
+    rows: drawnRows,
     commit: (order) => {
-      const names = orderNames();
-      actions.reorderSessions(order.map((i) => names[i]).filter((n) => n !== undefined));
+      const visible = drawnRows().map((r) => r.dataset.name ?? "");
+      const moved = order.map((i) => visible[i]).filter((n): n is string => n !== undefined);
+      actions.reorderSessions(mergeOrder(orderNames(), visible, moved));
     },
   });
 

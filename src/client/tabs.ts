@@ -66,6 +66,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   let sharing = new Map<string, Sharing>();
 
   const rerender = () => draw(lastSessions, lastCurrent);
+  let retry: ReturnType<typeof setTimeout> | undefined;
 
   /** Rename in place: the tab's label becomes an input. */
   function inlineRename(tab: HTMLElement, id: string, initial: string) {
@@ -204,6 +205,14 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     lastSessions = sessions;
     lastCurrent = current;
     if (ui.editing !== null) return; // keep an open rename input alive
+    // Mid-drag, a rebuild would take the dragged row and the drop marker with
+    // it, and with agents running a state push lands every few seconds. Try
+    // again shortly: a drag that ends without a move sends nothing to redraw on.
+    if (root.classList.contains("reordering")) {
+      clearTimeout(retry);
+      retry = setTimeout(rerender, 250);
+      return;
+    }
     const windows = tabsModel(sessions, current);
     root.replaceChildren();
     root.hidden = windows.length === 0;

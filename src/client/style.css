@@ -299,6 +299,41 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border-top: 1px solid var(--line-soft);
 }
 
+/* A category: the tag the user already typed into names ("[Work] ..."), read
+   back as a header over its sessions. The chevron sits in the glyph column and
+   the name lines up with the session names, so a header reads as the list's
+   own structure rather than a box around it. More space above a header than
+   under it, so it belongs to the rows it heads. */
+.cat { display: flex; flex-direction: column; gap: 8px; }
+.cat:not(:first-child), .cat + .group { margin-top: 8px; }
+.cat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  margin-bottom: -2px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.cat-head:hover { color: var(--fg); background: var(--hover); }
+.cat-head .chevron { flex: none; display: inline-flex; justify-content: center; width: 13px; transition: transform 120ms ease-out; }
+.cat.folded .chevron { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .cat-head .chevron { transition: none; } }
+.cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-count { color: var(--dim); font-weight: 500; letter-spacing: 0; }
+/* Folded, the header stands in for its rows: their worst glyph, and the
+   attached session's tint when it is one of them. */
+.cat-head .glyph { font-size: 13px; letter-spacing: 0; }
+.cat.folded.current .cat-head { background: var(--current); color: var(--fg-strong); }
+
 .group { display: flex; flex-direction: column; border-radius: 6px; }
 /* A filled, ringed row rather than a stripe at the edge: the stripe was two
    pixels at the sidebar's border, the same shape as the running spinner's "|",
