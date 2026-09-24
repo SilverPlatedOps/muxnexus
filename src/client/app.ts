@@ -308,6 +308,16 @@ findPrevBtn.onclick = () => paintFind(term.findPrev());
 findNextBtn.onclick = () => paintFind(term.findNext());
 findCloseBtn.onclick = () => closeFind();
 
+// Every running arc turns in step: each is pinned to the page's clock as it
+// starts. The sidebar and tabs are rebuilt on every state push, and left alone
+// each rebuild restarted its arcs from the top while the chip's kept going.
+document.addEventListener("animationstart", (e) => {
+  if (e.animationName !== "spin") return;
+  for (const a of (e.target as Element).getAnimations({ subtree: true })) {
+    if (a instanceof CSSAnimation && a.animationName === "spin") a.startTime = 0;
+  }
+});
+
 document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
   if (e.key === "b") {

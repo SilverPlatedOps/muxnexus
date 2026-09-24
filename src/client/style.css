@@ -142,23 +142,35 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 .glyph.running {
   color: var(--fg);
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-/* The ASCII spinner: `|/-\` frames. `content` animation needs no timer, and the
-   base "◔" is what remains under reduced motion -- still distinct from "○" idle. */
+/* Running: an open arc turning in the space of "○". Drawn rather than typed
+   so every frame has the same size and weight; the old `|/-\` frames flashed
+   between a tall stroke and a dash, and several side by side read as
+   punctuation. Open, not a ring with a bright segment, so it cannot be taken
+   for idle "○" even when it stands still -- under reduced motion, and in the
+   window dots. app.ts pins every arc to one clock, so a page of them turns
+   as one. */
 .glyph.running::before {
-  content: "◔";
-  animation: ascii-spin 0.5s steps(1) infinite;
+  content: "";
+  box-sizing: border-box;
+  width: 0.62em;
+  height: 0.62em;
+  border: 0.11em solid currentColor;
+  border-left-color: transparent;
+  border-radius: 50%;
+  transform: rotate(45deg);
+  animation: spin 1.2s linear infinite;
 }
 
-@keyframes ascii-spin {
-  0%, 100% { content: "|"; }
-  25% { content: "/"; }
-  50% { content: "-"; }
-  75% { content: "\\"; }
+@keyframes spin {
+  from { transform: rotate(45deg); }
+  to { transform: rotate(405deg); }
 }
 
-/* Motion is an accent, not information: the glyph still differs without it. */
+/* Motion is an accent, not information: the arc still differs from "○" without it. */
 @media (prefers-reduced-motion: reduce) {
   .glyph.running::before { animation: none; }
 }
@@ -177,6 +189,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    carries the most urgent state of them all. */
 .wdots { display: flex; gap: 1px; padding-left: 6px; min-width: 0; overflow: hidden; }
 .wdots .glyph { width: 11px; font-size: 12px; }
+/* One moving thing per row: the row's own glyph turns, and its window dots
+   only say which tabs are running. */
+.wdots .glyph.running::before { animation: none; }
 
 #tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
 
