@@ -367,6 +367,36 @@ test("stop() detaches every client and leaves no in-flight attach behind", async
   c.ws.close();
 });
 
+test("killing a stamped session closes its own workspace, not one that shares its name", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-mirror-kill-"));
+  const log = join(dir, "calls.log");
+  const bin = join(dir, "cmux");
+  writeFileSync(bin, `#!/bin/sh
+printf '%s\n' "$*" >> "${log}"
+if [ "$1" = "workspace" ] && [ "$2" = "list" ]; then
+  printf '%s' '{"workspaces":[{"custom_title":"shared","ref":"workspace:3","id":"A"},{"custom_title":"renamed in cmux","ref":"workspace:4","id":"B"}]}'
+fi
+`);
+  chmodSync(bin, 0o755);
+  const readLog = () => (existsSync(log) ? readFileSync(log, "utf8") : "");
+  const mirror = createCmuxMirror({ cmuxBin: bin, socketPath: "/tmp/fake.sock", cwd: "/tmp" });
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200, mirror });
+  try {
+    await tmux.newSession("shared");
+    await tmux.run(["set-option", "-t", "=shared:", "@muxnexus_workspace", "B"]);
+    const c = await connect(srv.port);
+    await waitFor(() => c.last("state"));
+    c.send({ t: "kill-session", session: "shared" });
+    await waitFor(() => readLog().includes("workspace close"), 2000, "close logged");
+    expect(readLog()).toContain("workspace close workspace:4");
+    expect(readLog()).not.toContain("workspace close workspace:3");
+    c.ws.close();
+  } finally {
+    srv.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a failing cmux mirror surfaces a toast but the tmux command still succeeds", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-viewer-mirror-bad-"));
   const bin = join(dir, "cmux");

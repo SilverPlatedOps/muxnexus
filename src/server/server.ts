@@ -221,10 +221,16 @@ export function createServer(opts: ServerOptions): RunningServer {
           await tmux.newSession(m.name);
           await mirrorStep(ws, (mirror) => mirror.sessionCreated(m.name));
           break;
-        case "kill-session":
+        case "kill-session": {
+          // The stamp, read before the session and its options are gone: the
+          // title lookup would close whichever workspace shares the name.
+          const wsId = opts.mirror
+            ? (await tmux.listSessions().catch(() => [])).find((x) => x.name === m.session)?.workspaceId
+            : undefined;
           await tmux.killSession(m.session);
-          await mirrorStep(ws, (mirror) => mirror.sessionKilled(m.session));
+          await mirrorStep(ws, (mirror) => mirror.sessionKilled(m.session, wsId));
           break;
+        }
         case "new-window":
           await tmux.newWindow(m.session);
           break;

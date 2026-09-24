@@ -20,8 +20,12 @@ export interface CmuxMirror {
   sessionCreated(name: string): Promise<void>;
   /** A session was renamed: retitle its workspace, if one exists. */
   sessionRenamed(from: string, to: string, workspaceId?: string): Promise<void>;
-  /** A session was killed: close its workspace, if one exists. */
-  sessionKilled(name: string): Promise<void>;
+  /**
+   * A session was killed: close its workspace, if one exists. A stamped
+   * `workspaceId` is the only match considered -- if that workspace is gone,
+   * one that merely shares the title belongs to something else.
+   */
+  sessionKilled(name: string, workspaceId?: string): Promise<void>;
   /** Current title of every open workspace, by id. Empty when cmux cannot be read. */
   workspaceTitles(): Promise<Map<string, string>>;
   /** Current title of every open tab (surface), by id. Empty when cmux cannot be read. */
@@ -108,8 +112,8 @@ export function createCmuxMirror(opts: CmuxMirrorOptions): CmuxMirror {
       const ref = (workspaceId ? await findWorkspaceById(workspaceId) : undefined) ?? (await findWorkspace(from));
       if (ref) await run(["workspace", "rename", ref, "--title", to]);
     },
-    async sessionKilled(name) {
-      const ref = await findWorkspace(name);
+    async sessionKilled(name, workspaceId) {
+      const ref = workspaceId ? await findWorkspaceById(workspaceId) : await findWorkspace(name);
       if (ref) await run(["workspace", "close", ref]);
     },
     async workspaceTitles() {

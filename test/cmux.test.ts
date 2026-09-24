@@ -45,6 +45,18 @@ test("sessionKilled closes the workspace whose title matches, and nothing otherw
   expect(calls()).toEqual(["workspace list --json", "workspace close workspace:9", "workspace list --json"]);
 });
 
+test("sessionKilled with a stamped workspace closes that workspace, whatever its title", async () => {
+  await mirror.sessionKilled("mirrored", "Y");
+  expect(calls()).toEqual(["workspace list --json", "workspace close workspace:2"]);
+});
+
+test("sessionKilled with a stamp that matches no workspace closes nothing, even on a title match", async () => {
+  // The stamp says which workspace owned the session; that one is gone. A
+  // workspace that merely shares the title is someone else's.
+  await mirror.sessionKilled("mirrored", "Z");
+  expect(calls()).toEqual(["workspace list --json"]);
+});
+
 test("sessionRenamed retitles the matching workspace", async () => {
   await mirror.sessionRenamed("mirrored", "renamed");
   expect(calls()).toEqual(["workspace list --json", "workspace rename workspace:9 --title renamed"]);
