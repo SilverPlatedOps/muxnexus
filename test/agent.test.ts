@@ -16,7 +16,6 @@ import {
   sharedCheckouts,
   sharingTitle,
   profileBadge,
-  profileBadges,
   profileInitials,
   agentTitle,
   windowDots,
@@ -233,16 +232,6 @@ describe("profile badges", () => {
     expect(profileBadge("client", profiles)).toEqual({ profile: "client", initial: "C", slot: null });
     // Its initial still avoids a listed profile's.
     expect(profileBadge("wife", profiles)).toEqual({ profile: "wife", initial: "WI", slot: null });
-  });
-
-  test("a session shows each account once, in panel order, whatever its tabs' order", () => {
-    expect(profileBadges([on("work"), on("personal"), on("work"), on(), {}], profiles).map((b) => b.initial)).toEqual(["P", "W"]);
-    expect(profileBadges([on("personal"), on("personal")], profiles).map((b) => b.initial)).toEqual(["P"]);
-    expect(profileBadges([on(), {}], profiles)).toEqual([]);
-  });
-
-  test("unlisted profiles follow the listed ones, alphabetically", () => {
-    expect(profileBadges([on("zed"), on("client"), on("work")], profiles).map((b) => b.profile)).toEqual(["work", "client", "zed"]);
   });
 
   test("the tooltip names the account", () => {

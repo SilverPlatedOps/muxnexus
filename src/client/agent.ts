@@ -102,17 +102,6 @@ export function profileBadge(profile: string, profiles: readonly string[]): Prof
   return { profile, initial: initials.get(profile) ?? profile.slice(0, 1).toUpperCase(), slot: known ? profiles.indexOf(profile) : null };
 }
 
-/**
- * The distinct profiles among a set of windows' agents, in panel order, so a
- * session with two agents on one account shows one badge and a session with
- * agents on two accounts shows two, in the same order everywhere.
- */
-export function profileBadges(windows: readonly Pick<WindowInfo, "agent">[], profiles: readonly string[]): ProfileBadge[] {
-  const used = new Set(windows.map((w) => w.agent?.profile).filter((p): p is string => p !== undefined));
-  const ordered = [...profiles.filter((p) => used.has(p)), ...[...used].filter((p) => !profiles.includes(p)).sort()];
-  return ordered.map((p) => profileBadge(p, profiles));
-}
-
 /** A glyph's tooltip, with the account the agent spends when it is known. */
 export function agentTitle(w: Pick<WindowInfo, "agent" | "unread">): string {
   const base = GLYPH_TITLE[windowGlyph(w)];
