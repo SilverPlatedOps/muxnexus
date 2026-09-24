@@ -6,6 +6,11 @@ export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
   | { kind: "window"; session: string; index: number; name: string; active: boolean; panes: number };
 
+/** What a session is called on screen: the user's rename, else cmux's title, else tmux's name. */
+export function sessionLabel(s: SessionInfo): string {
+  return s.customName ?? s.label ?? s.name;
+}
+
 export function sidebarModel(sessions: SessionInfo[], current: string | null): Row[] {
   const rows: Row[] = [];
   for (const s of sessions) {
@@ -13,7 +18,7 @@ export function sidebarModel(sessions: SessionInfo[], current: string | null): R
       kind: "session",
       name: s.name,
       // `name` stays tmux's, which every action targets; only the display differs.
-      label: s.customName ?? s.label ?? s.name,
+      label: sessionLabel(s),
       orphan: s.orphan === true,
       attached: s.attached > (s.name === current ? 1 : 0),
       current: s.name === current,

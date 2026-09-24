@@ -1,4 +1,4 @@
-import { createSidebar } from "./sidebar";
+import { createSidebar, sessionLabel } from "./sidebar";
 import { createTabs } from "./tabs";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
@@ -82,12 +82,13 @@ function showTerminal(on: boolean) {
 
 /** The attached session, as one chip. Its windows are the tab strip. */
 function updateChip() {
-  chipName.textContent = current ?? "";
   const session = sessions.find((s) => s.name === current);
+  // The same name the sidebar row shows, so the two never disagree about where you are.
+  chipName.textContent = session ? sessionLabel(session) : current ?? "";
   // The chip's dot is the current session's own state, so the drawer does not
   // have to be opened to see that the thing you are looking at is waiting.
   const glyph = session ? sessionGlyph(session.windows) : "none";
-  chipDot.className = `dot glyph ${glyph}`;
+  chipDot.className = `glyph ${glyph}`;
   chipDot.textContent = GLYPH[glyph];
   chipDot.title = GLYPH_TITLE[glyph];
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sidebarModel } from "../src/client/sidebar";
+import { sessionLabel, sidebarModel } from "../src/client/sidebar";
 
 test("flattens sessions and windows into rows, marking current and attached", () => {
   const rows = sidebarModel(
@@ -63,4 +63,11 @@ test("a rename overrides both the cmux title and the tmux name", () => {
     null,
   );
   expect(rows[0]).toMatchObject({ name: "me", label: "My Projects" });
+});
+
+test("sessionLabel is what the row and the top bar both show", () => {
+  const base = { name: "tmux-name", id: "$1", attached: 0, windows: [] };
+  expect(sessionLabel(base)).toBe("tmux-name");
+  expect(sessionLabel({ ...base, label: "cmux title" })).toBe("cmux title");
+  expect(sessionLabel({ ...base, label: "cmux title", customName: "mine" })).toBe("mine");
 });

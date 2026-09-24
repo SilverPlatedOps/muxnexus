@@ -202,11 +202,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   font-weight: 700;
 }
 
-#chip-dot.glyph {
-  width: auto;
-  border: 0;
-  background: none;
-  border-radius: 0;
+/* The attached session, above the terminal: its state glyph, then its name as
+   the sidebar row shows it, at the row's weight. */
+.chip { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg-strong);
 }
 
 /* ---------- quota ---------- */
