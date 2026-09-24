@@ -63,6 +63,50 @@ export function windowDots(windows: readonly Pick<WindowInfo, "agent" | "unread"
   return glyphs.filter((g) => g !== "none").length > 1 ? glyphs : [];
 }
 
+/** Two or more agents in one git checkout, as one of them sees it. */
+export interface Sharing {
+  checkout: string;
+  /** The other agents there, each as `label` names it. */
+  others: string[];
+}
+
+/**
+ * Every agent that shares its git checkout with another, by window id. Two
+ * agents in one checkout edit, commit and switch branches under each other;
+ * separate worktrees are separate checkouts, so they never count. A window is
+ * counted once however many sessions link it -- the server already folds cmux's
+ * tab sessions into their base, and the id is the window either way.
+ */
+export function sharedCheckouts<S extends { windows: readonly WindowInfo[] }>(
+  sessions: readonly S[],
+  label: (s: S, w: WindowInfo) => string,
+): Map<string, Sharing> {
+  const byCheckout = new Map<string, Map<string, string>>();
+  for (const s of sessions) {
+    for (const w of s.windows) {
+      const checkout = w.agent?.checkout;
+      if (!checkout) continue;
+      const there = byCheckout.get(checkout) ?? new Map<string, string>();
+      if (!there.has(w.id)) there.set(w.id, label(s, w));
+      byCheckout.set(checkout, there);
+    }
+  }
+  const out = new Map<string, Sharing>();
+  for (const [checkout, there] of byCheckout) {
+    if (there.size < 2) continue;
+    for (const id of there.keys()) {
+      out.set(id, { checkout, others: [...there].filter(([other]) => other !== id).map(([, l]) => l) });
+    }
+  }
+  return out;
+}
+
+/** What a tooltip says about a shared checkout. Home is `~`, as a shell prompt shows it. */
+export function sharingTitle(sh: Sharing): string {
+  const where = sh.checkout.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+  return `Shared checkout ${where} — also ${sh.others.join(", ")}`;
+}
+
 /**
  * The agent a session's row is speaking for: the one that has been waiting
  * longest, so "needs you · 40m" is the oldest wait and not an arbitrary one.

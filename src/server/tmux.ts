@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
+import { join } from "node:path";
 import type { AgentState, SessionInfo } from "../shared/protocol";
 import { profileLabel } from "./usage";
 
@@ -129,7 +131,7 @@ export function unreadWindow(links: readonly { bell: boolean; attached: boolean;
  * anything in here want me".
  */
 export function windowStates(
-  panes: readonly { id: string; raw: string }[],
+  panes: readonly { id: string; raw: string; cwd?: string }[],
   activity: ReadonlyMap<string, number>,
   now: number,
   alive: (pid: number) => boolean,
@@ -141,7 +143,12 @@ export function windowStates(
     const state = guardStamp(stamp, activity.get(pane.id) ?? 0, now, alive);
     if (state === null) continue;
     const list = seen.get(pane.id) ?? [];
-    list.push({ state, since: stamp.since, ...(stamp.configDir ? { configDir: stamp.configDir } : {}) });
+    list.push({
+      state,
+      since: stamp.since,
+      ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
+      ...(pane.cwd ? { cwd: pane.cwd } : {}),
+    });
     seen.set(pane.id, list);
   }
   const out = new Map<string, WindowAgent>();
@@ -161,6 +168,25 @@ export interface WindowAgent {
   state: AgentState;
   since: number;
   configDir?: string;
+  /** The agent's pane's working directory: the one the agent is editing in. */
+  cwd?: string;
+}
+
+/**
+ * The git checkout a directory is in: the nearest directory up from it holding
+ * a `.git`, whether that is a repository's directory or a worktree's file. A
+ * worktree is its own checkout on purpose -- two agents in two worktrees of one
+ * repository are the fix for sharing, not an instance of it. Null outside git.
+ */
+export function checkoutOf(dir: string, hasGit: (dir: string) => boolean): string | null {
+  let at = dir.replace(/\/+$/, "") || "/";
+  for (;;) {
+    if (hasGit(at)) return at;
+    if (at === "/") return null;
+    const up = at.slice(0, at.lastIndexOf("/")) || "/";
+    if (up === at) return null;
+    at = up;
+  }
 }
 
 /** Whether a process exists. EPERM means it does and is not ours, which is still alive. */
@@ -229,6 +255,23 @@ export class Tmux {
     private readonly socketPath?: string,
   ) {}
 
+  /**
+   * `checkoutOf`, remembered per directory: it is asked for every agent on
+   * every poll, and a directory's checkout only changes when one is created or
+   * removed. Forgotten wholesale past a few hundred directories.
+   */
+  private checkouts = new Map<string, string | null>();
+
+  private checkout(dir: string): string | null {
+    let root = this.checkouts.get(dir);
+    if (root === undefined) {
+      if (this.checkouts.size > 500) this.checkouts.clear();
+      root = checkoutOf(dir, (d) => existsSync(join(d, ".git")));
+      this.checkouts.set(dir, root);
+    }
+    return root;
+  }
+
   private argv(args: string[]): string[] {
     return ["tmux", ...socketArgs(this.socketName, this.socketPath), ...args];
   }
@@ -274,14 +317,14 @@ export class Tmux {
   ): Promise<Map<string, WindowAgent>> {
     let out: string;
     try {
-      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{@muxnexus_agent}"]);
+      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{pane_current_path}\t#{@muxnexus_agent}"]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return new Map();
       throw e;
     }
     const panes = lines(out).map((l) => {
-      const [id, raw] = l.split("\t");
-      return { id, raw: raw ?? "" };
+      const [id, cwd, ...rest] = l.split("\t");
+      return { id, cwd, raw: rest.join("\t") };
     });
     const activity = new Map(rows.map((r) => [r.id, r.activity]));
     return windowStates(panes, activity, Math.floor(Date.now() / 1000), processAlive);
@@ -359,6 +402,7 @@ export class Tmux {
       const s = byRep.get(row.session);
       if (!s) continue; // a tab session: it contributed its viewing above, nothing more
       const state = agents.get(row.id);
+      const checkout = state?.cwd ? this.checkout(state.cwd) : null;
       s.windows.push({
         id: row.id,
         index: Number(row.index),
@@ -373,6 +417,7 @@ export class Tmux {
                 state: state.state,
                 since: new Date(state.since * 1000).toISOString(),
                 ...(state.configDir ? { profile: profileLabel(state.configDir) } : {}),
+                ...(checkout ? { checkout } : {}),
               },
             }
           : {}),

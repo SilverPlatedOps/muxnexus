@@ -1,15 +1,14 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
-import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, windowDots } from "./agent";
+import { formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
+import { ICONS } from "./icons";
+import { sessionLabel, windowPlace } from "./labels";
 
 export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
   | { kind: "window"; session: string; index: number; name: string; active: boolean; panes: number };
 
-/** What a session is called on screen: the user's rename, else cmux's title, else tmux's name. */
-export function sessionLabel(s: SessionInfo): string {
-  return s.customName ?? s.label ?? s.name;
-}
+export { sessionLabel };
 
 export function sidebarModel(sessions: SessionInfo[], current: string | null): Row[] {
   const rows: Row[] = [];
@@ -81,6 +80,7 @@ export function createSidebar(
   const ui: UiState = { menu: null, confirm: null, editing: null };
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
+  let sharing = new Map<string, Sharing>();
 
   const rerender = () => draw(lastSessions, lastCurrent);
 
@@ -188,6 +188,17 @@ export function createSidebar(
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
     mark.title = GLYPH_TITLE[glyph];
     name.append(mark, el("span", "label", row.label));
+    // A session with an agent in someone else's checkout says so here as well
+    // as on the tab: the tab strip only shows the session you are attached to.
+    const shared = row.windows.map((w) => sharing.get(w.id)).filter((x): x is Sharing => x !== undefined);
+    if (shared.length > 0) {
+      const m = el("span", "shared-checkout");
+      m.innerHTML = ICONS.checkout;
+      m.title = shared.map(sharingTitle).join("\n");
+      m.setAttribute("role", "img");
+      m.setAttribute("aria-label", m.title);
+      name.append(m);
+    }
     // Only for a session that is blocked: how long it has been waiting changes
     // what you do about it, where how long a turn has run does not.
     const elapsed = glyph === "input" ? formatElapsed(sessionAgent(row.windows)?.since, Date.now()) : "";
@@ -279,6 +290,7 @@ export function createSidebar(
       drawFoot();
       return;
     }
+    sharing = sharedCheckouts(sessions, windowPlace);
     // Windows live in the tab strip now; the sidebar is one row per session.
     const sessionRows = sidebarModel(sessions, current).filter((r) => r.kind === "session");
     sessionRows.forEach((row, i) => {

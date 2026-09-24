@@ -41,6 +41,12 @@ export interface AgentInfo {
    * (`personal`, `work`). Absent for an agent stamped before the hook recorded it.
    */
   profile?: string;
+  /**
+   * The git checkout the agent is working in (the directory holding its `.git`,
+   * a worktree counting as its own). Two agents in one checkout edit, commit and
+   * switch branches under each other.
+   */
+  checkout?: string;
 }
 
 export interface SessionInfo {

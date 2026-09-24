@@ -13,6 +13,8 @@ import {
   nextAttention,
   sessionAgent,
   sessionGlyph,
+  sharedCheckouts,
+  sharingTitle,
   windowDots,
   windowGlyph,
 } from "../src/client/agent";
@@ -206,6 +208,42 @@ describe("formatElapsed", () => {
   test("a missing or unparseable stamp is blank", () => {
     expect(formatElapsed(undefined, now)).toBe("");
     expect(formatElapsed("soon", now)).toBe("");
+  });
+});
+
+describe("sharedCheckouts", () => {
+  const agent = (checkout?: string) => ({ state: "done" as const, since: "", ...(checkout ? { checkout } : {}) });
+  const win = (id: string, checkout?: string) => ({ id, index: 0, name: id, active: false, panes: 1, agent: agent(checkout) });
+  const label = (s: { name: string }, w: { id: string }) => `${s.name} › ${w.id}`;
+
+  test("flags every agent in a checkout another agent is also in", () => {
+    const got = sharedCheckouts([
+      { name: "banner", windows: [win("@1", "/r/cms"), win("@2", "/r/deploy")] },
+      { name: "voucher", windows: [win("@3", "/r/cms")] },
+    ], label);
+    expect(got.get("@1")).toEqual({ checkout: "/r/cms", others: ["voucher › @3"] });
+    expect(got.get("@3")).toEqual({ checkout: "/r/cms", others: ["banner › @1"] });
+    expect(got.has("@2")).toBe(false);
+  });
+
+  test("one window linked from two sessions is one agent, not a pair", () => {
+    // A cmux tab session links the same window; the id says it is one.
+    const got = sharedCheckouts([
+      { name: "base", windows: [win("@1", "/r/cms")] },
+      { name: "base~tab", windows: [win("@1", "/r/cms")] },
+    ], label);
+    expect(got.size).toBe(0);
+  });
+
+  test("windows without an agent or outside git are never flagged", () => {
+    const plain = { id: "@9", index: 0, name: "zsh", active: false, panes: 1 };
+    const got = sharedCheckouts([{ name: "a", windows: [plain, win("@2"), win("@3")] }], label);
+    expect(got.size).toBe(0);
+  });
+
+  test("the title shows home as ~", () => {
+    expect(sharingTitle({ checkout: "/Users/me/github/cms", others: ["[Work] Voucher › Voucher"] }))
+      .toBe("Shared checkout ~/github/cms — also [Work] Voucher › Voucher");
   });
 });
 

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { orderSessions, swapPlan, Tmux, TmuxError, windowLabel } from "../src/server/tmux";
+import { join } from "node:path";
+import { checkoutOf, orderSessions, swapPlan, Tmux, TmuxError, windowLabel } from "../src/server/tmux";
 import { waitFor } from "./helpers";
 
 const SOCKET = "cmux-viewer-test-tmux";
@@ -36,6 +37,21 @@ describe("Tmux.listSessions", () => {
     await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_agent", `done ${now} ${process.pid} /Users/me/.claude-work`]);
     const [s] = await tmux.listSessions();
     expect(s.windows[0].agent).toMatchObject({ state: "done", profile: "work" });
+  });
+
+  test("reports the git checkout an agent works in", async () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "mxn-checkout-")));
+    try {
+      mkdirSync(join(repo, ".git"));
+      mkdirSync(join(repo, "src"));
+      await tmux.run(["new-session", "-d", "-s", "work", "-c", join(repo, "src")]);
+      const pane = (await tmux.run(["display-message", "-p", "-t", "=work:", "#{pane_id}"])).trim();
+      await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_agent", `done ${Math.floor(Date.now() / 1000)} ${process.pid}`]);
+      const [s] = await tmux.listSessions();
+      expect(s.windows[0].agent?.checkout).toBe(repo);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   test("handles names with spaces and groups windows by session", async () => {
@@ -268,6 +284,26 @@ describe("Tmux session groups", () => {
     const [s] = await tmux.listSessions();
     expect(s.name).toBe("plain");
     expect(await tmux.target("plain")).toBe(await idOf("plain"));
+  });
+});
+
+describe("checkoutOf", () => {
+  const gits = new Set(["/r/app", "/r/app-CEE-1"]);
+  const has = (d: string) => gits.has(d);
+
+  test("is the nearest directory up holding a .git", () => {
+    expect(checkoutOf("/r/app/src/main", has)).toBe("/r/app");
+    expect(checkoutOf("/r/app", has)).toBe("/r/app");
+    expect(checkoutOf("/r/app/", has)).toBe("/r/app");
+  });
+
+  test("a worktree is its own checkout, not its repository's", () => {
+    expect(checkoutOf("/r/app-CEE-1/src", has)).toBe("/r/app-CEE-1");
+  });
+
+  test("is null outside git", () => {
+    expect(checkoutOf("/Users/me", has)).toBeNull();
+    expect(checkoutOf("/", has)).toBeNull();
   });
 });
 

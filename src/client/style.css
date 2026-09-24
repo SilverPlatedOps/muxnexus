@@ -197,6 +197,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 #tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
 
+/* An agent sharing its git checkout with another. Yellow, the colour the app
+   already gives a hazard that is not yet a problem (a quota nearing its limit,
+   a dropped connection); red stays "needs you" alone. Drawn rather than typed,
+   and rare, so it is loud only when it is true. */
+.shared-checkout { flex: none; display: inline-flex; color: var(--yellow); }
+.shared-checkout svg { display: block; }
+
 /* The count of sessions waiting, on the hamburger, so a closed drawer can
    still say that something elsewhere needs you. */
 #hamburger { position: relative; }

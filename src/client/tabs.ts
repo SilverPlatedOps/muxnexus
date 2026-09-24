@@ -1,6 +1,8 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { makeReorderable, moveItem } from "./reorder";
-import { GLYPH, GLYPH_TITLE, windowGlyph } from "./agent";
+import { GLYPH, GLYPH_TITLE, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
+import { ICONS } from "./icons";
+import { tabLabel, windowPlace } from "./labels";
 
 /** The windows of the attached session, in tmux order. Empty when nothing is attached. */
 export function tabsModel(sessions: SessionInfo[], current: string | null): WindowInfo[] {
@@ -8,10 +10,7 @@ export function tabsModel(sessions: SessionInfo[], current: string | null): Wind
   return sessions.find((s) => s.name === current)?.windows ?? [];
 }
 
-/** What a tab is called: the user's rename, else cmux's title, else tmux's window name. */
-export function tabLabel(w: WindowInfo): string {
-  return w.customName ?? w.label ?? w.name;
-}
+export { tabLabel };
 
 /** Every window is addressed by tmux's id (`@3`): an index is a slot windows move through. */
 export interface TabActions {
@@ -45,12 +44,26 @@ function button(cls: string, text?: string): HTMLButtonElement {
   return b;
 }
 
+/**
+ * The mark on an agent that shares its git checkout with another: the tab is
+ * where you would act on it, so it says which other agent and where.
+ */
+function checkoutMark(sh: Sharing): HTMLElement {
+  const m = el("span", "shared-checkout");
+  m.innerHTML = ICONS.checkout;
+  m.title = sharingTitle(sh);
+  m.setAttribute("role", "img");
+  m.setAttribute("aria-label", sharingTitle(sh));
+  return m;
+}
+
 export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   // Keyed by window id, so an open menu or kill confirm stays on its own tab
   // when a poll arrives with the windows in new slots.
   const ui: { menu: string | null; confirm: string | null; editing: string | null } = { menu: null, confirm: null, editing: null };
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
+  let sharing = new Map<string, Sharing>();
 
   const rerender = () => draw(lastSessions, lastCurrent);
 
@@ -155,6 +168,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
     mark.title = GLYPH_TITLE[glyph];
     name.append(mark, el("span", "label", tabLabel(w)));
+    const shared = sharing.get(w.id);
+    if (shared) name.append(checkoutMark(shared));
     if (w.panes > 1) {
       const panes = el("span", "panes", String(w.panes));
       panes.title = `${w.panes} panes`;
@@ -194,6 +209,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     root.hidden = windows.length === 0;
     if (windows.length === 0) return;
 
+    sharing = sharedCheckouts(sessions, windowPlace);
     for (const w of windows) root.append(renderTab(w));
 
     const add = button("row-btn tab-new");
