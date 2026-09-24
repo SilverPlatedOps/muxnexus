@@ -193,6 +193,7 @@ interface SessionRow {
   id: number;
   workspaceId: string;
   order?: number;
+  customName: string;
 }
 
 export class Tmux {
@@ -227,15 +228,16 @@ export class Tmux {
     try {
       out = await this.run([
         "list-sessions", "-F",
-        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}",
+        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
-    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 7).map(([name, attached, grouped, group, id, workspaceId, order]) => ({
+    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 8).map(([name, attached, grouped, group, id, workspaceId, order, customName]) => ({
       name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")), workspaceId,
       order: order === "" ? undefined : Number(order),
+      customName,
     }));
   }
 
@@ -282,7 +284,7 @@ export class Tmux {
     try {
       winOut = await this.run([
         "list-windows", "-a", "-F",
-        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}\t#{window_bell_flag}\t#{window_activity}",
+        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}\t#{window_bell_flag}\t#{window_activity}\t#{@muxnexus_window_name}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
@@ -304,6 +306,7 @@ export class Tmux {
           attached: members.reduce((n, m) => n + m.attached, 0),
           windows: [],
           ...(rep.workspaceId ? { workspaceId: rep.workspaceId } : {}),
+          ...(rep.customName ? { customName: rep.customName } : {}),
           ...(rep.order === undefined || Number.isNaN(rep.order) ? {} : { order: rep.order }),
         },
         rep,
@@ -316,9 +319,9 @@ export class Tmux {
     // window's bell means "unseen" only if no attached tab session is showing it.
     const rows = lines(winOut)
       .map((l) => l.split("\t"))
-      .filter((p) => p.length === 10)
-      .map(([session, index, name, active, panes, paneTitle, surfaceId, id, bell, activity]) => ({
-        session, index, name, paneTitle, surfaceId, id,
+      .filter((p) => p.length === 11)
+      .map(([session, index, name, active, panes, paneTitle, surfaceId, id, bell, activity, customName]) => ({
+        session, index, name, paneTitle, surfaceId, id, customName,
         active: active === "1",
         panes: Number(panes),
         bell: bell === "1",
@@ -338,6 +341,7 @@ export class Tmux {
         name: windowLabel(row.name, row.paneTitle, hostname()),
         active: row.active,
         panes: row.panes,
+        ...(row.customName ? { customName: row.customName } : {}),
         ...(row.surfaceId ? { surfaceId: row.surfaceId } : {}),
         ...(state
           ? { agent: { state: state.state, since: new Date(state.since * 1000).toISOString() } }
@@ -405,10 +409,16 @@ export class Tmux {
 
   async renameSession(session: string, name: string): Promise<void> {
     await this.run(["rename-session", "-t", `=${await this.target(session)}`, "--", name]);
+    // The stamp is what the client displays: it survives cmux re-titling and, on
+    // a session whose name is a cmux workspace, keeps the rename from racing the
+    // guard's own name sync.
+    await this.run(["set-option", "-t", name, "@muxnexus_name", name]);
   }
 
   async renameWindow(session: string, index: number, name: string): Promise<void> {
-    await this.run(["rename-window", "-t", `=${await this.target(session)}:${index}`, "--", name]);
+    const target = `=${await this.target(session)}:${index}`;
+    await this.run(["rename-window", "-t", target, "--", name]);
+    await this.run(["set-option", "-w", "-t", target, "@muxnexus_window_name", name]);
   }
 
   /** Kill the whole server on this socket. Never throws (used by tests). */

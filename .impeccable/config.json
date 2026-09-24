@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/client/style.css"
+        ],
+        "createdAt": "2026-09-24T11:55:30.943Z",
+        "reason": "Claude (session): pre-existing error-toast accent edge (3px red left border), consistent with the repo's red=attention design language; not part of this session's changes"
+      }
+    ]
+  }
+}

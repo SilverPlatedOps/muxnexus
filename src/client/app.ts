@@ -28,6 +28,7 @@ const wrapEl = document.getElementById("wrap")!;
 const tabsEl = document.getElementById("tabs")!;
 const termEl = document.getElementById("terminal")!;
 const collapseBtn = document.getElementById("collapse")!;
+const expandBtn = document.getElementById("expand")!;
 const hamburger = document.getElementById("hamburger")!;
 const drawerClose = document.getElementById("drawer-close")!;
 const findEl = document.getElementById("find")!;
@@ -272,6 +273,10 @@ const conn = new Connection(wsUrl, {
 });
 
 collapseBtn.onclick = () => {
+  sidebar.toggle();
+  term.fit();
+};
+expandBtn.onclick = () => {
   sidebar.toggle();
   term.fit();
 };

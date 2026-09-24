@@ -14,6 +14,8 @@ export interface WindowInfo {
   surfaceId?: string;
   /** What to show instead of `name`: the cmux tab's own title. */
   label?: string;
+  /** The name the user gave it in muxnexus (`@muxnexus_window_name`); beats both `name` and `label`. */
+  customName?: string;
   /**
    * What the agent in this window is doing, from `@muxnexus_agent` -- stamped by
    * a Claude Code hook and already checked against the two ways a stamp goes
@@ -46,6 +48,8 @@ export interface SessionInfo {
   workspaceId?: string;
   /** What to show instead of `name`: the workspace's current title in cmux. */
   label?: string;
+  /** The name the user gave it in muxnexus (`@muxnexus_name`); beats both `name` and `label`. */
+  customName?: string;
   /** The stamped workspace is gone from cmux, so nothing here is reachable there. */
   orphan?: boolean;
   /** Sidebar position (`@muxnexus_order`). Absent until muxnexus has been told where this goes. */

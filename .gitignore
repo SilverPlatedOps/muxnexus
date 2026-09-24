@@ -6,3 +6,4 @@ dist/
 .playwright-mcp/
 __pycache__/
 *.pyc
+.impeccable/hook.cache.json

@@ -137,14 +137,24 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .glyph.running {
   color: var(--fg);
   display: inline-block;
-  animation: spin 2.4s linear infinite;
+}
+/* The ASCII spinner: `|/-\` frames. `content` animation needs no timer, and the
+   base "◔" is what remains under reduced motion -- still distinct from "·" idle. */
+.glyph.running::before {
+  content: "◔";
+  animation: ascii-spin 0.5s steps(1) infinite;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ascii-spin {
+  0%, 100% { content: "|"; }
+  25% { content: "/"; }
+  50% { content: "-"; }
+  75% { content: "\\"; }
+}
 
 /* Motion is an accent, not information: the glyph still differs without it. */
 @media (prefers-reduced-motion: reduce) {
-  .glyph.running { animation: none; }
+  .glyph.running::before { animation: none; }
 }
 
 /* How long a blocked agent has been waiting. Pushed to the right so the names
@@ -323,9 +333,29 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .row-btn:hover { background: var(--sel); color: var(--fg); }
 .menu-open .menu-btn { background: var(--sel); color: var(--fg); }
 
-.menu { display: flex; gap: 6px; padding: 4px 10px 8px 12px; }
+.menu { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 10px 8px 12px; }
+.menu .btn { text-align: left; }
 .menu.window { padding-left: 28px; }
 .group.current .menu.window { padding-left: 26px; }
+
+/* The grip that starts a drag. A span, not a button, so reorder.ts arms on it
+   with a mouse (it ignores buttons) and the row's own clicks stay attached. */
+.drag-handle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 100%;
+  font-size: 11px;
+  color: var(--faint);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.drag-handle:hover { color: var(--muted); }
+.reordering .drag-handle { cursor: grabbing; }
+.tab .drag-handle { width: 14px; font-size: 10px; }
 
 .btn {
   height: 26px;
@@ -417,6 +447,26 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #conn { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
 #conn.down { background: var(--yellow); }
 #hamburger { display: none; }
+
+/* The expand affordance when the sidebar is collapsed: the collapse button lives
+   inside #sidebar, which `display: none` takes with it, so the way back has to
+   live outside it. Fixed over the top-left, where the sidebar used to be. */
+#expand {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  color: var(--muted);
+}
+#expand:hover { color: var(--fg); }
+@media (min-width: 721px) {
+  #layout.collapsed #expand { display: flex; }
+  /* Keep the chip clear of the floating button. */
+  #layout.collapsed #topbar { padding-left: 60px; }
+}
 
 #status {
   display: flex;

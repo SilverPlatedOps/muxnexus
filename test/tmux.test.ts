@@ -76,6 +76,16 @@ describe("Tmux mutators", () => {
     expect(await tmux.listSessions()).toEqual([]);
   });
 
+  test("rename stamps the custom name, which is reported ahead of any title", async () => {
+    await tmux.newSession("s");
+    await tmux.renameWindow("s", 0, "user name");
+    expect((await tmux.listSessions())[0].windows[0].customName).toBe("user name");
+    await tmux.renameSession("s", "proj");
+    const [renamed] = await tmux.listSessions();
+    expect(renamed.customName).toBe("proj");
+    expect(renamed.name).toBe("proj");
+  });
+
   test("hasSession", async () => {
     await tmux.newSession("here");
     expect(await tmux.hasSession("here")).toBe(true);

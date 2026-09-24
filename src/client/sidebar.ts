@@ -13,7 +13,7 @@ export function sidebarModel(sessions: SessionInfo[], current: string | null): R
       kind: "session",
       name: s.name,
       // `name` stays tmux's, which every action targets; only the display differs.
-      label: s.label ?? s.name,
+      label: s.customName ?? s.label ?? s.name,
       orphan: s.orphan === true,
       attached: s.attached > (s.name === current ? 1 : 0),
       current: s.name === current,
@@ -205,15 +205,18 @@ export function createSidebar(
     // the stamped workspace id, so a row showing a cmux title renames there.
     name.ondblclick = (e) => {
       e.preventDefault();
-      inlineRename(r, row.name, (next) => actions.renameSession(row.name, next));
+      inlineRename(r, row.label, (next) => actions.renameSession(row.name, next));
     };
 
-    r.append(name, menuButton(row.name));
+    const handle = el("span", "drag-handle", "⠿");
+    handle.title = "Drag to reorder";
+    handle.setAttribute("aria-hidden", "true");
+    r.append(name, handle, menuButton(row.name));
     group.append(r);
 
     if (ui.menu === row.name) {
       group.append(menuFor(
-        () => inlineRename(r, row.name, (next) => actions.renameSession(row.name, next)),
+        () => inlineRename(r, row.label, (next) => actions.renameSession(row.name, next)),
         () => { ui.menu = null; ui.confirm = row.name; rerender(); },
         {
           up: at > 0 ? () => moveSession(row.name, -1) : undefined,

@@ -8,9 +8,9 @@ export function tabsModel(sessions: SessionInfo[], current: string | null): Wind
   return sessions.find((s) => s.name === current)?.windows ?? [];
 }
 
-/** What a tab is called: cmux's own title for it, else tmux's window name. */
+/** What a tab is called: the user's rename, else cmux's title, else tmux's window name. */
 export function tabLabel(w: WindowInfo): string {
-  return w.label ?? w.name;
+  return w.customName ?? w.label ?? w.name;
 }
 
 export interface TabActions {
@@ -87,7 +87,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       e.stopPropagation();
       ui.menu = -1;
       m.remove();
-      inlineRename(tab, w.index, w.name); // rename targets tmux's name, not the cmux title
+      inlineRename(tab, w.index, tabLabel(w));
     };
     m.append(rename);
     // Dragging is the other half of this; on a phone the menu is the only half.
@@ -154,11 +154,10 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       name.append(panes);
     }
     name.onclick = () => actions.selectWindow(w.index);
-    // Rename targets tmux's window name even when the tab shows cmux's title:
-    // the title belongs to the cmux tab, and tmux's name is what we can set.
+    // Rename edits the label shown; the commit targets the window's tmux name.
     name.ondblclick = (e) => {
       e.preventDefault();
-      inlineRename(tab, w.index, w.name);
+      inlineRename(tab, w.index, tabLabel(w));
     };
 
     const menuBtn = button("row-btn tab-dots");
@@ -171,7 +170,10 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       rerender();
     };
 
-    tab.append(name, menuBtn);
+    const handle = el("span", "drag-handle", "⠿");
+    handle.title = "Drag to reorder";
+    handle.setAttribute("aria-hidden", "true");
+    tab.append(handle, name, menuBtn);
     if (ui.menu === w.index) tab.append(menuFor(tab, w));
     if (ui.confirm === w.index) tab.append(confirmFor(w));
     return tab;

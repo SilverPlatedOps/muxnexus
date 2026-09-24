@@ -14,7 +14,7 @@ const RANK: Record<Glyph, number> = { input: 0, running: 1, unread: 2, seen: 3, 
 /** The character for each. Red is applied by CSS, and only to `input`. */
 export const GLYPH: Record<Glyph, string> = {
   input: "●",   // filled circle, the only red thing in the sidebar
-  running: "◔", // quarter-filled circle, rotating
+  running: "",  // the ASCII spinner is drawn by .glyph.running::before in style.css
   unread: "●",  // filled, but foreground rather than red
   seen: "·",    // middle dot
   none: " ",    // a space that still takes its column

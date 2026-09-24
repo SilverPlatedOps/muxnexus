@@ -26,3 +26,10 @@ test("a tab shows its cmux title when the window carries one", () => {
   ] }];
   expect(tabsModel(sessions, "work").map(tabLabel)).toEqual(["✳ Banner editor migration", "zsh"]);
 });
+
+test("a rename overrides the cmux title and the window name", () => {
+  const sessions = [{ name: "work", attached: 1, windows: [
+    { id: "@0", index: 0, name: "2.1.278", label: "✳ Banner editor migration", customName: "Banner", active: true, panes: 1 },
+  ] }];
+  expect(tabsModel(sessions, "work").map(tabLabel)).toEqual(["Banner"]);
+});

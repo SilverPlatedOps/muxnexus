@@ -56,3 +56,11 @@ test("marks a session whose cmux workspace has been closed", () => {
   const rows = sidebarModel([{ name: "ghost", orphan: true, attached: 0, windows: [] }], null);
   expect(rows[0]).toMatchObject({ name: "ghost", label: "ghost", orphan: true });
 });
+
+test("a rename overrides both the cmux title and the tmux name", () => {
+  const rows = sidebarModel(
+    [{ name: "me", label: "Personal - Cmux", customName: "My Projects", attached: 0, windows: [] }],
+    null,
+  );
+  expect(rows[0]).toMatchObject({ name: "me", label: "My Projects" });
+});
