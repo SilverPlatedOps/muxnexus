@@ -257,6 +257,9 @@ const NO_SERVER = /no server running|no sessions|error connecting to/;
 const NOT_FOUND = /can't find session/;
 const WINDOW_ID = /^@\d+$/;
 
+/** Foreground commands that mean nothing owns the keyboard -- anything else is a program. */
+const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
+
 /** One `list-sessions` row. `id` is `#{session_id}` without its `$`. */
 interface SessionRow {
   name: string;
@@ -539,14 +542,14 @@ export class Tmux {
     id: string,
     configDir: string | null,
     transcript: string,
-    quitFirst: boolean,
   ): Promise<void> {
     const target = await this.windowTarget(session, id);
     // An agent owns the keyboard: typed at a running Claude Code, the resume
-    // lands in its prompt box and is sent as a message rather than run. So quit
-    // it first and wait for the hook to clear the stamp, which is the same
-    // signal the sidebar already trusts for "nothing is running here".
-    if (quitFirst) {
+    // lands in its prompt box and is sent as a message rather than run. Ask the
+    // pane what is in the foreground rather than the hook stamp -- a pane whose
+    // agent started before the hook existed carries no stamp at all, and that
+    // is exactly the pane this used to type straight into.
+    if (!(await this.isShell(target))) {
       await this.type(target, "/exit");
       if (!(await this.waitForShell(target))) {
         throw new TmuxError("the agent in that tab did not exit; quit it and try again");
@@ -580,11 +583,23 @@ export class Tmux {
   }
 
   /** Poll until an agent stamps the pane again, meaning the resume really started. */
+  /**
+   * Whether the pane's foreground process is a plain shell.
+   *
+   * The hook stamp cannot answer this: it outlives the agent it describes (a
+   * pane reads `done` while Claude Code is still on screen) and is absent for
+   * any agent started before the hook was installed. `pane_current_command` is
+   * the kernel's own answer and needs no cooperation from the agent.
+   */
+  private async isShell(target: string): Promise<boolean> {
+    const raw = await this.run(["display", "-p", "-t", target, "#{pane_current_command}"]).catch(() => "");
+    return SHELLS.has(raw.trim());
+  }
+
   private async waitForAgent(target: string, ms = 20000, step = 250): Promise<boolean> {
     for (let waited = 0; waited < ms; waited += step) {
       await new Promise((r) => setTimeout(r, step));
-      const raw = await this.run(["display", "-p", "-t", target, "#{@muxnexus_agent}"]).catch(() => "");
-      if (raw.trim() !== "") return true;
+      if (!(await this.isShell(target))) return true;
     }
     return false;
   }
@@ -597,8 +612,7 @@ export class Tmux {
   private async waitForShell(target: string, ms = 6000, step = 150): Promise<boolean> {
     for (let waited = 0; waited < ms; waited += step) {
       await new Promise((r) => setTimeout(r, step));
-      const raw = await this.run(["display", "-p", "-t", target, "#{@muxnexus_agent}"]).catch(() => "");
-      if (raw.trim() === "") return true;
+      if (await this.isShell(target)) return true;
     }
     return false;
   }
