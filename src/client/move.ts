@@ -144,8 +144,10 @@ export function openMove(
 
   // Said once, plainly: the transcript is read by the account it moves to, and
   // the conversation it started in keeps its own copy.
-  box.append(el("div", "move-foot",
-    "Types a resume into this tab's shell. Quit the agent there first — the original stays put."));
+  // A busy tab's rows are greyed out, and this is the only place that says why.
+  box.append(el("div", "move-foot", busy
+    ? "The agent here is mid-turn. Let it finish or interrupt it, then move it."
+    : "Quits the agent here and resumes the conversation in this tab on the account you pick. The original stays put."));
 
   back.append(box);
   const close = () => back.remove();
