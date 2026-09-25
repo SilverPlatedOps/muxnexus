@@ -547,13 +547,46 @@ export class Tmux {
     // it first and wait for the hook to clear the stamp, which is the same
     // signal the sidebar already trusts for "nothing is running here".
     if (quitFirst) {
-      await this.run(["send-keys", "-t", target, "/exit", "Enter"]);
+      await this.type(target, "/exit");
       if (!(await this.waitForShell(target))) {
         throw new TmuxError("the agent in that tab did not exit; quit it and try again");
       }
     }
     const prefix = configDir ? `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ` : "env -u CLAUDE_CONFIG_DIR ";
-    await this.run(["send-keys", "-t", target, `${prefix}claude --resume ${shellQuote(transcript)}`, "Enter"]);
+    await this.type(target, `${prefix}claude --resume ${shellQuote(transcript)}`);
+    // The new agent's SessionStart stamp is the only proof the line actually ran.
+    // Without this a command left sitting on the prompt -- swallowed Enter, a
+    // shell that was not ready -- looks identical to a switch that worked, and
+    // the user finds out by staring at the tab.
+    if (!(await this.waitForAgent(target))) {
+      throw new TmuxError("typed the resume, but no agent started in that tab -- check its terminal");
+    }
+  }
+
+  /**
+   * Type a line at a shell and run it.
+   *
+   * Three calls, not one. `send-keys "<cmd>" Enter` looks equivalent and is not:
+   * zsh reads a long string as a bracketed paste and holds the Enter that
+   * arrives inside it, leaving the command sitting on the prompt unrun -- which
+   * is exactly what it did. `-l` sends the text literally, the Enter goes
+   * separately as a key, and `C-u` first clears whatever half-typed line the
+   * pane was left with, which would otherwise be submitted instead.
+   */
+  private async type(target: string, line: string): Promise<void> {
+    await this.run(["send-keys", "-t", target, "C-u"]);
+    await this.run(["send-keys", "-t", target, "-l", "--", line]);
+    await this.run(["send-keys", "-t", target, "Enter"]);
+  }
+
+  /** Poll until an agent stamps the pane again, meaning the resume really started. */
+  private async waitForAgent(target: string, ms = 20000, step = 250): Promise<boolean> {
+    for (let waited = 0; waited < ms; waited += step) {
+      await new Promise((r) => setTimeout(r, step));
+      const raw = await this.run(["display", "-p", "-t", target, "#{@muxnexus_agent}"]).catch(() => "");
+      if (raw.trim() !== "") return true;
+    }
+    return false;
   }
 
   /**
