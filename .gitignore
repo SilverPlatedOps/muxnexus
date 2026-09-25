@@ -3,6 +3,7 @@ dist/
 .DS_Store
 
 # editor and tool droppings
+.idea/
 .playwright-mcp/
 __pycache__/
 *.pyc
