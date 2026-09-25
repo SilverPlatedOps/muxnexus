@@ -118,8 +118,10 @@ export const STALE_SECONDS = 10;
  * stamp would sit there forever: a dead pid is no stamp. And `Stop` does not
  * fire when the user interrupts a turn, so `running` would stick: a running
  * Claude redraws several times a second, so a `running` window that has not
- * moved in STALE_SECONDS is reported as done. `Notification[idle_prompt]`
- * corrects it properly a minute later.
+ * moved in STALE_SECONDS is reported as done. That guard is blind to a status
+ * line with a `refreshInterval`, which redraws an idle pane for ever, and
+ * `Notification[idle_prompt]` never follows an interrupt -- `interruptedAfter`
+ * is the answer that holds.
  */
 export function guardStamp(
   stamp: Stamp,
@@ -130,6 +132,44 @@ export function guardStamp(
   if (!alive(stamp.pid)) return null;
   if (stamp.state === "running" && now - activity > STALE_SECONDS) return "done";
   return stamp.state;
+}
+
+/** How much of a transcript's end `interruptedAfter` is shown. */
+export const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
+
+/**
+ * Whether the conversation's last turn was interrupted after the stamp was
+ * written, read from the end of its transcript.
+ *
+ * No hook fires for Esc, but Claude Code writes the fact down: a user line
+ * `[Request interrupted by user]` (`... for tool use` when a tool was cut off
+ * or a permission prompt refused). It counts only as the main thread's last
+ * word -- a prompt typed since is a new turn -- and only if it is no older than
+ * the stamp, so the `UserPromptSubmit` that starts the next turn wins even
+ * before its prompt reaches the file. System lines written after it (a recap)
+ * say nothing about the turn and are skipped.
+ */
+export function interruptedAfter(tail: string, since: number): boolean {
+  const rows = tail.split("\n");
+  // A line cut off where the tail began fails to parse, and is skipped like one
+  // Claude Code was still writing.
+  for (let i = rows.length - 1; i >= 0; i--) {
+    let row: { type?: string; isSidechain?: boolean; timestamp?: string; message?: { content?: unknown } };
+    try {
+      row = JSON.parse(rows[i]);
+    } catch {
+      continue;
+    }
+    if ((row.type !== "user" && row.type !== "assistant") || row.isSidechain) continue;
+    if (row.type === "assistant") return false;
+    const content = row.message?.content;
+    const text = typeof content === "string"
+      ? content
+      : Array.isArray(content) ? content.find((c) => c?.type === "text")?.text : undefined;
+    if (typeof text !== "string" || !text.startsWith("[Request interrupted by user")) return false;
+    return Date.parse(row.timestamp ?? "") >= since * 1000;
+  }
+  return false;
 }
 
 /**
@@ -155,7 +195,7 @@ export function unreadWindow(links: readonly { bell: boolean; attached: boolean;
  * anything in here want me".
  */
 export function windowStates(
-  panes: readonly { id: string; raw: string; cwd?: string }[],
+  panes: readonly { id: string; raw: string; cwd?: string; interrupted?: boolean }[],
   activity: ReadonlyMap<string, number>,
   now: number,
   alive: (pid: number) => boolean,
@@ -164,8 +204,9 @@ export function windowStates(
   for (const pane of panes) {
     const stamp = parseStamp(pane.raw);
     if (!stamp) continue;
-    const state = guardStamp(stamp, activity.get(pane.id) ?? 0, now, alive);
-    if (state === null) continue;
+    const guarded = guardStamp(stamp, activity.get(pane.id) ?? 0, now, alive);
+    if (guarded === null) continue;
+    const state = pane.interrupted ? "done" : guarded;
     const list = seen.get(pane.id) ?? [];
     list.push({
       state,
@@ -370,8 +411,22 @@ export class Tmux {
       const parsed = parseSession(pane.session);
       if (parsed) conversations.set(pane.id, parsed);
     }
+    // Only a stamp claiming a turn is under way needs its transcript read; a
+    // missing file (a fork before its first message) is no evidence either way.
+    const checked = await Promise.all(panes.map(async (pane) => {
+      const stamp = parseStamp(pane.raw);
+      const transcript = pane.session ? parseSession(pane.session)?.transcriptPath : undefined;
+      if (!stamp || stamp.state === "done" || !transcript) return pane;
+      try {
+        const file = Bun.file(transcript);
+        const tail = await file.slice(Math.max(0, file.size - TRANSCRIPT_TAIL_BYTES)).text();
+        return { ...pane, interrupted: interruptedAfter(tail, stamp.since) };
+      } catch {
+        return pane;
+      }
+    }));
     const activity = new Map(rows.map((r) => [r.id, r.activity]));
-    const agents = windowStates(panes, activity, Math.floor(Date.now() / 1000), processAlive);
+    const agents = windowStates(checked, activity, Math.floor(Date.now() / 1000), processAlive);
     return { agents, conversations };
   }
 

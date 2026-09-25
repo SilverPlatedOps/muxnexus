@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   guardStamp,
+  interruptedAfter,
   parseStamp,
   STALE_SECONDS,
   unreadWindow,
@@ -82,6 +83,52 @@ describe("guardStamp", () => {
   });
 });
 
+describe("interruptedAfter", () => {
+  // Shaped like the lines Claude Code writes; only the fields read here.
+  const line = (o: object) => JSON.stringify({ isSidechain: false, ...o });
+  const user = (at: string, content: unknown) =>
+    line({ type: "user", timestamp: at, message: { role: "user", content } });
+  const assistant = (at: string) =>
+    line({ type: "assistant", timestamp: at, message: { role: "assistant", content: [{ type: "text", text: "ok" }] } });
+  const since = Date.parse("2026-09-25T09:35:25Z") / 1000;
+
+  test("Esc while the model is writing leaves the marker last", () => {
+    const tail = [assistant("2026-09-25T09:35:40Z"), user("2026-09-25T09:35:59Z", [{ type: "text", text: "[Request interrupted by user]" }])];
+    expect(interruptedAfter(tail.join("\n"), since)).toBe(true);
+  });
+
+  test("Esc during a tool call, with a system line written after it", () => {
+    const tail = [
+      user("2026-09-25T09:35:59.306Z", [{ type: "tool_result", content: "The user doesn't want to proceed" }]),
+      user("2026-09-25T09:35:59.310Z", [{ type: "text", text: "[Request interrupted by user for tool use]" }]),
+      line({ type: "system", subtype: "away_summary", timestamp: "2026-09-25T09:39:03Z", content: "recap" }),
+    ];
+    expect(interruptedAfter(tail.join("\n") + "\n", since)).toBe(true);
+  });
+
+  test("a prompt typed after the interrupt is a new turn", () => {
+    const tail = [user("2026-09-25T09:35:59Z", "[Request interrupted by user]"), user("2026-09-25T09:36:10Z", "carry on")];
+    expect(interruptedAfter(tail.join("\n"), since)).toBe(false);
+  });
+
+  test("a stamp newer than the marker wins", () => {
+    // UserPromptSubmit restamps before the new prompt reaches the file.
+    const tail = user("2026-09-25T09:35:59Z", "[Request interrupted by user]");
+    expect(interruptedAfter(tail, Date.parse("2026-09-25T09:36:10Z") / 1000)).toBe(false);
+  });
+
+  test("a subagent's interrupt is not the main thread's", () => {
+    const tail = [assistant("2026-09-25T09:35:40Z"),
+      line({ type: "user", isSidechain: true, timestamp: "2026-09-25T09:35:59Z", message: { content: "[Request interrupted by user]" } })];
+    expect(interruptedAfter(tail.join("\n"), since)).toBe(false);
+  });
+
+  test("a cut-off first line and an empty tail are no evidence", () => {
+    expect(interruptedAfter('rupted by user]"}}\n' + assistant("2026-09-25T09:35:40Z"), since)).toBe(false);
+    expect(interruptedAfter("", since)).toBe(false);
+  });
+});
+
 describe("windowStates", () => {
   const alive = () => true;
   const activity = new Map([["@1", 100]]);
@@ -118,6 +165,13 @@ describe("windowStates", () => {
     // A pane whose window vanished between the two tmux calls.
     const got = windowStates([{ id: "@9", raw: "input 10 7" }], activity, 100, alive);
     expect(got.get("@9")?.state).toBe("input");
+  });
+
+  test("an interrupted turn is done though a status line keeps the window live", () => {
+    const panes = [{ id: "@1", raw: "running 90 7", interrupted: true }, { id: "@2", raw: "input 90 8", interrupted: true }];
+    const got = windowStates(panes, new Map([["@1", 100], ["@2", 100]]), 100, alive);
+    expect(got.get("@1")?.state).toBe("done");
+    expect(got.get("@2")?.state).toBe("done");
   });
 });
 

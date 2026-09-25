@@ -82,8 +82,9 @@ case "$event" in
       *idle_prompt*)                            state=done ;;
       *) exit 0 ;;  # some other notification says nothing about state
     esac ;;
-  # The turn ended, or a session opened with nothing running in it yet.
-  Stop|SessionStart)
+  # The turn ended -- an API error ends it with `StopFailure` instead -- or a
+  # session opened with nothing running in it yet.
+  Stop|StopFailure|SessionStart)
     state=done
     # Once per session, off the hot path: record which conversation this is.
     # Parsed with parameter expansion rather than jq for the same reason `has`

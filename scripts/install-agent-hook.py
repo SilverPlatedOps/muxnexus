@@ -14,7 +14,7 @@ import time
 
 EVENTS = [
     "PermissionRequest", "PreToolUse", "PostToolUse", "UserPromptSubmit",
-    "Notification", "Stop", "SessionStart", "SessionEnd",
+    "Notification", "Stop", "StopFailure", "SessionStart", "SessionEnd",
 ]
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "agent-state.sh")
 MARKER = "agent-state.sh"
