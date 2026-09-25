@@ -536,6 +536,13 @@ export class Tmux {
    * absence, so an explicit path there reads as signed out. The session's own
    * tmux environment may already hold a `CLAUDE_CONFIG_DIR` from its `[Work]`
    * tag, which is exactly why neither branch can rely on inheriting it.
+   *
+   * `--fork-session` because a plain resume keeps appending to the transcript
+   * where it was found, i.e. in the *old* profile's `projects/`. The target
+   * account then never lists the conversation in its own `/resume`, and the
+   * status line, which names the profile from `.transcript_path`, badges it as
+   * the account it left. A fork writes a new session under the current config
+   * dir and leaves the original file as it was.
    */
   async resumeIn(
     session: string,
@@ -556,7 +563,7 @@ export class Tmux {
       }
     }
     const prefix = configDir ? `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ` : "env -u CLAUDE_CONFIG_DIR ";
-    await this.type(target, `${prefix}claude --resume ${shellQuote(transcript)}`);
+    await this.type(target, `${prefix}claude --resume ${shellQuote(transcript)} --fork-session`);
     // The new agent's SessionStart stamp is the only proof the line actually ran.
     // Without this a command left sitting on the prompt -- swallowed Enter, a
     // shell that was not ready -- looks identical to a switch that worked, and
