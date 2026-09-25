@@ -1,5 +1,5 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
-import { makeReorderable } from "./reorder";
+import { MENU_REORDER, makeReorderable } from "./reorder";
 import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { sessionLabel, windowPlace } from "./labels";
@@ -126,12 +126,12 @@ export function createSidebar(
     m.append(rename);
     // The keyboard- and touch-reachable half of reordering; dragging is the
     // other half, and neither is the fallback for the other.
-    if (move?.up) {
+    if (MENU_REORDER && move?.up) {
       const up = button("btn", "Move up");
       up.onclick = () => { ui.menu = null; move.up!(); };
       m.append(up);
     }
-    if (move?.down) {
+    if (MENU_REORDER && move?.down) {
       const down = button("btn", "Move down");
       down.onclick = () => { ui.menu = null; move.down!(); };
       m.append(down);

@@ -1,5 +1,5 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
-import { makeReorderable, moveItem } from "./reorder";
+import { MENU_REORDER, makeReorderable, moveItem } from "./reorder";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
@@ -148,12 +148,12 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       ui.menu = null;
       actions.reorderWindows(moveItem(order, at, to));
     };
-    if (at > 0) {
+    if (MENU_REORDER && at > 0) {
       const left = button("btn", "Move left");
       left.onclick = (e) => { e.stopPropagation(); move(-1); };
       m.append(left);
     }
-    if (at >= 0 && at < order.length - 1) {
+    if (MENU_REORDER && at >= 0 && at < order.length - 1) {
       const right = button("btn", "Move right");
       right.onclick = (e) => { e.stopPropagation(); move(1); };
       m.append(right);

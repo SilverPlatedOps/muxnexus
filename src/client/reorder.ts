@@ -14,6 +14,13 @@
  * own buttons -- never start a drag.
  */
 
+/**
+ * Whether the row menus also offer Move up/down and Move left/right. Off while
+ * dragging covers it -- a long press arms it on touch too -- and kept rather
+ * than deleted, in case a keyboard-only way to reorder is wanted back.
+ */
+export const MENU_REORDER = false;
+
 export interface Rect {
   top: number;
   height: number;
