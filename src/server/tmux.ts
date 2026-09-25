@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
-import type { AgentState, SessionInfo } from "../shared/protocol";
+import type { AgentState, ConversationInfo, SessionInfo } from "../shared/protocol";
 import { profileLabel } from "./usage";
 
 /**
@@ -73,6 +73,30 @@ export function parseStamp(raw: string): Stamp | null {
   const process = Number(pid);
   if (!Number.isInteger(at) || !Number.isInteger(process) || process <= 0) return null;
   return { state, since: at, pid: process, ...(configDir ? { configDir } : {}) };
+}
+
+/**
+ * A window's `@muxnexus_session` stamp: `"<session id> <transcript path>"`. The
+ * path is the rest of the line, since it may hold spaces. Unlike the agent
+ * stamp this one is never cleared, so it is parsed on its own and survives the
+ * agent exiting -- which is the case the switcher exists for.
+ */
+export function parseSession(raw: string): ConversationInfo | null {
+  const m = /^(\S+)\s+(.+)$/.exec(raw.trim());
+  if (!m) return null;
+  const [, sessionId, transcriptPath] = m;
+  return { sessionId, transcriptPath };
+}
+
+/**
+ * POSIX single-quoting: everything is literal inside single quotes, and an
+ * embedded quote closes, escapes and reopens. Transcript paths hold the project
+ * directory's name, which on this machine is a path with its separators turned
+ * into dashes -- but a quote or a space in a repo name would otherwise end the
+ * argument early and resume the wrong thing.
+ */
+export function shellQuote(s: string): string {
+  return `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
 /** Attention first: a window wanting the human outranks one merely working. */
@@ -314,20 +338,35 @@ export class Tmux {
    */
   private async agentStates(
     rows: readonly { id: string; activity: number }[],
-  ): Promise<Map<string, WindowAgent>> {
+  ): Promise<{ agents: Map<string, WindowAgent>; conversations: Map<string, ConversationInfo> }> {
     let out: string;
     try {
-      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{pane_current_path}\t#{@muxnexus_agent}"]);
+      out = await this.run(["list-panes", "-a", "-F",
+        "#{window_id}\t#{pane_current_path}\t#{@muxnexus_session}\t#{@muxnexus_agent}"]);
     } catch (e) {
-      if (e instanceof TmuxError && NO_SERVER.test(e.message)) return new Map();
+      if (e instanceof TmuxError && NO_SERVER.test(e.message)) {
+        return { agents: new Map(), conversations: new Map() };
+      }
       throw e;
     }
+    // The agent stamp goes last so it keeps the "rest of the line" treatment it
+    // had before the session stamp was added in front of it.
     const panes = lines(out).map((l) => {
-      const [id, cwd, ...rest] = l.split("\t");
-      return { id, cwd, raw: rest.join("\t") };
+      const [id, cwd, session, ...rest] = l.split("\t");
+      return { id, cwd, session, raw: rest.join("\t") };
     });
+    // Gathered per window rather than per pane: two panes in one window would
+    // each hold their own conversation, and the tab offers one. First stamp wins,
+    // matching how the window takes one pane's agent rather than merging them.
+    const conversations = new Map<string, ConversationInfo>();
+    for (const pane of panes) {
+      if (!pane.session || conversations.has(pane.id)) continue;
+      const parsed = parseSession(pane.session);
+      if (parsed) conversations.set(pane.id, parsed);
+    }
     const activity = new Map(rows.map((r) => [r.id, r.activity]));
-    return windowStates(panes, activity, Math.floor(Date.now() / 1000), processAlive);
+    const agents = windowStates(panes, activity, Math.floor(Date.now() / 1000), processAlive);
+    return { agents, conversations };
   }
 
   /** Members of the group `row` belongs to (just `row` when ungrouped), oldest first. */
@@ -396,7 +435,7 @@ export class Tmux {
         attached: (all.find((r) => r.name === session)?.attached ?? 0) > 0,
       }));
 
-    const agents = await this.agentStates(rows);
+    const { agents, conversations } = await this.agentStates(rows);
 
     for (const row of rows) {
       const s = byRep.get(row.session);
@@ -421,6 +460,7 @@ export class Tmux {
               },
             }
           : {}),
+        ...(conversations.has(row.id) ? { conversation: conversations.get(row.id)! } : {}),
         ...(unreadWindow(rows.filter((o) => o.id === row.id)) ? { unread: true } : {}),
       });
     }
@@ -479,6 +519,25 @@ export class Tmux {
   async newSession(name: string, cwd: string = homedir(), env: Record<string, string> = {}): Promise<void> {
     const vars = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
     await this.run(["new-session", "-d", "-s", name, "-c", cwd, ...vars]);
+  }
+
+  /**
+   * Type a resume into the window's shell, so the conversation continues under
+   * another account in the tab it is already in. `send-keys` rather than
+   * `respawn-window` on purpose: the pane is never replaced, so its scrollback
+   * -- the last thing the agent said before it was stopped -- stays readable
+   * while the new one starts.
+   *
+   * `configDir` null means the default profile, and the variable is *unset*
+   * rather than set to `~/.claude`: Claude Code keys its credentials on its
+   * absence, so an explicit path there reads as signed out. The session's own
+   * tmux environment may already hold a `CLAUDE_CONFIG_DIR` from its `[Work]`
+   * tag, which is exactly why neither branch can rely on inheriting it.
+   */
+  async resumeIn(session: string, id: string, configDir: string | null, transcript: string): Promise<void> {
+    const prefix = configDir ? `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ` : "env -u CLAUDE_CONFIG_DIR ";
+    const cmd = `${prefix}claude --resume ${shellQuote(transcript)}`;
+    await this.run(["send-keys", "-t", await this.windowTarget(session, id), cmd, "Enter"]);
   }
 
   async newWindow(session: string): Promise<void> {

@@ -815,3 +815,87 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   margin-top: 0;
   margin-left: -1px;
 }
+
+/* ---------- move to... ---------- */
+
+/* The account picker. A modal rather than a popover under the tab: it carries
+   the quota rows, which are as wide as the sidebar's, and the choice is worth
+   the terminal going quiet behind it. */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.move {
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 16px 12px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+.move-head { margin-bottom: 12px; }
+.move-title { display: block; color: var(--fg-strong); font-weight: 600; }
+.move-sub { display: block; margin-top: 2px; color: var(--faint); font-size: 11px; }
+
+.move-cap { margin-bottom: 5px; color: var(--faint); font-size: 10.5px; letter-spacing: 0.4px; }
+
+.move-carry { display: flex; gap: 8px; margin-bottom: 14px; }
+.move-opt {
+  flex: 1;
+  padding: 7px 9px;
+  background: #262b33;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+.move-opt.sel { border-color: var(--accent); background: var(--current); }
+/* Shown rather than hidden: half the design is not built, and the gap is worth
+   saying on screen instead of leaving the user to wonder where it went. */
+.move-opt.off { opacity: 0.45; }
+.move-opt-name { display: block; color: var(--fg-strong); font-weight: 500; }
+.move-opt-note { display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+
+/* The quota panel's own row, so the picker reads as the panel the user already
+   glances at. Its columns are wider here: the modal has the room the sidebar
+   does not, and the account name is the thing being chosen. */
+.move .urow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.move .urow:hover { background: var(--hover); }
+.move .urow.pick { background: var(--current); }
+.move .urow.off { opacity: 0.45; cursor: default; }
+.move .urow.off:hover { background: none; }
+.move .ucaret { width: 10px; color: var(--accent); }
+.move .uname { width: 88px; color: var(--muted); }
+.move .ukind { width: 22px; color: var(--faint); }
+.move .umeter { letter-spacing: -0.5px; }
+.move .ufill { color: var(--accent); }
+.move .ufill.warning { color: var(--yellow); }
+.move .ufill.critical { color: var(--red); }
+.move .utrack { color: var(--line); }
+.move .upct { width: 32px; text-align: right; color: var(--fg); }
+.move .ureset { color: var(--faint); }
+.move .ustat { color: var(--faint); font-style: italic; }
+
+.move-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--faint);
+  font-size: 10.5px;
+}

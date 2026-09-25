@@ -21,6 +21,12 @@ export interface TabActions {
   killWindow(id: string): void;
   /** The whole wanted tab order, as window ids. */
   reorderWindows(ids: string[]): void;
+  /**
+   * Open the account picker for this window. Only offered once a Claude Code
+   * SessionStart has stamped the window, since without a transcript there is
+   * nothing to carry.
+   */
+  moveWindow(id: string): void;
 }
 
 export interface Tabs {
@@ -128,6 +134,18 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       const right = button("btn", "Move right");
       right.onclick = (e) => { e.stopPropagation(); move(1); };
       m.append(right);
+    }
+    // Between reordering and destroying: this is where the tab's own state goes,
+    // and it is absent rather than disabled when the window holds no conversation.
+    if (w.conversation) {
+      const move = button("btn", "Move to\u2026");
+      move.onclick = (e) => {
+        e.stopPropagation();
+        ui.menu = null;
+        m.remove();
+        actions.moveWindow(w.id);
+      };
+      m.append(move);
     }
     const kill = button("btn", "Kill");
     kill.onclick = (e) => {

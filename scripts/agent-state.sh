@@ -12,6 +12,12 @@
 #   @muxnexus_agent = "<state> <epoch> <pid> <config dir>"
 #     e.g. "running 1790242563 61936 /Users/me/.claude-work"
 #
+#   @muxnexus_session = "<session id> <transcript path>"    (SessionStart only)
+#     The conversation this pane holds, so it can be carried to another account
+#     without the user hunting for a uuid. Written once -- neither value changes
+#     within a session -- and deliberately NOT cleared on SessionEnd: a tab whose
+#     agent has quit is exactly the one worth resuming elsewhere.
+#
 # `tmux` needs no socket argument: it takes one from $TMUX, which is set in the
 # pane the hook inherits. Outside tmux there is no pane and the script exits.
 
@@ -20,6 +26,34 @@ command -v tmux >/dev/null 2>&1 || exit 0
 
 event="${1:-}"
 payload=$(cat 2>/dev/null)
+
+# "name":"value" out of the raw payload, tolerating a space after the colon.
+# Prints nothing and fails if the key is absent or its value is not a string.
+field() {
+  case "$payload" in
+    *"\"$1\""*) ;;
+    *) return 1 ;;
+  esac
+  v=${payload#*\"$1\"}
+  v=${v#*:}
+  v=${v# }
+  case "$v" in
+    \"*) ;;
+    *) return 1 ;;
+  esac
+  v=${v#\"}
+  v=${v%%\"*}
+  [ -n "$v" ] || return 1
+  printf '%s' "$v"
+}
+
+# The transcript path goes last because it may hold spaces; the server reads it
+# to the end of the value, as it already does for the config dir.
+stamp_session() {
+  sid=$(field session_id) || return 0
+  tpath=$(field transcript_path) || return 0
+  tmux set-option -p -t "$TMUX_PANE" @muxnexus_session "$sid $tpath" 2>/dev/null
+}
 
 # Matched against the raw JSON, so both `"tool_name":"X"` and `"tool_name": "X"`
 # have to hit. A false match here would only mis-state a glyph for one turn.
@@ -50,7 +84,11 @@ case "$event" in
     esac ;;
   # The turn ended, or a session opened with nothing running in it yet.
   Stop|SessionStart)
-    state=done ;;
+    state=done
+    # Once per session, off the hot path: record which conversation this is.
+    # Parsed with parameter expansion rather than jq for the same reason `has`
+    # uses `case` -- no subprocess, and a miss only costs the Move to... default.
+    [ "$event" = SessionStart ] && stamp_session ;;
   SessionEnd)
     tmux set-option -pu -t "$TMUX_PANE" @muxnexus_agent 2>/dev/null
     exit 0 ;;

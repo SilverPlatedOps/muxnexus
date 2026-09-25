@@ -2,12 +2,13 @@ import { createSidebar, sessionLabel } from "./sidebar";
 import { visualOrder } from "./groups";
 import { splitCategory } from "../shared/category";
 import { createTabs } from "./tabs";
+import { openMove, targets } from "./move";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { renderUsage } from "./usage";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
-import type { SessionInfo } from "../shared/protocol";
+import type { SessionInfo, UsageSource } from "../shared/protocol";
 
 const SESSION_KEY = "muxnexus.session";
 const PHONE = "(max-width: 720px)";
@@ -222,12 +223,29 @@ const sidebar = createSidebar(sessionsEl, layout, {
   reorderSessions,
 }, footEl);
 
+/** The last quota snapshot, so the account picker can list the same rows the panel shows. */
+let usageSources: UsageSource[] = [];
+/** Claude's accounts in the panel's order, which is also the picker's order. */
+let profileLabels: string[] = [];
+
 const tabs = createTabs(tabsEl, {
   selectWindow: (id) => { if (current) conn.send({ t: "select-window", session: current, id }); },
   newWindow: () => { if (current) conn.send({ t: "new-window", session: current }); },
   renameWindow: (id, name) => { if (current) conn.send({ t: "rename-window", session: current, id, name }); },
   killWindow: (id) => { if (current) conn.send({ t: "kill-window", session: current, id }); },
   reorderWindows,
+  moveWindow: (id) => {
+    const win = sessions.find((s) => s.name === current)?.windows.find((w) => w.id === id);
+    if (!win?.conversation) return;
+    openMove(
+      document.body,
+      win,
+      win.conversation,
+      targets(usageSources, profileLabels, win.agent?.profile),
+      { moveTo: (wid, profile) => { if (current) conn.send({ t: "move-window-to", session: current, id: wid, profile }); } },
+      Date.now(),
+    );
+  },
 });
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
@@ -263,10 +281,14 @@ const conn = new Connection(wsUrl, {
         break;
       }
       case "usage":
+        // Kept, not just rendered: the "Move to..." picker lists the same
+        // accounts with the same bars, and it opens between usage updates.
+        usageSources = m.sources;
         // The badge switch lives in the panel; the tabs wear the badges.
         renderUsage(usageEl, m.sources, Date.now(), () => tabs.render(sessions, current));
         // Claude's accounts, in the panel's order; opencode is not one.
-        tabs.setProfiles(m.sources.filter((s) => s.id !== "opencode").map((s) => s.label));
+        profileLabels = m.sources.filter((s) => s.id !== "opencode").map((s) => s.label);
+        tabs.setProfiles(profileLabels);
         break;
       case "attached":
         current = m.session;

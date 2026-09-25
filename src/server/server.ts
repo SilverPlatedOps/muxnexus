@@ -1,8 +1,9 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, ServerMessage, SessionInfo } from "../shared/protocol";
-import { categoryProfile, type UsageReader } from "./usage";
+import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
@@ -274,6 +275,18 @@ export function createServer(opts: ServerOptions): RunningServer {
           ws.data.rows = m.rows;
           ws.data.pty?.resize(m.cols, m.rows);
           return;
+        }
+        case "move-window-to": {
+          const win = (await tmux.listSessions().catch(() => []))
+            .find((x) => x.name === m.session)?.windows.find((w) => w.id === m.id);
+          // Refuse rather than guess: without a stamp there is no transcript to
+          // resume, and typing a bare `claude` would start an empty session over
+          // the one the user meant to carry.
+          if (!win?.conversation) break;
+          const dirs = opts.profiles ? opts.profiles() : [];
+          const target = dirs.find((d) => profileLabel(d) === m.profile) ?? null;
+          await tmux.resumeIn(m.session, m.id, target === join(homedir(), ".claude") ? null : target, win.conversation.transcriptPath);
+          break;
         }
         case "new-session": {
           const cat = splitCategory(m.name);

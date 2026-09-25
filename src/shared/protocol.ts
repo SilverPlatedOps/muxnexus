@@ -23,10 +23,28 @@ export interface WindowInfo {
    */
   agent?: AgentInfo;
   /**
+   * The conversation this window holds, from `@muxnexus_session`. Deliberately
+   * not part of `agent`: that stamp is cleared when the agent exits, and a tab
+   * whose agent has quit is precisely the one worth carrying elsewhere. Absent
+   * until a Claude Code SessionStart has run in the window.
+   */
+  conversation?: ConversationInfo;
+  /**
    * The window rang the bell and nobody has looked since. tmux's own flag, so
    * it survives cmux being closed and costs nothing to read.
    */
   unread?: boolean;
+}
+
+/**
+ * Which conversation a window holds, so it can be resumed under another account
+ * without the user finding a uuid. The transcript path is what `claude --resume`
+ * takes, and it is the config dir's own path -- resuming it from a different
+ * profile is what carrying a task between accounts amounts to.
+ */
+export interface ConversationInfo {
+  sessionId: string;
+  transcriptPath: string;
 }
 
 /** The three things a window can say about the agent running in it. */
@@ -112,6 +130,13 @@ export type ClientMessage =
   | { t: "reorder-sessions"; names: string[] }
   /** The whole wanted tab order, as window ids. */
   | { t: "reorder-windows"; session: string; ids: string[] }
+  /**
+   * Carry the window's conversation to another account: the server types a
+   * resume into the window's own shell. `profile` names it as the quota panel
+   * does (`personal`, `work`); the server resolves it to a config dir, so no
+   * path crosses the wire.
+   */
+  | { t: "move-window-to"; session: string; id: string; profile: string }
   | { t: "ping" };
 
 export type DetachReason = "session-killed" | "exited";
