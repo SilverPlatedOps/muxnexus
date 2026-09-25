@@ -534,10 +534,40 @@ export class Tmux {
    * tmux environment may already hold a `CLAUDE_CONFIG_DIR` from its `[Work]`
    * tag, which is exactly why neither branch can rely on inheriting it.
    */
-  async resumeIn(session: string, id: string, configDir: string | null, transcript: string): Promise<void> {
+  async resumeIn(
+    session: string,
+    id: string,
+    configDir: string | null,
+    transcript: string,
+    quitFirst: boolean,
+  ): Promise<void> {
+    const target = await this.windowTarget(session, id);
+    // An agent owns the keyboard: typed at a running Claude Code, the resume
+    // lands in its prompt box and is sent as a message rather than run. So quit
+    // it first and wait for the hook to clear the stamp, which is the same
+    // signal the sidebar already trusts for "nothing is running here".
+    if (quitFirst) {
+      await this.run(["send-keys", "-t", target, "/exit", "Enter"]);
+      if (!(await this.waitForShell(target))) {
+        throw new TmuxError("the agent in that tab did not exit; quit it and try again");
+      }
+    }
     const prefix = configDir ? `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ` : "env -u CLAUDE_CONFIG_DIR ";
-    const cmd = `${prefix}claude --resume ${shellQuote(transcript)}`;
-    await this.run(["send-keys", "-t", await this.windowTarget(session, id), cmd, "Enter"]);
+    await this.run(["send-keys", "-t", target, `${prefix}claude --resume ${shellQuote(transcript)}`, "Enter"]);
+  }
+
+  /**
+   * Poll until the pane's agent stamp is gone, meaning SessionEnd has fired and
+   * the shell is back. Bounded rather than indefinite: a wedged agent must not
+   * leave the switch hanging, and the caller says so instead.
+   */
+  private async waitForShell(target: string, ms = 6000, step = 150): Promise<boolean> {
+    for (let waited = 0; waited < ms; waited += step) {
+      await new Promise((r) => setTimeout(r, step));
+      const raw = await this.run(["display", "-p", "-t", target, "#{@muxnexus_agent}"]).catch(() => "");
+      if (raw.trim() === "") return true;
+    }
+    return false;
   }
 
   async newWindow(session: string): Promise<void> {

@@ -92,6 +92,9 @@ export function openMove(
   now: number,
   bytes?: number,
 ): void {
+  // "done" is the hook's word for idle. Running or waiting-on-input means a turn
+  // is under way and the keyboard belongs to the agent.
+  const busy = w.agent !== undefined && w.agent.state !== "done";
   const back = el("div", "modal-back");
   const box = el("div", "move");
 
@@ -132,9 +135,10 @@ export function openMove(
       row.append(el("span", "ureset", formatReset(t.resetsAt, now)));
     }
     if (t.here) row.append(el("span", "ustat", "here"));
-    if (!t.here) {
+    if (!t.here && !busy) {
       row.onclick = () => { close(); actions.moveTo(w.id, t.label); };
     }
+    if (busy) row.classList.add("off");
     box.append(row);
   }
 

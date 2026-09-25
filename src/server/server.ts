@@ -283,9 +283,19 @@ export function createServer(opts: ServerOptions): RunningServer {
           // resume, and typing a bare `claude` would start an empty session over
           // the one the user meant to carry.
           if (!win?.conversation) break;
+          // Mid-turn, "/exit" would be queued as the agent's next prompt rather
+          // than quitting it -- the same mistake as typing the resume itself.
+          // An idle agent is quit for the user; a busy one is theirs to interrupt.
+          if (win.agent && win.agent.state !== "done") break;
           const dirs = opts.profiles ? opts.profiles() : [];
           const target = dirs.find((d) => profileLabel(d) === m.profile) ?? null;
-          await tmux.resumeIn(m.session, m.id, target === join(homedir(), ".claude") ? null : target, win.conversation.transcriptPath);
+          await tmux.resumeIn(
+            m.session,
+            m.id,
+            target === join(homedir(), ".claude") ? null : target,
+            win.conversation.transcriptPath,
+            win.agent !== undefined,
+          );
           break;
         }
         case "new-session": {
