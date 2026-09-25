@@ -4,6 +4,7 @@ dist/
 
 # editor and tool droppings
 .idea/
+.worktrees/
 .playwright-mcp/
 __pycache__/
 *.pyc
