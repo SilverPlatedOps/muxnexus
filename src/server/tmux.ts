@@ -270,6 +270,8 @@ interface SessionRow {
   workspaceId: string;
   order?: number;
   customName: string;
+  /** A split pane's private view of the group (`@muxnexus_view`), never a sidebar row or a client of its own. */
+  view: boolean;
 }
 
 export class Tmux {
@@ -321,16 +323,17 @@ export class Tmux {
     try {
       out = await this.run([
         "list-sessions", "-F",
-        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}",
+        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}\t#{@muxnexus_view}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
-    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 8).map(([name, attached, grouped, group, id, workspaceId, order, customName]) => ({
+    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 9).map(([name, attached, grouped, group, id, workspaceId, order, customName, view]) => ({
       name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")), workspaceId,
       order: order === "" ? undefined : Number(order),
       customName,
+      view: view === "1",
     }));
   }
 
@@ -406,7 +409,11 @@ export class Tmux {
     for (const row of all) {
       const key = row.grouped ? `g ${row.group}` : `s ${row.name}`;
       if (groups.has(key)) continue;
-      const members = this.groupOf(row, all);
+      // A split pane's view is the browser looking twice, not a session of its
+      // own: it must neither name the group nor light the "someone else is
+      // attached" dot. Kept when nothing else is left, so the windows still show.
+      const group = this.groupOf(row, all);
+      const members = group.some((m) => !m.view) ? group.filter((m) => !m.view) : group;
       const rep = this.representative(members);
       groups.set(key, {
         info: {
@@ -650,6 +657,57 @@ export class Tmux {
   private async windowTarget(session: string, id: string): Promise<string> {
     if (!WINDOW_ID.test(id)) throw new TmuxError(`invalid window id: ${id}`);
     return `${await this.target(session)}:${id}`;
+  }
+
+  /**
+   * A private grouped session showing one window of `session`, for a split
+   * pane: a tmux client shows its session's current window, so two panes of one
+   * session need two sessions. Addressed by the id it returns, never by name --
+   * the name inherits any '.' or ':' of the base's. Stamped so a sweep can find
+   * it and the sidebar can ignore it.
+   */
+  async openView(session: string, windowId: string): Promise<string> {
+    if (!WINDOW_ID.test(windowId)) throw new TmuxError(`not a window id: ${windowId}`);
+    const base = await this.target(session);
+    // Named after the session so tmux's own status line reads the same in both
+    // panes; the name is only ever shown, never used as a target.
+    const name = `${session}~view-${crypto.randomUUID().slice(0, 6)}`;
+    const id = (await this.run(["new-session", "-d", "-P", "-F", "#{session_id}", "-t", base, "-s", name])).trim();
+    try {
+      await this.run(["set-option", "-t", id, "@muxnexus_view", "1"]);
+      await this.run(["select-window", "-t", `${id}:${windowId}`]);
+    } catch (e) {
+      await this.closeView(id);
+      throw e;
+    }
+    return id;
+  }
+
+  /**
+   * From here on tmux removes the view when its client goes, even if this
+   * server dies first -- but never as the last member of its group, which would
+   * take the windows with it. Only once a client is attached: set on a session
+   * with none, it is destroyed on the spot.
+   */
+  async releaseView(id: string): Promise<void> {
+    await this.run(["set-option", "-t", id, "destroy-unattached", "keep-last"]);
+  }
+
+  /** Remove a view, unless it is the last of its group: then it is all that holds the windows. */
+  async closeView(id: string): Promise<void> {
+    const all = await this.rows();
+    const row = all.find((r) => idTarget(r.id) === id);
+    if (!row || this.groupOf(row, all).length < 2) return;
+    await this.run(["kill-session", "-t", id]).catch((e) => {
+      if (!(e instanceof TmuxError && (NOT_FOUND.test(e.message) || NO_SERVER.test(e.message)))) throw e;
+    });
+  }
+
+  /** Views left behind by a server that stopped before releasing them. */
+  async sweepViews(): Promise<void> {
+    for (const r of await this.rows()) {
+      if (r.view && r.attached === 0) await this.closeView(idTarget(r.id));
+    }
   }
 
   async killWindow(session: string, id: string): Promise<void> {

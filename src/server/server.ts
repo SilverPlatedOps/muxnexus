@@ -51,6 +51,8 @@ interface ConnData {
   cols: number;
   rows: number;
   attachSeq: number;
+  /** The split-pane view this socket is attached through (`$7`), removed when it detaches. */
+  view: string | null;
 }
 
 type Socket = ServerWebSocket<ConnData>;
@@ -99,6 +101,9 @@ export function hostAllowed(host: string | null, allowed: readonly string[]): bo
 
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
+  // A server stopped between opening a view and its first output never let tmux
+  // clean it up; nothing can be attached through one of ours before we start.
+  void tmux.sweepViews().catch(() => {});
   const clients = new Set<Socket>();
   const allowedHosts = allowedHostList(opts.hosts, opts.allowHosts ?? []);
   /** The last quota read, so a socket opening between polls is not blank for a minute. */
@@ -191,6 +196,13 @@ export function createServer(opts: ServerOptions): RunningServer {
     ws.data.session = null;
     ws.data.sessionId = null;
     pty?.kill();
+    dropView(ws);
+  }
+
+  function dropView(ws: Socket) {
+    const view = ws.data.view;
+    ws.data.view = null;
+    if (view) void tmux.closeView(view).catch(() => {});
   }
 
   async function attach(ws: Socket, session: string) {
@@ -205,6 +217,37 @@ export function createServer(opts: ServerOptions): RunningServer {
     // a newer attach superseded this one, or the socket closed while resolving
     if (seq !== ws.data.attachSeq || !clients.has(ws)) return;
     detach(ws);
+    startClient(ws, target, session);
+  }
+
+  /**
+   * A split pane's terminal: a tmux client on a private view of window `id`.
+   * The view is made before the old client goes, and dropped again if the
+   * socket moved on meanwhile -- the same race `attach` guards against, except
+   * that losing it here would leave a session behind rather than a client.
+   */
+  async function attachView(ws: Socket, session: string, id: string) {
+    const seq = ++ws.data.attachSeq;
+    let view: string;
+    try {
+      view = await tmux.openView(session, id);
+    } catch (e) {
+      return send(ws, { t: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+    if (seq !== ws.data.attachSeq || !clients.has(ws)) {
+      await tmux.closeView(view).catch(() => {});
+      return;
+    }
+    detach(ws);
+    ws.data.view = view;
+    // tmux only redraws for an attached client, so output means the view has
+    // one -- and from then on tmux may remove it, which it must not do before.
+    startClient(ws, view, session, () => void tmux.releaseView(view).catch(() => {}));
+  }
+
+  /** Run a tmux client for `ws` on `target`, a session id; `session` is its sidebar name. */
+  function startClient(ws: Socket, target: string, session: string, onFirstOutput?: () => void) {
+    let seen = false;
     const handle: PtyHandle = attachSession({
       target,
       socketName: opts.socketName,
@@ -212,6 +255,10 @@ export function createServer(opts: ServerOptions): RunningServer {
       cols: ws.data.cols,
       rows: ws.data.rows,
       onData: (d) => {
+        if (!seen) {
+          seen = true;
+          onFirstOutput?.();
+        }
         if (ws.readyState === WebSocket.OPEN) ws.sendBinary(encoder.encode(d));
       },
       onExit: () => {
@@ -220,6 +267,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         ws.data.pty = null;
         ws.data.session = null;
         ws.data.sessionId = null;
+        dropView(ws);
         // By id: the session may have been renamed while attached.
         void tmux
           .alive(target)
@@ -261,6 +309,9 @@ export function createServer(opts: ServerOptions): RunningServer {
           return;
         case "attach":
           await attach(ws, m.session);
+          return;
+        case "attach-view":
+          await attachView(ws, m.session, m.id);
           return;
         case "resize": {
           const ok =
@@ -436,7 +487,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0 } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });

@@ -82,7 +82,14 @@
       <div id="wrap" hidden>
         <div id="tabs" hidden></div>
         <div id="term-shell">
-          <div id="terminal"></div>
+          <div id="pane-main" class="pane">
+            <div class="pane-body"><div id="terminal"></div></div>
+          </div>
+          <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize the two sides"
+               aria-valuemin="20" aria-valuemax="80" tabindex="0" hidden></div>
+          <div id="pane-side" class="pane" hidden>
+            <div class="pane-body"><div id="terminal-side"></div></div>
+          </div>
           <div id="find" hidden>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#909aa7" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
               <circle cx="7" cy="7" r="4.6"></circle>

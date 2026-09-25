@@ -399,3 +399,84 @@ describe("orderSessions", () => {
     expect(orderSessions([s("b", 1), s("a", 1)]).map((x) => x.name)).toEqual(["b", "a"]);
   });
 });
+
+describe("Tmux split views", () => {
+  /** A base session with two windows; returns their ids, first window current. */
+  async function base(name = "ws") {
+    await tmux.run(["new-session", "-d", "-s", name, "-x", "80", "-y", "24"]);
+    await tmux.run(["new-window", "-d", "-t", `=${name}:`]);
+    const ids = lines(await tmux.run(["list-windows", "-t", `=${name}:`, "-F", "#{window_id}"]));
+    return { first: ids[0], second: ids[1] };
+  }
+  const lines = (s: string) => s.split("\n").filter(Boolean);
+  const sessionIds = async () => lines(await tmux.run(["list-sessions", "-F", "#{session_id}"]));
+  const windowIds = async () => lines(await tmux.run(["list-windows", "-a", "-F", "#{window_id}"])).sort();
+
+  test("a view shows its own window and leaves the base's current one alone", async () => {
+    const w = await base();
+    const view = await tmux.openView("ws", w.second);
+    expect((await tmux.run(["display-message", "-p", "-t", view, "#{window_id}"])).trim()).toBe(w.second);
+    expect((await tmux.run(["display-message", "-p", "-t", "=ws:", "#{window_id}"])).trim()).toBe(w.first);
+  });
+
+  test("a view is neither a sidebar row nor another attached client", async () => {
+    const w = await base();
+    const view = await tmux.openView("ws", w.second);
+    const { attachSession } = await import("../src/server/pty");
+    const pty = attachSession({ target: view, socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} });
+    try {
+      await waitFor(async () => (await tmux.run(["list-clients", "-t", view])).trim() !== "", 3000, "view attached");
+      const sessions = await tmux.listSessions();
+      expect(sessions.map((s) => s.name)).toEqual(["ws"]);
+      expect(sessions[0].attached).toBe(0);
+    } finally {
+      pty.kill();
+    }
+  });
+
+  test("a base whose name has '.' or ':' still gets its own view", async () => {
+    const w = await base("api.v2");
+    const view = await tmux.openView("api.v2", w.second);
+    expect((await tmux.run(["display-message", "-p", "-t", view, "#{session_group}"])).trim()).toBe("api.v2");
+  });
+
+  test("closing a view removes it and never a window", async () => {
+    const w = await base();
+    const before = await windowIds();
+    const view = await tmux.openView("ws", w.second);
+    await tmux.closeView(view);
+    expect(await sessionIds()).not.toContain(view);
+    expect(await windowIds()).toEqual(before);
+  });
+
+  test("a view that is the last of its group is left standing, windows and all", async () => {
+    const w = await base();
+    const before = await windowIds();
+    const view = await tmux.openView("ws", w.second);
+    await tmux.run(["kill-session", "-t", "=ws"]);
+    await tmux.closeView(view);
+    expect(await sessionIds()).toEqual([view]);
+    expect(await windowIds()).toEqual(before);
+  });
+
+  test("once released, a view goes when its client does", async () => {
+    const w = await base();
+    const before = await windowIds();
+    const view = await tmux.openView("ws", w.second);
+    const { attachSession } = await import("../src/server/pty");
+    const pty = attachSession({ target: view, socketName: SOCKET, cols: 80, rows: 24, onData: () => {}, onExit: () => {} });
+    await waitFor(async () => (await tmux.run(["list-clients", "-t", view])).trim() !== "", 3000, "view attached");
+    await tmux.releaseView(view);
+    pty.kill();
+    await waitFor(async () => !(await sessionIds()).includes(view), 3000, "view destroyed");
+    expect(await windowIds()).toEqual(before);
+  });
+
+  test("a sweep removes views nobody is attached to", async () => {
+    const w = await base();
+    const view = await tmux.openView("ws", w.second);
+    await tmux.sweepViews();
+    expect(await sessionIds()).not.toContain(view);
+    expect(await sessionIds()).toHaveLength(1);
+  });
+});

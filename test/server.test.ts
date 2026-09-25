@@ -756,3 +756,59 @@ test("connecting after a quiet spell reads quota straight away", async () => {
     srv.stop();
   }
 });
+
+/** Sessions tmux has, views included, by id: listSessions hides the views. */
+const allSessionIds = async () => (await tmux.run(["list-sessions", "-F", "#{session_id}"])).split("\n").filter(Boolean);
+
+async function twoShells() {
+  await tmux.run(["new-session", "-d", "-s", "s", "-x", "80", "-y", "24", "sh"]);
+  await tmux.run(["new-window", "-d", "-t", "=s:", "sh"]);
+  const [first, second] = (await tmux.run(["list-windows", "-t", "=s:", "-F", "#{window_id}"])).split("\n").filter(Boolean);
+  return { first, second };
+}
+
+test("attach-view types into its own window, and the main pane keeps its own", async () => {
+  const w = await twoShells();
+  const main = await connect();
+  main.send({ t: "attach", session: "s" });
+  await waitFor(() => main.last("attached"), 2000, "main attached");
+  const side = await connect();
+  side.send({ t: "resize", cols: 80, rows: 24 });
+  side.send({ t: "attach-view", session: "s", id: w.second });
+  await waitFor(() => side.last("attached"), 3000, "view attached");
+  await waitFor(() => side.output().length > 0, 3000, "view redraw");
+  side.sendBytes("echo VIEW_MARK_$((2+2))\r");
+  const shown = (id: string) => tmux.run(["capture-pane", "-p", "-t", id]);
+  await waitFor(async () => (await shown(w.second)).includes("VIEW_MARK_4"), 3000, "typed into the view's window");
+  expect(await shown(w.first)).not.toContain("VIEW_MARK_4");
+  expect((await tmux.run(["display-message", "-p", "-t", "=s:", "#{window_id}"])).trim()).toBe(w.first);
+  // The sidebar still sees one session, attached by one client: the view is neither.
+  const s = (await tmux.listSessions()).find((x) => x.name === "s");
+  expect(s?.attached).toBe(1);
+  main.ws.close();
+  side.ws.close();
+});
+
+test("closing a view's socket removes the view and keeps every window", async () => {
+  const w = await twoShells();
+  const before = await allSessionIds();
+  const side = await connect();
+  side.send({ t: "attach-view", session: "s", id: w.second });
+  await waitFor(() => side.last("attached"), 3000, "view attached");
+  expect((await allSessionIds()).length).toBe(before.length + 1);
+  side.ws.close();
+  await waitFor(async () => (await allSessionIds()).length === before.length, 3000, "view gone");
+  expect((await tmux.run(["list-windows", "-t", "=s:", "-F", "#{window_id}"])).split("\n").filter(Boolean)).toEqual([w.first, w.second]);
+});
+
+test("closing the socket while a view is being made leaves no view behind", async () => {
+  const w = await twoShells();
+  const before = await allSessionIds();
+  for (let i = 0; i < 5; i++) {
+    const c = await connect();
+    c.send({ t: "attach-view", session: "s", id: w.second });
+    c.ws.close();
+  }
+  await Bun.sleep(300);
+  await waitFor(async () => (await allSessionIds()).length === before.length, 3000, "no stray view");
+});

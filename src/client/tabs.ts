@@ -27,12 +27,22 @@ export interface TabActions {
    * nothing to carry.
    */
   moveWindow(id: string): void;
+  /** Show this window in a second pane beside the one on screen. */
+  openBeside(id: string): void;
+  /** Where a tab dragged off the strip can land instead: the terminal, to open it beside. */
+  dragOut?: {
+    over(id: string, x: number, y: number): boolean;
+    leave(): void;
+    drop(id: string, x: number, y: number): void;
+  };
 }
 
 export interface Tabs {
   render(sessions: SessionInfo[], current: string | null): void;
   /** The Claude profiles on this machine, in the quota panel's order, which picks each badge's colour. */
   setProfiles(labels: string[]): void;
+  /** The window shown in the beside pane, if the terminal is split. */
+  setBeside(id: string | null): void;
 }
 
 const ICON = {
@@ -74,6 +84,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
   let profiles: string[] = [];
+  let beside: string | null = null;
 
   const rerender = () => draw(lastSessions, lastCurrent);
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -117,6 +128,18 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       inlineRename(tab, w.id, tabLabel(w));
     };
     m.append(rename);
+    // Dragging the tab onto the terminal does the same; this is the half a
+    // keyboard or a missed long-press can reach.
+    if (!w.active && w.id !== beside) {
+      const open = button("btn", "Open beside");
+      open.onclick = (e) => {
+        e.stopPropagation();
+        ui.menu = null;
+        m.remove();
+        actions.openBeside(w.id);
+      };
+      m.append(open);
+    }
     // Dragging is the other half of this; on a phone the menu is the only half.
     const order = tabsModel(lastSessions, lastCurrent).map((x) => x.id);
     const at = order.indexOf(w.id);
@@ -179,7 +202,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   }
 
   function renderTab(w: WindowInfo): HTMLElement {
-    const tab = el("div", `tab${w.active ? " active" : ""}${ui.menu === w.id || ui.confirm === w.id ? " menu-open" : ""}`);
+    const tab = el("div", `tab${w.active ? " active" : ""}${w.id === beside ? " beside" : ""}${ui.menu === w.id || ui.confirm === w.id ? " menu-open" : ""}`);
 
     const name = button("name");
     // The same glyph as the sidebar row, so the eye that found the session in
@@ -267,10 +290,24 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       const ids = tabsModel(lastSessions, lastCurrent).map((w) => w.id);
       actions.reorderWindows(order.map((i) => ids[i]).filter((id) => id !== undefined));
     },
+    outside: actions.dragOut && (() => {
+      const out = actions.dragOut;
+      const idAt = (i: number) => tabsModel(lastSessions, lastCurrent)[i]?.id;
+      return {
+        over: (from: number, x: number, y: number) => { const id = idAt(from); return id ? out.over(id, x, y) : false; },
+        leave: () => out.leave(),
+        drop: (from: number, x: number, y: number) => { const id = idAt(from); if (id) out.drop(id, x, y); },
+      };
+    })(),
   });
 
   return {
     render: draw,
+    setBeside(id) {
+      if (id === beside) return;
+      beside = id;
+      if (lastCurrent) rerender();
+    },
     setProfiles(labels) {
       if (labels.join("\n") === profiles.join("\n")) return;
       profiles = labels;

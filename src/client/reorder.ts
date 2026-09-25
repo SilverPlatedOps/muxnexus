@@ -90,6 +90,22 @@ export interface ReorderOptions {
   slopPx?: number;
   /** "y" for a stacked list (the sidebar), "x" for a strip (the tabs). */
   axis?: "x" | "y";
+  /** Somewhere outside the list a row can also be dropped on, instead of reordered. */
+  outside?: OutsideDrop;
+}
+
+/**
+ * A drop target beyond the list -- the terminal, for a tab opened beside it.
+ * Pointer capture keeps the drag's moves coming once it leaves the list, so the
+ * list asks the target first and only reorders when it declines.
+ */
+export interface OutsideDrop {
+  /** The pointer is at x, y mid-drag of row `from`: true to take the drop instead of reordering. */
+  over(from: number, x: number, y: number): boolean;
+  /** The target stopped being under the pointer, or the drag ended without it. */
+  leave(): void;
+  /** Row `from` was released at x, y while `over` held it. */
+  drop(from: number, x: number, y: number): void;
 }
 
 const HOLD_MS = 350;
@@ -109,11 +125,20 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
   let from = -1;
   let armed = false;
   let startPos = 0;
+  let startX = 0;
+  let startY = 0;
+  /** The outside target has taken this drag, so a release drops there. */
+  let claimed = false;
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
   let marker: HTMLElement | null = null;
   let dragged: HTMLElement | null = null;
 
   const pos = (e: PointerEvent) => (horizontal ? e.clientX : e.clientY);
+  // Travel before a drag means it. Along the list's axis only, unless there is
+  // somewhere else to drop: a tab dragged straight down onto the terminal
+  // barely moves along the strip, and would otherwise never arm.
+  const travel = (e: PointerEvent) =>
+    opts.outside ? Math.hypot(e.clientX - startX, e.clientY - startY) : Math.abs(pos(e) - startPos);
 
   /** Row boxes in the axis we care about, relative to the container's scroll box. */
   function rects(): Rect[] {
@@ -128,6 +153,8 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
 
   function clear() {
     clearTimeout(holdTimer);
+    if (claimed) opts.outside?.leave();
+    claimed = false;
     marker?.remove();
     marker = null;
     dragged?.classList.remove("dragging");
@@ -135,6 +162,9 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     container.classList.remove("reordering");
     armed = false;
     from = -1;
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", onPointerUp);
+    document.removeEventListener("pointercancel", clear);
   }
 
   function showMarker(at: number) {
@@ -191,7 +221,15 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     from = rows.indexOf(row);
     dragged = row;
     startPos = pos(e);
+    startX = e.clientX;
+    startY = e.clientY;
     armed = false;
+    // On the document, not the list: capture only starts once the drag arms,
+    // and a quick flick's first move can already be off a 34px strip -- the
+    // list would never hear of it, and the drag would never start.
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("pointercancel", clear);
     if (e.pointerType === "touch") {
       holdTimer = setTimeout(() => {
         armed = true;
@@ -207,10 +245,10 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     if (!armed) {
       if (e.pointerType === "touch") {
         // Moved before the hold elapsed: this is a scroll, not a drag.
-        if (Math.abs(pos(e) - startPos) > slopPx) clear();
+        if (travel(e) > slopPx) clear();
         return;
       }
-      if (Math.abs(pos(e) - startPos) <= slopPx) return;
+      if (travel(e) <= slopPx) return;
       armed = true;
       container.classList.add("reordering");
       dragged?.classList.add("dragging");
@@ -219,6 +257,16 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
       try { container.setPointerCapture?.(e.pointerId); } catch { /* keep dragging */ }
     }
     e.preventDefault();
+    if (opts.outside?.over(from, e.clientX, e.clientY)) {
+      claimed = true;
+      marker?.remove();
+      marker = null;
+      return;
+    }
+    if (claimed) {
+      claimed = false;
+      opts.outside?.leave();
+    }
     const base = container.getBoundingClientRect();
     showMarker(dropIndex(rects(), pos(e) - (horizontal ? base.left : base.top)));
   }
@@ -229,6 +277,13 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     // Armed at all, moved or not: a long press that went nowhere still ends
     // with a click, and that press was not a tap either.
     swallowNextClick();
+    if (claimed) {
+      const row = from;
+      claimed = false; // dropped, not abandoned: no leave()
+      clear();
+      opts.outside?.drop(row, e.clientX, e.clientY);
+      return;
+    }
     const base = container.getBoundingClientRect();
     const to = dropIndex(rects(), pos(e) - (horizontal ? base.left : base.top));
     const n = opts.rows().length;
@@ -247,16 +302,11 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
   }
 
   container.addEventListener("pointerdown", onPointerDown);
-  container.addEventListener("pointermove", onPointerMove);
-  container.addEventListener("pointerup", onPointerUp);
-  container.addEventListener("pointercancel", clear);
   container.addEventListener("touchmove", onTouchMove, { passive: false });
 
   return () => {
     container.removeEventListener("pointerdown", onPointerDown);
-    container.removeEventListener("pointermove", onPointerMove);
-    container.removeEventListener("pointerup", onPointerUp);
-    container.removeEventListener("pointercancel", clear);
+    clear();
     container.removeEventListener("touchmove", onTouchMove);
     clear();
   };

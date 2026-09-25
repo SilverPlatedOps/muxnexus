@@ -117,6 +117,12 @@ export interface UsageSource {
 
 export type ClientMessage =
   | { t: "attach"; session: string }
+  /**
+   * Attach this socket to one window of `session` through a private view: a
+   * split pane's second terminal. tmux shows a session's current window, so the
+   * view is its own session in the group and the main pane's window stays put.
+   */
+  | { t: "attach-view"; session: string; id: string }
   | { t: "resize"; cols: number; rows: number }
   | { t: "new-session"; name: string }
   | { t: "kill-session"; session: string }

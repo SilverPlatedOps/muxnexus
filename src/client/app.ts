@@ -5,6 +5,7 @@ import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
+import { createSplit } from "./split";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { renderUsage } from "./usage";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
@@ -157,6 +158,9 @@ function withTabOrder(list: SessionInfo[]): SessionInfo[] {
 function paintAll() {
   sidebar.render(sessions, current);
   tabs.render(sessions, current);
+  // While the main socket is reconnecting `current` is null for a moment; the
+  // session it is re-attaching to is `desired`, and the split should outlive that.
+  split.render(sessions, current ?? desired);
   updateChip();
   updateAttention();
 }
@@ -229,7 +233,12 @@ let usageSources: UsageSource[] = [];
 let profileLabels: string[] = [];
 
 const tabs = createTabs(tabsEl, {
-  selectWindow: (id) => { if (current) conn.send({ t: "select-window", session: current, id }); },
+  // The beside pane's tab is already on screen: clicking it goes there rather
+  // than pulling its window into the main pane as well.
+  selectWindow: (id) => {
+    if (split.state?.windowId === id) return split.focusSide();
+    if (current) conn.send({ t: "select-window", session: current, id });
+  },
   newWindow: () => { if (current) conn.send({ t: "new-window", session: current }); },
   renameWindow: (id, name) => { if (current) conn.send({ t: "rename-window", session: current, id, name }); },
   killWindow: (id) => { if (current) conn.send({ t: "kill-window", session: current, id }); },
@@ -246,9 +255,34 @@ const tabs = createTabs(tabsEl, {
       Date.now(),
     );
   },
+  openBeside: (id) => {
+    if (!current) return;
+    if (onPhone()) return sidebar.toast("Split needs a wider screen");
+    split.open(current, id, split.state?.side ?? "right");
+  },
+  dragOut: {
+    over: (id, x, y) => split.over(id, x, y),
+    leave: () => split.leave(),
+    drop: (id, x, y) => split.drop(id, x, y),
+  },
 });
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+
+const split = createSplit({
+  shell: document.getElementById("term-shell")!,
+  mainPane: document.getElementById("pane-main")!,
+  sidePane: document.getElementById("pane-side")!,
+  sideTerm: document.getElementById("terminal-side")!,
+  divider: document.getElementById("divider")!,
+}, {
+  wsUrl,
+  enabled: () => !onPhone(),
+  selectMain: (id) => { if (current) conn.send({ t: "select-window", session: current, id }); },
+  focusMain: () => term.focus(),
+  toast: (m) => sidebar.toast(m),
+  changed: () => tabs.setBeside(split.state?.windowId ?? null),
+});
 
 const conn = new Connection(wsUrl, {
   onOpen() {
