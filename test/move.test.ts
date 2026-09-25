@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseSession, shellQuote } from "../src/server/tmux";
+import { parseSession, resolveTranscript, shellQuote } from "../src/server/tmux";
 import { defaultTarget, targets, weigh } from "../src/client/move";
 import type { UsageSource } from "../src/shared/protocol";
 
@@ -102,5 +102,29 @@ describe("weigh", () => {
   test("says nothing rather than zero when the size is unknown", () => {
     expect(weigh(undefined)).toBeNull();
     expect(weigh(0)).toBeNull();
+  });
+});
+
+describe("resolveTranscript", () => {
+  const on = (...paths: string[]) => (p: string) => paths.includes(p);
+  const fork = { sessionId: "f0", transcriptPath: "/w/projects/-a/f0.jsonl" };
+  const from = { sessionId: "f0", transcriptPath: "/p/projects/-a/a1.jsonl" };
+
+  test("the stamped transcript, when it is on disk", () => {
+    expect(resolveTranscript(fork, from, on(fork.transcriptPath, from.transcriptPath))).toBe(fork.transcriptPath);
+  });
+
+  test("a fork with no message yet is carried from where it was forked", () => {
+    // Claude Code writes a fork's file on its first message, not at startup.
+    expect(resolveTranscript(fork, from, on(from.transcriptPath))).toBe(from.transcriptPath);
+  });
+
+  test("a record left by an earlier conversation in the pane is not this one's", () => {
+    expect(resolveTranscript(fork, { ...from, sessionId: "old" }, on(from.transcriptPath))).toBeNull();
+  });
+
+  test("nothing on disk is nothing to resume", () => {
+    expect(resolveTranscript(fork, null, on())).toBeNull();
+    expect(resolveTranscript(fork, from, on())).toBeNull();
   });
 });

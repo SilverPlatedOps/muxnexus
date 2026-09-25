@@ -344,7 +344,7 @@ export function createServer(opts: ServerOptions): RunningServer {
             m.session,
             m.id,
             target === join(homedir(), ".claude") ? null : target,
-            win.conversation.transcriptPath,
+            win.conversation,
           );
           break;
         }

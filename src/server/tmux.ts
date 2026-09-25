@@ -89,6 +89,26 @@ export function parseSession(raw: string): ConversationInfo | null {
 }
 
 /**
+ * The transcript to resume a tab's conversation from.
+ *
+ * Normally the stamped one. But a fork's file is written on its first message,
+ * not at startup, so a tab moved and then moved again before anyone typed in it
+ * is stamped with a path that does not exist yet. `from` is the pane's record of
+ * what its current fork was made from (`@muxnexus_from`, same shape as the
+ * session stamp) and stands in -- only for the session it was recorded for, since
+ * the pane may have held other conversations since.
+ */
+export function resolveTranscript(
+  conversation: ConversationInfo,
+  from: ConversationInfo | null,
+  exists: (path: string) => boolean,
+): string | null {
+  if (exists(conversation.transcriptPath)) return conversation.transcriptPath;
+  if (from?.sessionId === conversation.sessionId && exists(from.transcriptPath)) return from.transcriptPath;
+  return null;
+}
+
+/**
  * POSIX single-quoting: everything is literal inside single quotes, and an
  * embedded quote closes, escapes and reopens. Transcript paths hold the project
  * directory's name, which on this machine is a path with its separators turned
@@ -610,9 +630,14 @@ export class Tmux {
     session: string,
     id: string,
     configDir: string | null,
-    transcript: string,
+    conversation: ConversationInfo,
   ): Promise<void> {
     const target = await this.windowTarget(session, id);
+    // Settled before anything is quit: an agent stopped for a resume that cannot
+    // run is a tab lost for nothing.
+    const from = parseSession(await this.run(["display", "-p", "-t", target, "#{@muxnexus_from}"]).catch(() => ""));
+    const transcript = resolveTranscript(conversation, from, existsSync);
+    if (!transcript) throw new TmuxError(`no transcript on disk for that conversation: ${conversation.transcriptPath}`);
     // An agent owns the keyboard: typed at a running Claude Code, the resume
     // lands in its prompt box and is sent as a message rather than run. Ask the
     // pane what is in the foreground rather than the hook stamp -- a pane whose
@@ -629,10 +654,13 @@ export class Tmux {
     // The new agent's SessionStart stamp is the only proof the line actually ran.
     // Without this a command left sitting on the prompt -- swallowed Enter, a
     // shell that was not ready -- looks identical to a switch that worked, and
-    // the user finds out by staring at the tab.
-    if (!(await this.waitForAgent(target))) {
-      throw new TmuxError("typed the resume, but no agent started in that tab -- check its terminal");
+    // the user finds out by staring at the tab. An agent merely appearing is not
+    // proof: one that cannot load the transcript starts, prints why, and exits.
+    const fork = await this.waitForSession(target, conversation.sessionId);
+    if (!fork) {
+      throw new TmuxError("typed the resume, but no conversation started in that tab -- check its terminal");
     }
+    await this.run(["set-option", "-p", "-t", target, "@muxnexus_from", `${fork.sessionId} ${transcript}`]);
   }
 
   /**
@@ -651,7 +679,6 @@ export class Tmux {
     await this.run(["send-keys", "-t", target, "Enter"]);
   }
 
-  /** Poll until an agent stamps the pane again, meaning the resume really started. */
   /**
    * Whether the pane's foreground process is a plain shell.
    *
@@ -665,12 +692,15 @@ export class Tmux {
     return SHELLS.has(raw.trim());
   }
 
-  private async waitForAgent(target: string, ms = 20000, step = 250): Promise<boolean> {
+  /** Poll until a session other than `previous` stamps the pane, meaning the resume really started. */
+  private async waitForSession(target: string, previous: string, ms = 20000, step = 250): Promise<ConversationInfo | null> {
     for (let waited = 0; waited < ms; waited += step) {
       await new Promise((r) => setTimeout(r, step));
-      if (!(await this.isShell(target))) return true;
+      const raw = await this.run(["display", "-p", "-t", target, "#{@muxnexus_session}"]).catch(() => "");
+      const now = parseSession(raw);
+      if (now && now.sessionId !== previous) return now;
     }
-    return false;
+    return null;
   }
 
   /**

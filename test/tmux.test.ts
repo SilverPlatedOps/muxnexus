@@ -480,3 +480,14 @@ describe("Tmux split views", () => {
     expect(await sessionIds()).toHaveLength(1);
   });
 });
+
+describe("Tmux.resumeIn", () => {
+  test("refuses a conversation with no transcript before typing anything", async () => {
+    await tmux.newSession("move");
+    const [s] = await tmux.listSessions();
+    const gone = { sessionId: "f0", transcriptPath: join(tmpdir(), "mxn-no-such-transcript.jsonl") };
+    await expect(tmux.resumeIn("move", s.windows[0].id, null, gone)).rejects.toThrow(/transcript/);
+    const screen = await tmux.run(["capture-pane", "-p", "-t", "=move:"]);
+    expect(screen).not.toContain("--resume");
+  });
+});
