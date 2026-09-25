@@ -199,6 +199,7 @@ describe("the reader, with the network and Keychain injected", () => {
     list: () => [".claude", ".claude-work"],
     has: (p: string) => p.endsWith("/projects"),
     readFile: async () => null, // opencode not installed
+    warn: () => {},
   };
   const item = JSON.stringify({ claudeAiOauth: { accessToken: "tok" } });
   const ok = JSON.stringify({ limits: [{ kind: "session", percent: 12, severity: "normal" }] });
@@ -243,6 +244,36 @@ describe("the reader, with the network and Keychain injected", () => {
     expect(JSON.stringify(await reader.read())).not.toContain("tok");
   });
 
+  test("a failed read says why, once per profile, without the token", async () => {
+    // "unavailable" in the panel is every failure at once; the log is where a
+    // 429 is told apart from a timeout or a reply that no longer parses.
+    const lines: string[] = [];
+    const reader = createUsageReader({
+      ...base,
+      secret: async () => item,
+      fetch: async () => ({ status: 429, body: '{"error":{"type":"rate_limit_error"}}' }),
+      warn: (l) => lines.push(l),
+    });
+    await reader.read();
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("personal");
+    expect(lines[0]).toContain("429");
+    expect(lines[0]).toContain("rate_limit_error");
+    expect(lines.join("\n")).not.toContain("tok");
+  });
+
+  test("a successful read logs nothing", async () => {
+    const lines: string[] = [];
+    const reader = createUsageReader({
+      ...base,
+      secret: async () => item,
+      fetch: async () => ({ status: 200, body: ok }),
+      warn: (l) => lines.push(l),
+    });
+    await reader.read();
+    expect(lines).toEqual([]);
+  });
+
   test("opencode is a row only when it is installed", async () => {
     const withIt = createUsageReader({
       ...base,
@@ -280,6 +311,7 @@ describe("backoff", () => {
       fetch: async () => { calls++; return { status, body: ok }; },
       backoffBaseMs: 1000,
       now: () => clock,
+      warn: () => {},
     });
     await reader.read();
     expect(calls).toBe(1);
@@ -316,6 +348,7 @@ describe("backoff", () => {
       fetch: async () => ({ status, body: JSON.stringify({ limits: [{ kind: "session", percent: 12 }] }) }),
       backoffBaseMs: 1000,
       now: () => clock,
+      warn: () => {},
     });
     await reader.read();
     status = 429;

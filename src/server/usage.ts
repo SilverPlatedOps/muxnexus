@@ -220,6 +220,8 @@ export interface UsageOptions {
   /** First backoff step after a failed read; doubles from there. */
   backoffBaseMs?: number;
   now?: () => number;
+  /** Where a failed read says why. The panel only shows "unavailable". */
+  warn?: (line: string) => void;
 }
 
 /** A plain HTTPS GET. Any failure is a status of 0 rather than a throw. */
@@ -252,10 +254,21 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
 
   const baseMs = opts.backoffBaseMs ?? 60_000;
   const now = opts.now ?? (() => Date.now());
+  const warn = opts.warn ?? ((line: string) => console.warn(line));
   let last = new Map<string, UsageSource>();
   /** Consecutive failures per source, and when each may be tried again. */
   const failures = new Map<string, number>();
   const nextAttempt = new Map<string, number>();
+
+  /**
+   * Why a read failed, for the server log. Status 0 is httpGet's shape for a
+   * fetch that threw -- a timeout or no network, not a reply. The body is
+   * clipped: a 429's is a short JSON error, and nothing in it is a secret.
+   */
+  function failed(label: string, res: HttpResult, why?: string): void {
+    const reply = res.status === 0 ? "no reply (network or timeout)" : `HTTP ${res.status}`;
+    warn(`usage: ${label}: ${why ?? reply}${res.body ? `: ${res.body.slice(0, 200)}` : ""}`);
+  }
 
   /** Whether this source is still serving out a backoff. */
   function waiting(id: string): boolean {
@@ -295,9 +308,15 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     if (res.status === 401 || res.status === 403) {
       return merge(last.get(id), { id, label, windows: [], state: "signed-out", now });
     }
-    if (res.status !== 200) return merge(last.get(id), { id, label, windows: [], state: "error", now });
+    if (res.status !== 200) {
+      failed(label, res);
+      return merge(last.get(id), { id, label, windows: [], state: "error", now });
+    }
     const windows = parseClaudeUsage(res.body);
-    if (windows.length === 0) return merge(last.get(id), { id, label, windows: [], state: "error", now });
+    if (windows.length === 0) {
+      failed(label, res, "HTTP 200 but no usage windows in the reply");
+      return merge(last.get(id), { id, label, windows: [], state: "error", now });
+    }
     return merge(last.get(id), { id, label, windows, state: "ok", now });
   }
 
@@ -315,9 +334,15 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     if (res.status === 401 || res.status === 403) {
       return merge(last.get(id), { id, label: id, windows: [], state: "signed-out", now });
     }
-    if (res.status !== 200) return merge(last.get(id), { id, label: id, windows: [], state: "error", now });
+    if (res.status !== 200) {
+      failed(id, res);
+      return merge(last.get(id), { id, label: id, windows: [], state: "error", now });
+    }
     const windows = parseOpencodeUsage(res.body);
-    if (windows.length === 0) return merge(last.get(id), { id, label: id, windows: [], state: "error", now });
+    if (windows.length === 0) {
+      failed(id, res, "HTTP 200 but no usage windows in the reply");
+      return merge(last.get(id), { id, label: id, windows: [], state: "error", now });
+    }
     return merge(last.get(id), { id, label: id, windows, state: "ok", now });
   }
 
