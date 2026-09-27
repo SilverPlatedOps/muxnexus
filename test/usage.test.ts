@@ -10,11 +10,13 @@ import {
   merge,
   parseClaudeUsage,
   parseCodexUsage,
+  parseRetryAfter,
   profileLabel,
 } from "../src/server/usage";
 import { bar, formatReset, kindLabel } from "../src/client/usage";
 import { badgesShown, marksShown, setBadgesShown, setMarksShown, type Store } from "../src/client/display";
 import type { UsageSource } from "../src/shared/protocol";
+import type { UsageStore } from "../src/server/usage";
 
 const HOME = "/Users/someone";
 
@@ -387,6 +389,122 @@ describe("backoff", () => {
     clock = 500;
     const got = await reader.read();
     expect(got[0].windows).toEqual([{ kind: "session", percent: 12 }]);
+  });
+
+  // One profile, a counting fetch and a movable clock, for the tests below.
+  function counted(opts: { status: () => number; retryAfterMs?: () => number | undefined; clock: () => number; store?: UsageStore }) {
+    const seen = { calls: 0 };
+    const reader = createUsageReader({
+      home: "/h",
+      list: () => [".claude"],
+      has: (p) => p.endsWith("/projects"),
+      readFile: async () => null,
+      secret: async () => JSON.stringify({ claudeAiOauth: { accessToken: "t" } }),
+      fetch: async () => {
+        seen.calls++;
+        return { status: opts.status(), body: JSON.stringify({ limits: [{ kind: "session", percent: 12 }] }), retryAfterMs: opts.retryAfterMs?.() };
+      },
+      backoffBaseMs: 60_000,
+      now: opts.clock,
+      warn: () => {},
+      store: opts.store,
+    });
+    return { reader, seen };
+  }
+
+  test("a 429's Retry-After is waited out in full, past the backoff's cap", async () => {
+    // /api/oauth/usage answered 429 with retry-after: 1400 -- longer than the
+    // 15-minute cap, so capped backoff alone asked again inside the window.
+    let clock = 0;
+    const { reader, seen } = counted({ status: () => 429, retryAfterMs: () => 1_400_000, clock: () => clock });
+    await reader.read();
+    expect(seen.calls).toBe(1);
+    clock = 15 * 60_000 + 1;
+    await reader.read();
+    expect(seen.calls).toBe(1);
+    clock = 1_400_001;
+    await reader.read();
+    expect(seen.calls).toBe(2);
+  });
+
+  test("a Retry-After of 0 is no hint: the doubling backoff still applies", async () => {
+    let clock = 0;
+    const { reader, seen } = counted({ status: () => 429, retryAfterMs: () => 0, clock: () => clock });
+    await reader.read();
+    clock = 30_000;
+    await reader.read();
+    expect(seen.calls).toBe(1);
+    clock = 60_001;
+    await reader.read();
+    expect(seen.calls).toBe(2);
+  });
+
+  test("a restart inside a backoff does not ask, and keeps the last numbers", async () => {
+    // bun --watch restarts the server on every save, and a new reader used to
+    // start with no backoff and nothing to show: "unavailable", and a request.
+    let clock = 0;
+    let status = 200;
+    let saved: string | null = null;
+    const store: UsageStore = { load: () => saved, save: (t) => { saved = t; } };
+    const first = counted({ status: () => status, retryAfterMs: () => 1_400_000, clock: () => clock, store });
+    await first.reader.read();
+    status = 429;
+    clock = 120_000;
+    await first.reader.read();
+
+    clock = 600_000;
+    const second = counted({ status: () => status, retryAfterMs: () => 1_400_000, clock: () => clock, store });
+    const got = await second.reader.read();
+    expect(second.seen.calls).toBe(0);
+    expect(got[0].state).toBe("error");
+    expect(got[0].windows).toEqual([{ kind: "session", percent: 12 }]);
+
+    clock = 120_000 + 1_400_001;
+    status = 200;
+    expect((await second.reader.read())[0].state).toBe("ok");
+    expect(second.seen.calls).toBe(1);
+  });
+
+  test("a restart soon after a good read shows it rather than asking again", async () => {
+    let clock = 0;
+    let saved: string | null = null;
+    const store: UsageStore = { load: () => saved, save: (t) => { saved = t; } };
+    await counted({ status: () => 200, clock: () => clock, store }).reader.read();
+
+    clock = 30_000;
+    const soon = counted({ status: () => 200, clock: () => clock, store });
+    expect((await soon.reader.read())[0].state).toBe("ok");
+    expect(soon.seen.calls).toBe(0);
+
+    clock = 60_001;
+    await soon.reader.read();
+    expect(soon.seen.calls).toBe(1);
+  });
+
+  test("a store that holds nothing usable is a cold start, not a throw", async () => {
+    for (const text of [null, "", "not json", "{}", '{"sources":5}']) {
+      const { reader, seen } = counted({ status: () => 200, clock: () => 0, store: { load: () => text, save: () => {} } });
+      expect((await reader.read())[0].state).toBe("ok");
+      expect(seen.calls).toBe(1);
+    }
+  });
+});
+
+describe("parseRetryAfter", () => {
+  const now = Date.parse("2026-09-27T02:00:00Z");
+
+  test("seconds become milliseconds", () => {
+    expect(parseRetryAfter("1400", now)).toBe(1_400_000);
+  });
+
+  test("an HTTP date is the time until then", () => {
+    expect(parseRetryAfter("Sun, 27 Sep 2026 02:05:00 GMT", now)).toBe(300_000);
+  });
+
+  test("zero, absent, past or unparseable is no hint", () => {
+    for (const h of ["0", null, "", "soon", "-5", "Sun, 27 Sep 2026 01:00:00 GMT"]) {
+      expect(parseRetryAfter(h, now)).toBeUndefined();
+    }
   });
 });
 

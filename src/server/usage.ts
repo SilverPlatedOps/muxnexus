@@ -19,12 +19,24 @@ const CODEX_USAGE = "https://chatgpt.com/backend-api/wham/usage";
 export interface HttpResult {
   status: number;
   body: string;
+  /** How long the provider asked us to wait, from a Retry-After header. */
+  retryAfterMs?: number;
 }
 
 /** Injected so tests never reach the network. */
 export type Fetcher = (url: string, headers: Record<string, string>) => Promise<HttpResult>;
 /** Injected so tests never reach the Keychain. Resolves null when there is no such item. */
 export type SecretReader = (service: string) => Promise<string | null>;
+
+/**
+ * Where the reader keeps what it knows between server runs. `bun --watch`
+ * restarts the server on every save, and a reader that forgot its backoff
+ * asked again at once -- which is how a burst of saves drew 429s.
+ */
+export interface UsageStore {
+  load(): string | null;
+  save(text: string): void;
+}
 
 export interface UsageReader {
   read(): Promise<UsageSource[]>;
@@ -220,6 +232,17 @@ export function backoffMs(failures: number, baseMs: number): number {
 
 const MAX_BACKOFF_MS = 15 * 60_000;
 
+/**
+ * A Retry-After header as a wait in ms: delta-seconds or an HTTP date. Zero or
+ * less is no hint -- the work account's 429 carried `retry-after: 0` -- so the
+ * caller falls back to its own backoff rather than asking again at once.
+ */
+export function parseRetryAfter(header: string | null, now: number): number | undefined {
+  if (!header) return undefined;
+  const ms = /^\d+$/.test(header.trim()) ? Number(header) * 1000 : Date.parse(header) - now;
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
+}
+
 export interface UsageOptions {
   home?: string;
   fetch?: Fetcher;
@@ -232,13 +255,16 @@ export interface UsageOptions {
   now?: () => number;
   /** Where a failed read says why. The panel only shows "unavailable". */
   warn?: (line: string) => void;
+  /** Keeps backoff and last numbers across restarts. None: each reader starts cold. */
+  store?: UsageStore;
 }
 
 /** A plain HTTPS GET. Any failure is a status of 0 rather than a throw. */
 const httpGet: Fetcher = async (url, headers) => {
   try {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-    return { status: res.status, body: await res.text() };
+    const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"), Date.now());
+    return { status: res.status, body: await res.text(), ...(retryAfterMs ? { retryAfterMs } : {}) };
   } catch {
     return { status: 0, body: "" };
   }
@@ -264,11 +290,51 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
 
   const baseMs = opts.backoffBaseMs ?? 60_000;
   const now = opts.now ?? (() => Date.now());
+  /** `now`, under a name the per-source functions do not shadow. */
+  const clock = now;
   const warn = opts.warn ?? ((line: string) => console.warn(line));
   let last = new Map<string, UsageSource>();
   /** Consecutive failures per source, and when each may be tried again. */
   const failures = new Map<string, number>();
   const nextAttempt = new Map<string, number>();
+  /** The wait a failing source's provider asked for, until record() applies it. */
+  const asked = new Map<string, number>();
+  restore();
+
+  /**
+   * Pick up where the last server run left off. A source read within the
+   * last base interval is not asked again yet either, so a run of saves costs
+   * no requests; anything unreadable is simply a cold start.
+   */
+  function restore(): void {
+    let saved: { sources?: unknown; failures?: unknown; nextAttempt?: unknown };
+    try {
+      saved = JSON.parse(opts.store?.load() ?? "");
+    } catch {
+      return;
+    }
+    if (!Array.isArray(saved?.sources)) return;
+    last = new Map((saved.sources as UsageSource[]).map((s) => [s.id, s]));
+    for (const [id, n] of Object.entries((saved.failures ?? {}) as Record<string, number>)) failures.set(id, n);
+    for (const [id, at] of Object.entries((saved.nextAttempt ?? {}) as Record<string, number>)) nextAttempt.set(id, at);
+    for (const s of last.values()) {
+      if (s.state !== "ok") continue;
+      const fresh = Date.parse(s.checkedAt) + baseMs;
+      if (fresh > (nextAttempt.get(s.id) ?? 0)) nextAttempt.set(s.id, fresh);
+    }
+  }
+
+  function persist(): void {
+    try {
+      opts.store?.save(JSON.stringify({
+        sources: [...last.values()],
+        failures: Object.fromEntries(failures),
+        nextAttempt: Object.fromEntries(nextAttempt),
+      }));
+    } catch {
+      // A lost save costs one early request after a restart, nothing more.
+    }
+  }
 
   /**
    * Why a read failed, for the server log. Status 0 is httpGet's shape for a
@@ -277,7 +343,8 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
    */
   function failed(label: string, res: HttpResult, why?: string): void {
     const reply = res.status === 0 ? "no reply (network or timeout)" : `HTTP ${res.status}`;
-    warn(`usage: ${label}: ${why ?? reply}${res.body ? `: ${res.body.slice(0, 200)}` : ""}`);
+    const wait = res.retryAfterMs ? ` (retry after ${Math.ceil(res.retryAfterMs / 1000)}s)` : "";
+    warn(`usage: ${label}: ${why ?? reply}${wait}${res.body ? `: ${res.body.slice(0, 200)}` : ""}`);
   }
 
   /** Whether this source is still serving out a backoff. */
@@ -291,18 +358,20 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     if (source.state === "error") {
       const n = (failures.get(source.id) ?? 0) + 1;
       failures.set(source.id, n);
-      nextAttempt.set(source.id, now() + backoffMs(n, baseMs));
+      // The provider's own wait wins, uncapped: the cap is our guess, theirs is not.
+      nextAttempt.set(source.id, now() + Math.max(backoffMs(n, baseMs), asked.get(source.id) ?? 0));
     } else {
       failures.delete(source.id);
       nextAttempt.delete(source.id);
     }
+    asked.delete(source.id);
     return source;
   }
 
   async function claude(dir: string): Promise<UsageSource> {
     const id = dir;
     const label = profileLabel(dir);
-    const stamp = new Date().toISOString();
+    const stamp = new Date(clock()).toISOString();
     const previous = last.get(id);
     // Still backing off: report what we last knew rather than asking again.
     if (waiting(id) && previous) return previous;
@@ -320,6 +389,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     }
     if (res.status !== 200) {
       failed(label, res);
+      if (res.retryAfterMs) asked.set(id, res.retryAfterMs);
       return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "error", now });
     }
     const windows = parseClaudeUsage(res.body);
@@ -336,7 +406,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     const label = profileLabel(dir);
     const previous = last.get(id);
     if (waiting(id) && previous) return previous;
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const text = await readFile(join(dir, "auth.json"));
     if (text === null) return null; // not installed: no row at all
     const auth = codexAuth(text);
@@ -351,6 +421,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     }
     if (res.status !== 200) {
       failed(label, res);
+      if (res.retryAfterMs) asked.set(id, res.retryAfterMs);
       return merge(previous, { id, label, provider: "codex", windows: [], state: "error", now });
     }
     const windows = parseCodexUsage(res.body);
@@ -372,6 +443,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
         .filter((s): s is UsageSource => s !== null)
         .map((s) => (s === last.get(s.id) ? s : record(s)));
       last = new Map(sources.map((s) => [s.id, s]));
+      persist();
       return sources;
     },
   };

@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import index from "../client/index.html";
 import { createCmuxMirror } from "./cmux";
@@ -128,7 +128,14 @@ if (import.meta.main) {
   const cmuxBin = socketPath === CMUX_TMUX_SOCKET ? Bun.which("cmux") : null;
   const mirror = socketPath && cmuxBin ? createCmuxMirror({ cmuxBin, socketPath }) : undefined;
   const allowHosts = [...args.allowHosts, ...magicDnsNames(await tailscaleStatus())];
-  const usage = createUsageReader();
+  // Outlives a `bun --watch` restart, so a save does not re-ask a rate-limited endpoint.
+  const usageFile = join(tmpdir(), "muxnexus-usage.json");
+  const usage = createUsageReader({
+    store: {
+      load: () => { try { return readFileSync(usageFile, "utf8"); } catch { return null; } },
+      save: (text) => writeFileSync(usageFile, text),
+    },
+  });
   // Snapshots on a timer, so shutting the laptop down costs nothing to remember.
   const tmux = new Tmux(undefined, socketPath);
   const snapshots = snapshotDir();
