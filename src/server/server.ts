@@ -1,5 +1,5 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
-import type { ClientMessage, DetachReason, ServerMessage, SessionInfo } from "../shared/protocol";
+import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo } from "../shared/protocol";
 import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
 import { homedir } from "node:os";
@@ -7,6 +7,13 @@ import { join } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
+
+/**
+ * What a new window runs for each agent the client may ask for. The client only
+ * ever names one: with no authentication in front of this server, a command
+ * line taken from the wire would be a shell for anyone who can reach it.
+ */
+const AGENTS: Record<NewWindowAgent, string> = { codex: "codex" };
 
 export interface ServerOptions {
   /** Addresses to listen on, all sharing one port. The first is the one reported. */
@@ -365,9 +372,13 @@ export function createServer(opts: ServerOptions): RunningServer {
           await mirrorStep(ws, (mirror) => mirror.sessionKilled(m.session, wsId));
           break;
         }
-        case "new-window":
-          await tmux.newWindow(m.session);
+        case "new-window": {
+          if (m.agent !== undefined && !Object.hasOwn(AGENTS, m.agent)) {
+            return send(ws, { t: "error", message: "invalid new-window" });
+          }
+          await tmux.newWindow(m.session, m.agent === undefined ? undefined : AGENTS[m.agent]);
           break;
+        }
         case "kill-window":
           if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid kill-window" });
           await tmux.killWindow(m.session, m.id);

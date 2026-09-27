@@ -2,8 +2,10 @@
 # muxnexus: stamp this tmux pane with what the agent in it is doing, so the
 # sidebar can show which session needs you without reading the screen.
 #
-# Installed as a Claude Code hook on several events; the event name is the one
-# argument. Everything it needs beyond that is in the payload on stdin, matched
+# Installed as a Claude Code hook on several events; the event name is the first
+# argument. Codex runs it too, from ~/.codex/hooks.json with a second argument,
+# `codex`: its hooks share Claude Code's event names and payload fields.
+# Everything it needs beyond that is in the payload on stdin, matched
 # with `case` rather than parsed with jq -- this runs on every tool call, so it
 # must cost nothing.
 #
@@ -11,8 +13,11 @@
 #
 #   @muxnexus_agent = "<state> <epoch> <pid> <config dir>"
 #     e.g. "running 1790242563 61936 /Users/me/.claude-work"
+#     Under Codex the last field is its home, "/Users/me/.codex".
 #
-#   @muxnexus_session = "<session id> <transcript path>"    (SessionStart only)
+#   @muxnexus_session = "<session id> <transcript path>"    (SessionStart only,
+#     and never under Codex: Move to... resumes with `claude`, which cannot read
+#     a Codex rollout)
 #     The conversation this pane holds, so it can be carried to another account
 #     without the user hunting for a uuid. Written once -- neither value changes
 #     within a session -- and deliberately NOT cleared on SessionEnd: a tab whose
@@ -25,6 +30,7 @@
 command -v tmux >/dev/null 2>&1 || exit 0
 
 event="${1:-}"
+agent="${2:-claude}"
 payload=$(cat 2>/dev/null)
 
 # "name":"value" out of the raw payload, tolerating a space after the colon.
@@ -73,7 +79,8 @@ case "$event" in
     # tool means a turn is under way. Stamping tool events at all matters
     # because an agent resumed by a background subagent never fires
     # UserPromptSubmit -- tool events are the only sign it woke up.
-    if has tool_name AskUserQuestion; then state=input; else state=running; fi ;;
+    # Codex's equivalent is request_user_input.
+    if has tool_name AskUserQuestion || has tool_name request_user_input; then state=input; else state=running; fi ;;
   UserPromptSubmit)
     state=running ;;
   Notification)
@@ -89,7 +96,7 @@ case "$event" in
     # Once per session, off the hot path: record which conversation this is.
     # Parsed with parameter expansion rather than jq for the same reason `has`
     # uses `case` -- no subprocess, and a miss only costs the Move to... default.
-    [ "$event" = SessionStart ] && stamp_session ;;
+    [ "$event" = SessionStart ] && [ "$agent" = claude ] && stamp_session ;;
   SessionEnd)
     tmux set-option -pu -t "$TMUX_PANE" @muxnexus_agent 2>/dev/null
     exit 0 ;;
@@ -101,5 +108,10 @@ esac
 # SessionEnd covers a clean exit, but a killed agent never fires it. The config
 # dir says which account the agent spends; unset means Claude's default. It
 # goes last because a path may hold spaces, and the server reads it to the end.
-tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $(date +%s) $PPID ${CLAUDE_CONFIG_DIR:-$HOME/.claude}" 2>/dev/null
+if [ "$agent" = codex ]; then
+  account=${CODEX_HOME:-$HOME/.codex}
+else
+  account=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+fi
+tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $(date +%s) $PPID $account" 2>/dev/null
 exit 0

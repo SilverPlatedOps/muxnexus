@@ -328,6 +328,16 @@ test("renaming the attached session from the browser moves the attachment to the
   c.ws.close();
 });
 
+test("a new window asking for an agent the server does not know is refused, not run", async () => {
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  const c = await connect();
+  c.send({ t: "new-window", session: "s", agent: "rm -rf ~" } as any);
+  await waitFor(() => c.last("error"), 2000, "error");
+  expect((c.last("error") as any).message).toBe("invalid new-window");
+  expect((await tmux.run(["list-windows", "-t", "=s:", "-F", "#{window_id}"])).trim().split("\n")).toHaveLength(1);
+  c.ws.close();
+});
+
 test("a rename made outside muxnexus reaches the attached client on the next poll", async () => {
   await tmux.run(["new-session", "-d", "-s", "before", "sh"]);
   const c = await connect();

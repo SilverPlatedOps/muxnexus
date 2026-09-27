@@ -225,6 +225,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 :root {
   --profile-0: #d6a4ea;
   --profile-1: #6cc6d1;
+  --profile-2: #d19a66;
 }
 .pbadge {
   flex: none;
@@ -244,6 +245,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 }
 .pbadge.p0 { color: var(--profile-0); }
 .pbadge.p1 { color: var(--profile-1); }
+.pbadge.p2 { color: var(--profile-2); }
 .pbadge.blank { box-shadow: none; }
 #usage .pbadge { height: 14px; font-size: 9px; align-self: center; }
 
@@ -641,7 +643,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 }
 #tabs::-webkit-scrollbar { display: none; }
 /* A menu or rename box has to escape the scroll container to be seen. */
-#tabs:has(.menu-open), #tabs:has(.tab-rename) { overflow: visible; }
+#tabs:has(.tab.menu-open), #tabs:has(.tab-rename) { overflow: visible; }
 
 .tab {
   position: relative;
@@ -692,7 +694,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .tab .tab-dots { opacity: 0; }
 .tab:hover .tab-dots, .tab .tab-dots:focus-visible, .tab.menu-open .tab-dots { opacity: 1; }
 .tab.menu-open .tab-dots { background: var(--sel); color: var(--fg); }
-.tab-new { margin: 0 0 3px 4px; }
+.tab-new { position: relative; display: flex; align-items: center; margin: 0 0 3px 4px; }
+.tab-new .tab-new-more { width: 16px; }
+.tab-new.menu-open .tab-new-more { background: var(--sel); color: var(--fg); }
+/* Placed by tabs.ts under the chevron; fixed, so the strip can keep scrolling. */
+.tab-new .tab-menu { position: fixed; left: auto; }
 
 .tab-rename {
   width: 100px;
@@ -908,6 +914,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .tab { height: 36px; flex: none; }
   .tab.active { height: 40px; }
   .tab .tab-dots { opacity: 1; width: 30px; height: 30px; }
+  .tab-new .tab-new-more { width: 30px; }
   #find { left: 12px; right: 12px; top: 8px; }
   #find-input { flex: 1; width: auto; }
   #usage { font-size: 12px; }

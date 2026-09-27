@@ -716,8 +716,22 @@ export class Tmux {
     return false;
   }
 
-  async newWindow(session: string): Promise<void> {
-    await this.run(["new-window", "-t", `${await this.target(session)}:`]);
+  /**
+   * A new window, running `command` when given (an agent, from the server's
+   * own list). It runs in an interactive login shell -- the user's PATH and
+   * aliases, as if typed -- and that shell hands over to a plain one when the
+   * command exits, so quitting the agent leaves a prompt rather than closing
+   * the tab. Spawned rather than typed into a fresh shell: a shell still
+   * reading its rc files can drop what is typed at it.
+   */
+  async newWindow(session: string, command?: string): Promise<void> {
+    const target = `${await this.target(session)}:`;
+    if (!command) {
+      await this.run(["new-window", "-t", target]);
+      return;
+    }
+    const shell = (await this.run(["show-options", "-gv", "default-shell"])).trim() || "/bin/sh";
+    await this.run(["new-window", "-t", target, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
   }
 
   async killSession(session: string): Promise<void> {

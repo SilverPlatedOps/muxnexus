@@ -1,4 +1,4 @@
-import type { SessionInfo, WindowInfo } from "../shared/protocol";
+import type { NewWindowAgent, SessionInfo, WindowInfo } from "../shared/protocol";
 import { MENU_REORDER, makeReorderable, moveItem } from "./reorder";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
@@ -16,7 +16,8 @@ export { tabLabel };
 /** Every window is addressed by tmux's id (`@3`): an index is a slot windows move through. */
 export interface TabActions {
   selectWindow(id: string): void;
-  newWindow(): void;
+  /** A plain shell, or with `agent` already started in it. */
+  newWindow(agent?: NewWindowAgent): void;
   renameWindow(id: string, name: string): void;
   killWindow(id: string): void;
   /** The whole wanted tab order, as window ids. */
@@ -39,7 +40,7 @@ export interface TabActions {
 
 export interface Tabs {
   render(sessions: SessionInfo[], current: string | null): void;
-  /** The Claude profiles on this machine, in the quota panel's order, which picks each badge's colour. */
+  /** The accounts a tab can spend (Claude profiles, then Codex), in the quota panel's order, which picks each badge's colour. */
   setProfiles(labels: string[]): void;
   /** The window shown in the beside pane, if the terminal is split. */
   setBeside(id: string | null): void;
@@ -47,8 +48,12 @@ export interface Tabs {
 
 const ICON = {
   dots: '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="8" r="1.1"></circle><circle cx="8" cy="8" r="1.1"></circle><circle cx="12" cy="8" r="1.1"></circle></svg>',
+  chevron: '<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3.5 6 8 10.5 12.5 6"></polyline></svg>',
   plus: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="3.5" x2="8" y2="12.5"></line><line x1="3.5" y1="8" x2="12.5" y2="8"></line></svg>',
 };
+
+/** `ui.menu` when the new-window menu is open. Window ids all start with `@`, so it cannot collide. */
+const NEW_MENU = "new";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -275,12 +280,47 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     sharing = sharedCheckouts(sessions, windowPlace);
     for (const w of windows) root.append(renderTab(w));
 
-    const add = button("row-btn tab-new");
+    // `+` stays one click to a shell, the common case; the agents sit a click
+    // further, behind the chevron.
+    const adds = el("div", `tab-new${ui.menu === NEW_MENU ? " menu-open" : ""}`);
+    const add = button("row-btn");
     add.setAttribute("aria-label", "New window");
     add.title = "New window";
     add.innerHTML = ICON.plus;
     add.onclick = () => actions.newWindow();
-    root.append(add);
+    const more = button("row-btn tab-new-more");
+    more.setAttribute("aria-label", "New window with an agent");
+    more.setAttribute("aria-expanded", String(ui.menu === NEW_MENU));
+    more.title = "New window with an agent";
+    more.innerHTML = ICON.chevron;
+    more.onclick = (e) => {
+      e.stopPropagation();
+      ui.menu = ui.menu === NEW_MENU ? null : NEW_MENU;
+      ui.confirm = null;
+      rerender();
+    };
+    adds.append(add, more);
+    if (ui.menu === NEW_MENU) {
+      const m = el("div", "tab-menu");
+      const codex = button("btn", "New Codex tab");
+      codex.onclick = (e) => {
+        e.stopPropagation();
+        ui.menu = null;
+        actions.newWindow("codex");
+        rerender();
+      };
+      m.append(codex);
+      adds.append(m);
+    }
+    root.append(adds);
+    // Fixed to the chevron rather than hung off the strip: the strip scrolls on
+    // a phone, and this sits at its far end, so an in-flow menu lands off screen.
+    const menu = adds.querySelector<HTMLElement>(".tab-menu");
+    if (menu) {
+      const r = more.getBoundingClientRect();
+      menu.style.top = `${r.bottom + 4}px`;
+      menu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+    }
   }
 
   makeReorderable(root, {

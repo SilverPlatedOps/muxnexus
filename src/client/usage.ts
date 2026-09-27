@@ -214,6 +214,11 @@ export function setBadgesShown(on: boolean, store?: Store): void {
   }
 }
 
+/** The accounts a tab's agent can be spending: every Claude profile, and Codex. */
+export function badgedLabels(sources: readonly UsageSource[]): string[] {
+  return sources.filter((s) => s.provider !== "opencode").map((s) => s.label);
+}
+
 /**
  * The account's badge, the same letter and colour its agent's tab wears: this
  * panel is the legend for the tabs, so it goes when they go. opencode's agents
@@ -221,9 +226,8 @@ export function setBadgesShown(on: boolean, store?: Store): void {
  */
 function accountBadge(s: UsageSource, sources: UsageSource[]): HTMLElement[] {
   if (!badgesShown()) return [];
-  const claude = sources.filter((x) => x.id !== "opencode").map((x) => x.label);
-  if (s.id === "opencode") return [el("span", "pbadge blank")];
-  const b = profileBadge(s.label, claude);
+  if (s.provider === "opencode") return [el("span", "pbadge blank")];
+  const b = profileBadge(s.label, badgedLabels(sources));
   return [el("span", `pbadge${b.slot === null ? "" : ` p${b.slot}`}`, b.initial)];
 }
 
@@ -231,10 +235,10 @@ function accountBadge(s: UsageSource, sources: UsageSource[]): HTMLElement[] {
  * The switch for the badges, under the accounts it is the legend for. A verb
  * for a label, so it says what pressing it does without a state to decode;
  * its own line, since the account rows are full at 280 px. Only when there is
- * a Claude account: opencode alone has nothing to badge.
+ * an account to badge: opencode alone has nothing.
  */
 function badgesToggle(root: HTMLElement, sources: UsageSource[], now: number, onBadges?: () => void): HTMLElement | null {
-  if (!sources.some((s) => s.id !== "opencode")) return null;
+  if (badgedLabels(sources).length === 0) return null;
   const on = badgesShown();
   const foot = el("div", "usage-foot");
   const b = document.createElement("button");

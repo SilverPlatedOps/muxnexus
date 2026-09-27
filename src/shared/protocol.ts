@@ -109,6 +109,12 @@ export interface UsageWindow {
 export interface UsageSource {
   id: string;
   label: string;
+  /**
+   * Whose quota this is. Only a `claude` row is somewhere a conversation can be
+   * moved to; `codex` is an account agents spend too, so its tabs wear a badge;
+   * `opencode` reports usage and nothing in a tab spends it.
+   */
+  provider: "claude" | "codex" | "opencode";
   windows: UsageWindow[];
   state: "ok" | "signed-out" | "error";
   /** When the numbers were last read, not when they were last requested. */
@@ -126,7 +132,8 @@ export type ClientMessage =
   | { t: "resize"; cols: number; rows: number }
   | { t: "new-session"; name: string }
   | { t: "kill-session"; session: string }
-  | { t: "new-window"; session: string }
+  /** `agent` starts one in the new window; the server holds the command, so none crosses the wire. */
+  | { t: "new-window"; session: string; agent?: NewWindowAgent }
   /** Windows by tmux id (`@3`), never index: an index is a slot windows move through. */
   | { t: "kill-window"; session: string; id: string }
   | { t: "select-window"; session: string; id: string }
@@ -144,6 +151,9 @@ export type ClientMessage =
    */
   | { t: "move-window-to"; session: string; id: string; profile: string }
   | { t: "ping" };
+
+/** Agents a new window can start with. */
+export type NewWindowAgent = "codex";
 
 export type DetachReason = "session-killed" | "exited";
 

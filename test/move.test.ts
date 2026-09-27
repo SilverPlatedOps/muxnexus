@@ -37,7 +37,7 @@ describe("shellQuote", () => {
 });
 
 function source(label: string, percent: number, kind = "session"): UsageSource {
-  return { id: label, label, state: "ok", checkedAt: "", windows: [{ kind, percent }] };
+  return { id: label, label, provider: "claude", state: "ok", checkedAt: "", windows: [{ kind, percent }] };
 }
 
 describe("targets", () => {

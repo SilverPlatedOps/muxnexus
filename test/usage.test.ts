@@ -3,11 +3,13 @@ import {
   accessToken,
   backoffMs,
   categoryProfile,
+  codexAuth,
   createUsageReader,
   findProfiles,
   keychainService,
   merge,
   parseClaudeUsage,
+  parseCodexUsage,
   parseEnv,
   parseOpencodeUsage,
   profileLabel,
@@ -58,6 +60,10 @@ describe("profileLabel", () => {
   test("any other is named after its suffix, so a new account needs no code", () => {
     expect(profileLabel(`${HOME}/.claude-work`)).toBe("work");
     expect(profileLabel(`${HOME}/.claude-client`)).toBe("client");
+  });
+
+  test("Codex's home is the codex account", () => {
+    expect(profileLabel(`${HOME}/.codex`)).toBe("codex");
   });
 });
 
@@ -170,26 +176,72 @@ describe("parseOpencodeUsage", () => {
   });
 });
 
+describe("codexAuth", () => {
+  test("reads the ChatGPT token and account out of auth.json", () => {
+    const auth = JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: "tok", account_id: "acct" } });
+    expect(codexAuth(auth)).toEqual({ token: "tok", accountId: "acct" });
+  });
+
+  test("an API-key login, or anything unexpected, has no token", () => {
+    expect(codexAuth(JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "sk", tokens: null }))).toBeNull();
+    expect(codexAuth("not json")).toBeNull();
+    expect(codexAuth(JSON.stringify({ tokens: { access_token: "" } }))).toBeNull();
+  });
+});
+
+describe("parseCodexUsage", () => {
+  // Shaped like a real /wham/usage reply, trimmed of the upsell and credits.
+  const reply = (limitReached: boolean, primary: number) => JSON.stringify({
+    plan_type: "plus",
+    rate_limit: {
+      allowed: !limitReached,
+      limit_reached: limitReached,
+      primary_window: { used_percent: primary, limit_window_seconds: 18000, reset_after_seconds: 16628, reset_at: 1790493433 },
+      secondary_window: { used_percent: 16, limit_window_seconds: 604800, reset_after_seconds: 603428, reset_at: 1791080233 },
+    },
+    additional_rate_limits: null,
+  });
+
+  test("names each window by its length, since Codex only calls them primary and secondary", () => {
+    expect(parseCodexUsage(reply(false, 42))).toEqual([
+      { kind: "5h", percent: 42, resetsAt: new Date(1790493433 * 1000).toISOString() },
+      { kind: "7d", percent: 16, resetsAt: new Date(1791080233 * 1000).toISOString() },
+    ]);
+  });
+
+  test("a spent window is marked when Codex says the limit is reached", () => {
+    const [short, week] = parseCodexUsage(reply(true, 100));
+    expect(short.severity).toBe("exceeded");
+    expect(week.severity).toBeUndefined();
+  });
+
+  test("garbage, or a window without a length, is left out rather than a throw", () => {
+    expect(parseCodexUsage("<html>403</html>")).toEqual([]);
+    expect(parseCodexUsage(JSON.stringify({ rate_limit: null }))).toEqual([]);
+    expect(parseCodexUsage(JSON.stringify({ rate_limit: { primary_window: { used_percent: 3 } } }))).toEqual([]);
+  });
+});
+
 describe("merge", () => {
   const previous: UsageSource = {
-    id: "p", label: "personal", state: "ok", checkedAt: "2026-09-24T09:00:00Z",
+    id: "p", label: "personal", provider: "claude", state: "ok", checkedAt: "2026-09-24T09:00:00Z",
     windows: [{ kind: "session", percent: 50 }],
   };
 
   test("a good read replaces everything", () => {
-    const got = merge(previous, { id: "p", label: "personal", windows: [{ kind: "session", percent: 60 }], state: "ok", now: "T1" });
-    expect(got).toEqual({ id: "p", label: "personal", state: "ok", checkedAt: "T1", windows: [{ kind: "session", percent: 60 }] });
+    const got = merge(previous, { id: "p", label: "personal", provider: "claude", windows: [{ kind: "session", percent: 60 }], state: "ok", now: "T1" });
+    expect(got).toEqual({ id: "p", label: "personal", provider: "claude", state: "ok", checkedAt: "T1", windows: [{ kind: "session", percent: 60 }] });
   });
 
   test("a failure keeps the last good numbers and the time they were true", () => {
-    const got = merge(previous, { id: "p", label: "personal", windows: [], state: "error", now: "T1" });
+    const got = merge(previous, { id: "p", label: "personal", provider: "claude", windows: [], state: "error", now: "T1" });
     expect(got.windows).toEqual(previous.windows);
     expect(got.state).toBe("error");
     expect(got.checkedAt).toBe("2026-09-24T09:00:00Z");
   });
 
   test("a failure with nothing to fall back on is simply empty", () => {
-    expect(merge(undefined, { id: "p", label: "p", windows: [], state: "signed-out", now: "T1" }).windows).toEqual([]);
+    expect(merge(undefined, { id: "p", label: "p", provider: "claude", windows: [], state: "signed-out", now: "T1" }).windows).toEqual([]);
   });
 });
 
@@ -284,6 +336,42 @@ describe("the reader, with the network and Keychain injected", () => {
     expect((await withIt.read()).map((s) => s.id)).toContain("opencode");
     const without = createUsageReader({ ...base, secret: async () => null, fetch: async () => ({ status: 200, body: ok }) });
     expect((await without.read()).map((s) => s.id)).not.toContain("opencode");
+  });
+
+  test("codex is a row only when it is installed, read with its own token and account", async () => {
+    const seen: Record<string, string>[] = [];
+    const auth = JSON.stringify({ tokens: { access_token: "cxtok", account_id: "acct" } });
+    const usage = JSON.stringify({ rate_limit: { primary_window: { used_percent: 7, limit_window_seconds: 18000 } } });
+    const reader = createUsageReader({
+      ...base,
+      secret: async () => item,
+      readFile: async (p) => (p === `${HOME}/.codex/auth.json` ? auth : null),
+      fetch: async (url, headers) => {
+        if (url.includes("chatgpt.com")) seen.push(headers);
+        return { status: 200, body: url.includes("chatgpt.com") ? usage : ok };
+      },
+    });
+    const got = await reader.read();
+    const codex = got.find((s) => s.id === "codex")!;
+    expect(codex).toMatchObject({ label: "codex", provider: "codex", state: "ok", windows: [{ kind: "5h", percent: 7 }] });
+    expect(got.filter((s) => s.provider === "claude").map((s) => s.label)).toEqual(["personal", "work"]);
+    expect(seen).toEqual([{ Authorization: "Bearer cxtok", "ChatGPT-Account-Id": "acct" }]);
+    expect(JSON.stringify(got)).not.toContain("cxtok");
+
+    const without = createUsageReader({ ...base, secret: async () => item, fetch: async () => ({ status: 200, body: ok }) });
+    expect((await without.read()).map((s) => s.id)).not.toContain("codex");
+  });
+
+  test("an expired codex token is signed out, and is never refreshed", async () => {
+    const calls: string[] = [];
+    const reader = createUsageReader({
+      ...base,
+      secret: async () => null,
+      readFile: async (p) => (p.endsWith("/.codex/auth.json") ? JSON.stringify({ tokens: { access_token: "old" } }) : null),
+      fetch: async (url) => { calls.push(url); return { status: 401, body: "" }; },
+    });
+    expect((await reader.read()).find((s) => s.id === "codex")?.state).toBe("signed-out");
+    expect(calls).toEqual(["https://chatgpt.com/backend-api/wham/usage"]);
   });
 });
 

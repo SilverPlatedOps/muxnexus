@@ -77,6 +77,16 @@ describe("Tmux mutators", () => {
   const windowIds = async (name: string) =>
     (await tmux.listSessions()).find((s) => s.name === name)!.windows.map((w) => w.id);
 
+  test("newWindow with a command runs it in the user's shell, and leaves a shell behind", async () => {
+    await tmux.newSession("s");
+    await tmux.run(["set-option", "-g", "default-shell", "/bin/sh"]);
+    await tmux.newWindow("s", "echo agent-$((40+2)) ran");
+    const [, id] = await windowIds("s");
+    await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", id])).includes("agent-42 ran"), 3000, "command output");
+    const now = (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_command}"])).trim();
+    expect(["sh", "bash"]).toContain(now);
+  });
+
   test("renameWindow, selectWindow, killWindow target the window by id", async () => {
     await tmux.newSession("s");
     await tmux.newWindow("s");

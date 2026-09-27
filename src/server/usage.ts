@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { UsageSource, UsageWindow } from "../shared/protocol";
 
 /**
- * Quota for every Claude account on this machine, plus opencode, read straight
+ * Quota for every Claude account on this machine, plus Codex and opencode, read straight
  * from the providers rather than inferred from a running session.
  *
  * Nothing here is ever written back. In particular an expired token is reported
@@ -15,6 +15,7 @@ import type { UsageSource, UsageWindow } from "../shared/protocol";
 
 const CLAUDE_USAGE = "https://api.anthropic.com/api/oauth/usage";
 const OPENCODE_USAGE = "https://opencode.ai/zen/go/v1/usage";
+const CODEX_USAGE = "https://chatgpt.com/backend-api/wham/usage";
 
 export interface HttpResult {
   status: number;
@@ -49,6 +50,8 @@ export function keychainService(configDir: string, home: string): string {
  */
 export function profileLabel(configDir: string): string {
   const dir = configDir.split("/").filter(Boolean).pop() ?? "";
+  // Codex's home, as its hook stamps it: `.codex` is the codex account.
+  if (dir.startsWith(".codex")) return dir.slice(1);
   const suffix = dir.replace(/^\.claude-?/, "");
   return suffix === "" ? "personal" : suffix;
 }
@@ -146,6 +149,57 @@ export function parseClaudeUsage(body: string): UsageWindow[] {
   return out;
 }
 
+/**
+ * The ChatGPT login out of Codex's `auth.json`. An API-key login has no
+ * `tokens`, and no ChatGPT quota to read, so it is null like anything else that
+ * is not shaped as expected.
+ */
+export function codexAuth(text: string): { token: string; accountId?: string } | null {
+  try {
+    const tokens = JSON.parse(text)?.tokens;
+    const token = tokens?.access_token;
+    if (typeof token !== "string" || token === "") return null;
+    return { token, ...(typeof tokens.account_id === "string" ? { accountId: tokens.account_id } : {}) };
+  } catch {
+    return null;
+  }
+}
+
+/** `18000` seconds is `5h`, `604800` is `7d`: the label the panel shows for the window. */
+function windowKind(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
+/**
+ * `rate_limit.{primary,secondary}_window` from `/wham/usage`. Codex names its
+ * windows only by rank, so each is named by its length instead -- which stays
+ * true if the lengths ever change. The one judgement it offers is
+ * `limit_reached`, which marks the windows actually spent.
+ */
+export function parseCodexUsage(body: string): UsageWindow[] {
+  let limit: any;
+  try {
+    limit = JSON.parse(body)?.rate_limit;
+  } catch {
+    return [];
+  }
+  if (typeof limit !== "object" || limit === null) return [];
+  const out: UsageWindow[] = [];
+  for (const w of [limit.primary_window, limit.secondary_window]) {
+    if (typeof w?.used_percent !== "number") continue;
+    if (typeof w.limit_window_seconds !== "number" || w.limit_window_seconds <= 0) continue;
+    out.push({
+      kind: windowKind(w.limit_window_seconds),
+      percent: w.used_percent,
+      ...(typeof w.reset_at === "number" ? { resetsAt: new Date(w.reset_at * 1000).toISOString() } : {}),
+      ...(limit.limit_reached === true && w.used_percent >= 100 ? { severity: "exceeded" } : {}),
+    });
+  }
+  return out;
+}
+
 /** opencode reports `usage.{rolling,weekly,monthly}` as named objects rather than a list. */
 export function parseOpencodeUsage(body: string): UsageWindow[] {
   let usage: unknown;
@@ -178,16 +232,18 @@ export function parseOpencodeUsage(body: string): UsageWindow[] {
 export function merge(previous: UsageSource | undefined, next: {
   id: string;
   label: string;
+  provider: UsageSource["provider"];
   windows: UsageWindow[];
   state: UsageSource["state"];
   now: string;
 }): UsageSource {
   if (next.state === "ok") {
-    return { id: next.id, label: next.label, windows: next.windows, state: "ok", checkedAt: next.now };
+    return { id: next.id, label: next.label, provider: next.provider, windows: next.windows, state: "ok", checkedAt: next.now };
   }
   return {
     id: next.id,
     label: next.label,
+    provider: next.provider,
     windows: previous?.windows ?? [],
     state: next.state,
     // Deliberately the old timestamp: it is when these numbers were true.
@@ -299,25 +355,25 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     const now = stamp;
     const item = await secret(keychainService(dir, home));
     const token = item ? accessToken(item) : null;
-    if (!token) return merge(last.get(id), { id, label, windows: [], state: "signed-out", now });
+    if (!token) return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "signed-out", now });
     const res = await get(CLAUDE_USAGE, {
       Authorization: `Bearer ${token}`,
       "anthropic-beta": "oauth-2025-04-20",
     });
     // 401 is the ordinary state of an account nobody has used lately, not a fault.
     if (res.status === 401 || res.status === 403) {
-      return merge(last.get(id), { id, label, windows: [], state: "signed-out", now });
+      return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "signed-out", now });
     }
     if (res.status !== 200) {
       failed(label, res);
-      return merge(last.get(id), { id, label, windows: [], state: "error", now });
+      return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "error", now });
     }
     const windows = parseClaudeUsage(res.body);
     if (windows.length === 0) {
       failed(label, res, "HTTP 200 but no usage windows in the reply");
-      return merge(last.get(id), { id, label, windows: [], state: "error", now });
+      return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "error", now });
     }
-    return merge(last.get(id), { id, label, windows, state: "ok", now });
+    return merge(last.get(id), { id, label, provider: "claude", windows, state: "ok", now });
   }
 
   async function opencode(): Promise<UsageSource | null> {
@@ -329,27 +385,58 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     const env = await readFile(join(home, ".claude", "opencode-go", ".env"));
     if (env === null) return null; // not installed: no row at all, rather than an empty one
     const token = parseEnv(env).get("OPENCODE_GO_API_KEY");
-    if (!token) return merge(last.get(id), { id, label: id, windows: [], state: "signed-out", now });
+    if (!token) return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "signed-out", now });
     const res = await get(OPENCODE_USAGE, { Authorization: `Bearer ${token}` });
     if (res.status === 401 || res.status === 403) {
-      return merge(last.get(id), { id, label: id, windows: [], state: "signed-out", now });
+      return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "signed-out", now });
     }
     if (res.status !== 200) {
       failed(id, res);
-      return merge(last.get(id), { id, label: id, windows: [], state: "error", now });
+      return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "error", now });
     }
     const windows = parseOpencodeUsage(res.body);
     if (windows.length === 0) {
       failed(id, res, "HTTP 200 but no usage windows in the reply");
-      return merge(last.get(id), { id, label: id, windows: [], state: "error", now });
+      return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "error", now });
     }
-    return merge(last.get(id), { id, label: id, windows, state: "ok", now });
+    return merge(last.get(id), { id, label: id, provider: "opencode", windows, state: "ok", now });
+  }
+
+  async function codex(): Promise<UsageSource | null> {
+    const id = "codex";
+    const dir = join(home, ".codex");
+    const label = profileLabel(dir);
+    const previous = last.get(id);
+    if (waiting(id) && previous) return previous;
+    const now = new Date().toISOString();
+    const text = await readFile(join(dir, "auth.json"));
+    if (text === null) return null; // not installed: no row at all
+    const auth = codexAuth(text);
+    if (!auth) return merge(previous, { id, label, provider: "codex", windows: [], state: "signed-out", now });
+    // Codex refreshes this token itself; an expired one is signed out until it does.
+    const res = await get(CODEX_USAGE, {
+      Authorization: `Bearer ${auth.token}`,
+      ...(auth.accountId ? { "ChatGPT-Account-Id": auth.accountId } : {}),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return merge(previous, { id, label, provider: "codex", windows: [], state: "signed-out", now });
+    }
+    if (res.status !== 200) {
+      failed(label, res);
+      return merge(previous, { id, label, provider: "codex", windows: [], state: "error", now });
+    }
+    const windows = parseCodexUsage(res.body);
+    if (windows.length === 0) {
+      failed(label, res, "HTTP 200 but no usage windows in the reply");
+      return merge(previous, { id, label, provider: "codex", windows: [], state: "error", now });
+    }
+    return merge(previous, { id, label, provider: "codex", windows, state: "ok", now });
   }
 
   return {
     async read() {
       const dirs = findProfiles(home, list, has);
-      const settled = await Promise.all([...dirs.map(claude), opencode()]);
+      const settled = await Promise.all([...dirs.map(claude), codex(), opencode()]);
       // A source returned unchanged was skipped for backoff, not attempted, so
       // it must not count as another failure -- that would let a source extend
       // its own backoff indefinitely without ever being asked again.

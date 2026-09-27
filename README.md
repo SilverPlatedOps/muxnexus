@@ -58,17 +58,19 @@ bun run start
 
 Open the URL it prints from any device on your tailnet.
 
-The agent status, the account badges and Move to… come from a small Claude Code
-hook that stamps each tmux pane with what its agent is doing. The install script
-doesn't add it; this does, for every profile it finds (`~/.claude`,
-`~/.claude-*`):
+The agent status, the account badges and Move to… come from a small hook that
+stamps each tmux pane with what its agent is doing. The install script doesn't
+add it; this does, for every Claude profile it finds (`~/.claude`,
+`~/.claude-*`) and for Codex (`~/.codex`):
 
 ```sh
 python3 scripts/install-agent-hook.py
 ```
 
-It adds entries to each profile's `settings.json` and backs the file up before
-changing it; running it again changes nothing. The entries point at this
+It adds entries to each profile's `settings.json`, and to Codex's `hooks.json`,
+and backs each file up before changing it; running it again changes nothing.
+Codex runs a new hook only once you trust it, so open `codex` afterwards and
+approve them in `/hooks`. The entries point at this
 checkout's `scripts/agent-state.sh` by absolute path, so if you move the clone,
 run it again. Without the hook muxnexus still works — the sidebar just can't
 tell you what your agents are up to.
@@ -169,7 +171,8 @@ them and `Home`/`End` jump to 20% and 80%.
 
 ## Which agent needs you
 
-With the hook installed, every row in the sidebar and every tab carries a mark:
+With the hook installed, every row in the sidebar and every tab carries a mark,
+for Claude Code and Codex alike:
 
 | Mark | Means |
 | --- | --- |
@@ -189,7 +192,8 @@ has taken a turn since the hook was installed.
 
 Pressing Esc mid-turn doesn't fire any Claude Code hook, so muxnexus reads the
 interruption from the conversation's transcript instead — the row goes idle
-rather than spinning for ever.
+rather than spinning for ever. Codex's transcript isn't read; an interrupted
+Codex tab goes idle once its terminal has been quiet for a while.
 
 ## Quota, and which account each tab spends
 
@@ -206,7 +210,19 @@ give it a big job. `hide profiles` switches the badges off.
 The numbers come straight from Anthropic's usage endpoint, using the credentials
 Claude Code already keeps in the macOS Keychain. muxnexus only ever reads them:
 it never refreshes a token or writes one back. So the panel is macOS-only for
-now. If you use opencode Go, its quota gets a row too.
+now.
+
+If Codex is signed in with ChatGPT, it gets a row too, with its 5-hour and weekly
+windows, read from ChatGPT's usage endpoint with the token in
+`~/.codex/auth.json` — read, never refreshed; Codex keeps that one current
+itself. Codex tabs wear its badge like any other account. If you use opencode
+Go, its quota gets a row as well.
+
+## Starting Codex in a new tab
+
+The `⌄` beside the tab strip's `+` has **New Codex tab**: a new window with
+`codex` already running in your login shell. Quit it and the tab drops to a
+prompt rather than closing.
 
 ## Move a conversation to another account
 
@@ -217,6 +233,9 @@ in that tab, then resumes the same conversation in the same tab under the other
 account — the scrollback stays, so the last thing it said is still on screen.
 It forks rather than continuing in place, so the conversation shows up in the
 new account's own `/resume`, and the original stays where it was.
+
+Only Claude accounts are targets, and Codex tabs don't offer it: a Claude
+transcript can't be resumed in Codex, or the other way round.
 
 The dialog puts each account's quota beside it, because resuming re-reads the
 whole conversation once: moving a long one onto an account that's nearly spent

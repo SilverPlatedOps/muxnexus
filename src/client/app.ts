@@ -7,7 +7,7 @@ import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
-import { renderUsage } from "./usage";
+import { badgedLabels, renderUsage } from "./usage";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, UsageSource } from "../shared/protocol";
 
@@ -239,7 +239,7 @@ const tabs = createTabs(tabsEl, {
     if (split.state?.windowId === id) return split.focusSide();
     if (current) conn.send({ t: "select-window", session: current, id });
   },
-  newWindow: () => { if (current) conn.send({ t: "new-window", session: current }); },
+  newWindow: (agent) => { if (current) conn.send({ t: "new-window", session: current, ...(agent ? { agent } : {}) }); },
   renameWindow: (id, name) => { if (current) conn.send({ t: "rename-window", session: current, id, name }); },
   killWindow: (id) => { if (current) conn.send({ t: "kill-window", session: current, id }); },
   reorderWindows,
@@ -320,9 +320,10 @@ const conn = new Connection(wsUrl, {
         usageSources = m.sources;
         // The badge switch lives in the panel; the tabs wear the badges.
         renderUsage(usageEl, m.sources, Date.now(), () => tabs.render(sessions, current));
-        // Claude's accounts, in the panel's order; opencode is not one.
-        profileLabels = m.sources.filter((s) => s.id !== "opencode").map((s) => s.label);
-        tabs.setProfiles(profileLabels);
+        // Claude's accounts, in the panel's order: the only places a
+        // conversation can be moved to. Codex's tabs still wear its badge.
+        profileLabels = m.sources.filter((s) => s.provider === "claude").map((s) => s.label);
+        tabs.setProfiles(badgedLabels(m.sources));
         break;
       case "attached":
         current = m.session;
