@@ -186,10 +186,11 @@ A session shows the most urgent of its windows, and a folded group the most
 urgent of its sessions, so nothing waiting can hide. `Cmd+J` walks down the
 sidebar to the next one that wants you.
 
-When two agents are working in the same git checkout, both rows get a yellow
-branch mark naming each other — they're about to edit the same files. Separate
-`git worktree`s don't count: they are the fix. An agent shows the mark once it
-has taken a turn since the hook was installed.
+When two agents are working in the same git checkout at the same time — each
+running a turn or waiting on you — both rows get a yellow branch mark naming
+each other: they're about to edit the same files. A finished agent is idle and
+doesn't count, and neither do separate `git worktree`s: they are the fix. An
+agent shows the mark once it has taken a turn since the hook was installed.
 
 Pressing Esc mid-turn doesn't fire any Claude Code hook, so muxnexus reads the
 interruption from the conversation's transcript instead — the row goes idle

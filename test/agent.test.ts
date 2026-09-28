@@ -23,7 +23,7 @@ import {
   windowGlyph,
 } from "../src/client/agent";
 import { summaryWindow } from "../src/client/usage";
-import type { WindowInfo } from "../src/shared/protocol";
+import type { AgentState, WindowInfo } from "../src/shared/protocol";
 
 describe("parseStamp", () => {
   test("reads what the hook writes", () => {
@@ -295,8 +295,8 @@ describe("profile badges", () => {
 });
 
 describe("sharedCheckouts", () => {
-  const agent = (checkout?: string) => ({ state: "done" as const, since: "", ...(checkout ? { checkout } : {}) });
-  const win = (id: string, checkout?: string) => ({ id, index: 0, name: id, active: false, panes: 1, agent: agent(checkout) });
+  const agent = (checkout?: string, state: AgentState = "running") => ({ state, since: "", ...(checkout ? { checkout } : {}) });
+  const win = (id: string, checkout?: string, state?: AgentState) => ({ id, index: 0, name: id, active: false, panes: 1, agent: agent(checkout, state) });
   const label = (s: { name: string }, w: { id: string }) => `${s.name} › ${w.id}`;
 
   test("flags every agent in a checkout another agent is also in", () => {
@@ -307,6 +307,16 @@ describe("sharedCheckouts", () => {
     expect(got.get("@1")).toEqual({ checkout: "/r/cms", others: ["voucher › @3"] });
     expect(got.get("@3")).toEqual({ checkout: "/r/cms", others: ["banner › @1"] });
     expect(got.has("@2")).toBe(false);
+  });
+
+  test("an agent that is done is idle, so it neither counts nor is flagged", () => {
+    const got = sharedCheckouts([
+      { name: "a", windows: [win("@1", "/r/cms", "done"), win("@2", "/r/cms", "done"), win("@3", "/r/cms")] },
+      { name: "b", windows: [win("@4", "/r/web", "input"), win("@5", "/r/web", "running"), win("@6", "/r/web", "done")] },
+    ], label);
+    expect(got.has("@1") || got.has("@2") || got.has("@3") || got.has("@6")).toBe(false);
+    expect(got.get("@4")).toEqual({ checkout: "/r/web", others: ["b › @5"] });
+    expect(got.get("@5")).toEqual({ checkout: "/r/web", others: ["b › @4"] });
   });
 
   test("one window linked from two sessions is one agent, not a pair", () => {

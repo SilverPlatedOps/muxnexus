@@ -116,9 +116,11 @@ export interface Sharing {
 }
 
 /**
- * Every agent that shares its git checkout with another, by window id. Two
- * agents in one checkout edit, commit and switch branches under each other;
- * separate worktrees are separate checkouts, so they never count. A window is
+ * Every live agent that shares its git checkout with another, by window id.
+ * Two agents in one checkout edit, commit and switch branches under each other;
+ * separate worktrees are separate checkouts, so they never count. Only a live
+ * agent (running, or waiting on you mid-turn) can collide: one that is done is
+ * idle, and a row of finished tabs in one repo flagged every one of them. A window is
  * counted once however many sessions link it -- the server already folds cmux's
  * tab sessions into their base, and the id is the window either way.
  */
@@ -130,7 +132,7 @@ export function sharedCheckouts<S extends { windows: readonly WindowInfo[] }>(
   for (const s of sessions) {
     for (const w of s.windows) {
       const checkout = w.agent?.checkout;
-      if (!checkout) continue;
+      if (!checkout || w.agent?.state === "done") continue;
       const there = byCheckout.get(checkout) ?? new Map<string, string>();
       if (!there.has(w.id)) there.set(w.id, label(s, w));
       byCheckout.set(checkout, there);
