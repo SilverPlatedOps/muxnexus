@@ -15,7 +15,10 @@ import { Tmux } from "./tmux";
  */
 // `--no-daemon` because Codex otherwise runs hooks in its shared daemon, which
 // holds another terminal's $TMUX_PANE: the tab would never show its status.
-const AGENTS: Record<NewWindowAgent, string> = { codex: "codex --no-daemon" };
+// Inline, because its alternate screen never reaches tmux's history, so there
+// would be nothing to scroll. `command` skips scripts/codex-tmux.zsh, which
+// would add the same flags again -- and Codex refuses --no-daemon twice.
+const AGENTS: Record<NewWindowAgent, string> = { codex: `command codex --no-daemon -c 'tui.alternate_screen="never"'` };
 
 export interface ServerOptions {
   /** Addresses to listen on, all sharing one port. The first is the one reported. */
@@ -62,6 +65,10 @@ interface ConnData {
   attachSeq: number;
   /** The split-pane view this socket is attached through (`$7`), removed when it detaches. */
   view: string | null;
+  /** The wheel opened the pane's history; the next keystroke closes it first. */
+  scrolled: boolean;
+  /** Keystrokes held while that closes, so they still arrive in order. */
+  typing: Promise<void> | null;
 }
 
 type Socket = ServerWebSocket<ConnData>;
@@ -322,6 +329,16 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "attach-view":
           await attachView(ws, m.session, m.id);
           return;
+        case "scroll": {
+          const ok = Number.isInteger(m.lines) && Math.abs(m.lines) <= 1000;
+          if (!ok) return send(ws, { t: "error", message: "invalid scroll" });
+          // The tmux client's own session: a split pane's view, else the attached one.
+          const target = ws.data.view ?? ws.data.sessionId;
+          if (!target) return;
+          if (m.lines < 0) ws.data.scrolled = true;
+          await tmux.scroll(target, m.lines);
+          return;
+        }
         case "resize": {
           const ok =
             Number.isInteger(m.cols) &&
@@ -500,7 +517,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -518,8 +535,20 @@ export function createServer(opts: ServerOptions): RunningServer {
         if (opts.usage && usageDue()) void pollUsage();
       },
       message(ws, msg) {
-        if (typeof msg === "string") void handleControl(ws, msg);
-        else ws.data.pty?.write(decoder.decode(msg));
+        if (typeof msg === "string") return void handleControl(ws, msg);
+        const text = decoder.decode(msg);
+        const write = () => { ws.data.pty?.write(text); };
+        // Typed into copy mode, keys would be copy-mode commands rather than
+        // input: leave the history the wheel opened, then type.
+        if (ws.data.scrolled) {
+          ws.data.scrolled = false;
+          const target = ws.data.view ?? ws.data.sessionId;
+          if (target) ws.data.typing = tmux.leaveScroll(target).catch(() => {});
+        }
+        if (!ws.data.typing) return write();
+        const held = ws.data.typing.then(write);
+        ws.data.typing = held;
+        void held.then(() => { if (ws.data.typing === held) ws.data.typing = null; });
       },
       close(ws) {
         clients.delete(ws);

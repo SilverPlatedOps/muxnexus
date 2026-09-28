@@ -170,6 +170,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     (sideTerm ??= createTerminal(els.sideTerm, {
       onInput: (d) => conn?.sendInput(d),
       onResize: (cols, rows) => conn?.send({ t: "resize", cols, rows }),
+      onScroll: (lines) => conn?.send({ t: "scroll", lines }),
     }));
 
   const mainHead = header(() => toggleZoom("main"), () => closeMain());

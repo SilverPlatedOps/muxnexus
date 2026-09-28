@@ -130,6 +130,12 @@ export type ClientMessage =
    */
   | { t: "attach-view"; session: string; id: string }
   | { t: "resize"; cols: number; rows: number }
+  /**
+   * The wheel, over a program that did not ask for the mouse: scroll the
+   * attached pane's history this many lines (negative is up). Sent instead of
+   * the arrow keys the browser terminal would otherwise type.
+   */
+  | { t: "scroll"; lines: number }
   | { t: "new-session"; name: string }
   | { t: "kill-session"; session: string }
   /** `agent` starts one in the new window; the server holds the command, so none crosses the wire. */

@@ -734,6 +734,32 @@ export class Tmux {
     await this.run(["new-window", "-t", target, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
   }
 
+  /**
+   * Scroll the pane a client is showing through its history: negative is up.
+   * For a program that did not ask for the mouse, the browser would otherwise
+   * turn the wheel into arrow keys -- which a shell or Codex reads as "recall
+   * the last command". Up opens copy mode with `-e`, so scrolling back to the
+   * bottom closes it again; down outside copy mode has nothing below to show.
+   * `target` is a session id (`$3`), the tmux client's own session.
+   */
+  async scroll(target: string, lines: number): Promise<void> {
+    const n = String(Math.abs(Math.trunc(lines)));
+    if (n === "0") return;
+    const [pane, inMode] = (await this.run(["display-message", "-p", "-t", target, "#{pane_id} #{pane_in_mode}"])).trim().split(" ");
+    if (lines < 0) {
+      if (inMode !== "1") await this.run(["copy-mode", "-e", "-t", pane]);
+      await this.run(["send-keys", "-X", "-N", n, "-t", pane, "scroll-up"]);
+    } else if (inMode === "1") {
+      await this.run(["send-keys", "-X", "-N", n, "-t", pane, "scroll-down"]);
+    }
+  }
+
+  /** Close the history `scroll` opened, so what is typed next reaches the program. */
+  async leaveScroll(target: string): Promise<void> {
+    const [pane, inMode] = (await this.run(["display-message", "-p", "-t", target, "#{pane_id} #{pane_in_mode}"])).trim().split(" ");
+    if (inMode === "1") await this.run(["send-keys", "-X", "-t", pane, "cancel"]);
+  }
+
   async killSession(session: string): Promise<void> {
     const all = await this.rows();
     const row = all.find((r) => r.name === session);

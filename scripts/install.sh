@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUARD="$ROOT/scripts/cmux-tmux-guard.zsh"
 ZSHRC="$HOME/.zshrc"
 GUARD_MARKER="muxnexus_tmux_guard"
+CODEX_WRAPPER="$ROOT/scripts/codex-tmux.zsh"
 ALIAS_MARKER="alias muxnexus="
 
 if [ -t 1 ]; then
@@ -157,6 +158,22 @@ elif confirm "Wire it up?" N; then
   ok "~/.zshrc" "guard added — open a new shell to pick it up"
 else
   printf '    skipped — see docs/cmux-internals.md to add it later\n'
+fi
+
+# --- optional: Codex inside tmux -----------------------------------------------
+if command -v codex >/dev/null 2>&1; then
+  printf '\n%sOptional:%s run `codex` inside tmux so muxnexus can follow it — its status,\n' "$B" "$X"
+  printf 'its account badge, and a conversation the wheel can scroll. Outside tmux it is\n'
+  printf 'left alone. It appends 2 lines to ~/.zshrc.\n\n'
+  if [ -f "$ZSHRC" ] && grep -q "codex-tmux.zsh" "$ZSHRC"; then
+    ok "~/.zshrc" "codex already wrapped"
+  elif confirm "Wrap codex inside tmux?" Y; then
+    backup_zshrc
+    printf '\n# muxnexus: inside tmux, run codex without its daemon and inline, so muxnexus can follow it.\n[[ -r "%s" ]] && source "%s"\n' "$CODEX_WRAPPER" "$CODEX_WRAPPER" >> "$ZSHRC"
+    ok "~/.zshrc" "codex wrapped — open a new shell to pick it up"
+  else
+    printf '    skipped — New Codex tab in muxnexus still starts it that way\n'
+  fi
 fi
 
 # --- optional: the muxnexusctl alias -------------------------------------------

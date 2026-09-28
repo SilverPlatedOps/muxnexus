@@ -410,6 +410,42 @@ describe("orderSessions", () => {
   });
 });
 
+describe("Tmux wheel scrolling", () => {
+  /** A session whose pane has 200 lines of history, as `cat` waits for input. */
+  async function tall(name = "s") {
+    await tmux.run(["new-session", "-d", "-s", name, "-x", "80", "-y", "24", "sh -c 'seq 1 200; exec cat'"]);
+    await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", `=${name}:`])).includes("200"), 3000, "history");
+  }
+  const mode = async (t: string) =>
+    (await tmux.run(["display-message", "-p", "-t", t, "#{pane_in_mode} #{scroll_position}"])).trim();
+
+  test("scrolling up opens the pane's history; back to the bottom closes it", async () => {
+    await tall();
+    const t = await tmux.target("s");
+    await tmux.scroll(t, -5);
+    expect(await mode("=s:")).toBe("1 5");
+    await tmux.scroll(t, 3);
+    expect(await mode("=s:")).toBe("1 2");
+    await tmux.scroll(t, 10);
+    expect((await mode("=s:")).split(" ")[0]).toBe("0");
+  });
+
+  test("scrolling down at the bottom does nothing: there is nothing below", async () => {
+    await tall();
+    await tmux.scroll(await tmux.target("s"), 3);
+    expect((await mode("=s:")).split(" ")[0]).toBe("0");
+  });
+
+  test("leaving the history puts the pane back where typing reaches the program", async () => {
+    await tall();
+    const t = await tmux.target("s");
+    await tmux.scroll(t, -5);
+    await tmux.leaveScroll(t);
+    expect((await mode("=s:")).split(" ")[0]).toBe("0");
+    await tmux.leaveScroll(t); // not in the history: harmless
+  });
+});
+
 describe("Tmux split views", () => {
   /** A base session with two windows; returns their ids, first window current. */
   async function base(name = "ws") {

@@ -328,6 +328,35 @@ test("renaming the attached session from the browser moves the attachment to the
   c.ws.close();
 });
 
+test("the wheel scrolls the attached pane's history, and typing afterwards reaches the program", async () => {
+  await tmux.run(["new-session", "-d", "-s", "tall", "-x", "80", "-y", "24", "sh -c 'seq 1 200; exec cat'"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "tall" });
+  await waitFor(() => (c.last("attached") as any)?.session === "tall", 2000, "attached");
+  const mode = async () => (await tmux.run(["display-message", "-p", "-t", "=tall:", "#{pane_in_mode}"])).trim();
+
+  c.send({ t: "scroll", lines: -5 });
+  await waitFor(async () => (await mode()) === "1", 2000, "in history");
+  // Keys typed in copy mode would be copy-mode commands; they must leave it
+  // first and then reach cat, in order.
+  c.sendBytes("hello");
+  c.sendBytes("\r");
+  await waitFor(async () => (await mode()) === "0", 2000, "left history");
+  await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", "=tall:"])).includes("hello"), 2000, "typed text reached cat");
+  c.ws.close();
+});
+
+test("a scroll that is not a number of lines is refused", async () => {
+  await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
+  const c = await connect();
+  c.send({ t: "attach", session: "s" });
+  await waitFor(() => c.last("attached"), 2000, "attached");
+  c.send({ t: "scroll", lines: "up" });
+  await waitFor(() => c.last("error"), 2000, "error");
+  expect((c.last("error") as any).message).toBe("invalid scroll");
+  c.ws.close();
+});
+
 test("a new window asking for an agent the server does not know is refused, not run", async () => {
   await tmux.run(["new-session", "-d", "-s", "s", "sh"]);
   const c = await connect();

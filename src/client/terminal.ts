@@ -15,6 +15,25 @@ export function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number)
 export interface TerminalHandlers {
   onInput(data: string): void;
   onResize(cols: number, rows: number): void;
+  /** The wheel, over a program that did not ask for the mouse: rows of history to scroll, negative up. */
+  onScroll(lines: number): void;
+}
+
+/**
+ * A wheel event as whole rows, carrying the fraction over to the next one: a
+ * trackpad sends many small deltas, and rounding each alone would lose them
+ * all. `deltaMode` 1 is already rows; 2 is pages, a screenful of rows.
+ */
+export function wheelLines(
+  rest: number,
+  ev: { deltaY: number; deltaMode: number },
+  rowPx: number,
+  pageRows = 1,
+): { lines: number; rest: number } {
+  const rows = ev.deltaMode === 1 ? ev.deltaY : ev.deltaMode === 2 ? ev.deltaY * pageRows : ev.deltaY / rowPx;
+  const total = rest + rows;
+  const lines = Math.trunc(total);
+  return { lines, rest: total - lines };
 }
 
 /** Where the viewer is in the current search: 1-based index of `total` matches. */
@@ -73,6 +92,21 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
   }
 
   term.onData(h.onInput);
+
+  // tmux keeps this terminal on its alternate screen, where xterm turns the
+  // wheel into arrow keys unless the program in the pane asked for the mouse.
+  // Claude Code asks; a shell or Codex does not, and reads the arrows as
+  // "recall the last command". So for those the wheel scrolls tmux's history.
+  let wheelRest = 0;
+  term.attachCustomWheelEventHandler((ev) => {
+    if (term.modes.mouseTrackingMode !== "none" || term.buffer.active.type !== "alternate") return true;
+    ev.preventDefault();
+    const rowPx = container.clientHeight / term.rows || 15;
+    const { lines, rest } = wheelLines(wheelRest, ev, rowPx, term.rows);
+    wheelRest = rest;
+    if (lines !== 0) h.onScroll(lines);
+    return false;
+  });
 
   // Cmd+C copies when there is a selection. Cmd+B is left for the page (sidebar toggle).
   // Everything else, including Cmd+V (native paste event -> bracketed paste), passes through.

@@ -164,6 +164,7 @@ story grows into this, use theirs.
 | `Cmd+F` | Find in scrollback |
 | `Cmd+C` | Copy the selection (no selection: nothing) |
 | `Cmd+V` | Paste (bracketed paste, forwarded by tmux) |
+| wheel | Scrolls the program if it takes the mouse (Claude Code does); otherwise scrolls the tab's tmux history, which closes again at the bottom or when you type |
 | everything else | Sent to tmux, including `C-b` prefix keys |
 
 With the divider between two side-by-side panes focused, the arrow keys resize
@@ -172,7 +173,7 @@ them and `Home`/`End` jump to 20% and 80%.
 ## Which agent needs you
 
 With the hook installed, every row in the sidebar and every tab carries a mark,
-for Claude Code and for Codex started with `--no-daemon` (see below):
+for Claude Code and for Codex (see below):
 
 | Mark | Means |
 | --- | --- |
@@ -197,9 +198,12 @@ Codex tab goes idle once its terminal has been quiet for a while.
 
 Codex normally runs its hooks in a shared background server, which has no idea
 which tab you typed `codex` in — so there the hook does nothing rather than
-guess. `codex --no-daemon` runs them in the tab itself, and that is how
-**New Codex tab** starts it. A session started that way stays out of
-`codex agents` and the desktop app, which is the trade.
+guess. `codex --no-daemon` runs them in the tab itself. The install script
+offers a small zsh wrapper (`scripts/codex-tmux.zsh`) so that inside tmux a
+plain `codex` runs that way, and inline rather than full-screen so its
+conversation stays in the tab's scrollback; outside tmux Codex is left alone.
+**New Codex tab** starts it the same way. A session started like this stays out
+of `codex agents` and the desktop app, which is the trade.
 
 ## Quota, and which account each tab spends
 
@@ -227,7 +231,7 @@ Go, its quota gets a row as well.
 ## Starting Codex in a new tab
 
 The `⌄` beside the tab strip's `+` has **New Codex tab**: a new window with
-`codex --no-daemon` already running in your login shell. Quit it and the tab drops to a
+Codex already running in your login shell, set up as above. Quit it and the tab drops to a
 prompt rather than closing.
 
 ## Move a conversation to another account

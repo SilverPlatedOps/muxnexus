@@ -62,6 +62,7 @@ const winKey = (w: { id: string }) => w.id;
 const term = createTerminal(termEl, {
   onInput: (d) => conn.sendInput(d),
   onResize: (cols, rows) => conn.send({ t: "resize", cols, rows }),
+  onScroll: (lines) => conn.send({ t: "scroll", lines }),
 });
 
 function onPhone(): boolean {
