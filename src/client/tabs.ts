@@ -3,7 +3,7 @@ import { MENU_REORDER, makeReorderable, moveItem } from "./reorder";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
-import { badgesShown } from "./usage";
+import { badgesShown, marksShown } from "./display";
 
 /** The windows of the attached session, in tmux order. Empty when nothing is attached. */
 export function tabsModel(sessions: SessionInfo[], current: string | null): WindowInfo[] {
@@ -277,7 +277,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     root.hidden = windows.length === 0;
     if (windows.length === 0) return;
 
-    sharing = sharedCheckouts(sessions, windowPlace);
+    sharing = marksShown() ? sharedCheckouts(sessions, windowPlace) : new Map();
     for (const w of windows) root.append(renderTab(w));
 
     // `+` stays one click to a shell, the common case; the agents sit a click

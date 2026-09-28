@@ -8,6 +8,7 @@ import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
+import { openDisplay } from "./display";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, UsageSource } from "../shared/protocol";
 
@@ -33,6 +34,7 @@ const tabsEl = document.getElementById("tabs")!;
 const termEl = document.getElementById("terminal")!;
 const collapseBtn = document.getElementById("collapse")!;
 const expandBtn = document.getElementById("expand")!;
+const displayBtn = document.getElementById("display")!;
 const hamburger = document.getElementById("hamburger")!;
 const drawerClose = document.getElementById("drawer-close")!;
 const findEl = document.getElementById("find")!;
@@ -319,8 +321,7 @@ const conn = new Connection(wsUrl, {
         // Kept, not just rendered: the "Move to..." picker lists the same
         // accounts with the same bars, and it opens between usage updates.
         usageSources = m.sources;
-        // The badge switch lives in the panel; the tabs wear the badges.
-        renderUsage(usageEl, m.sources, Date.now(), () => tabs.render(sessions, current));
+        renderUsage(usageEl, m.sources);
         // Claude's accounts, in the panel's order: the only places a
         // conversation can be moved to. Codex's tabs still wear its badge.
         profileLabels = m.sources.filter((s) => s.provider === "claude").map((s) => s.label);
@@ -367,6 +368,12 @@ expandBtn.onclick = () => {
 };
 hamburger.onclick = () => setDrawer(true);
 drawerClose.onclick = () => setDrawer(false);
+// The badges are worn by the tabs and legended by the quota panel; the checkout
+// mark by the tabs and the sidebar. A switch redraws all of them.
+displayBtn.onclick = () => openDisplay(document.body, () => {
+  paintAll();
+  renderUsage(usageEl, usageSources);
+});
 overlay.onclick = () => setDrawer(false);
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);

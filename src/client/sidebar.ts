@@ -2,6 +2,7 @@ import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { MENU_REORDER, makeReorderable } from "./reorder";
 import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
 import { ICONS } from "./icons";
+import { marksShown } from "./display";
 import { sessionLabel, windowPlace } from "./labels";
 import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
 import { categoryKey, splitCategory } from "../shared/category";
@@ -324,7 +325,7 @@ export function createSidebar(
       drawFoot();
       return;
     }
-    sharing = sharedCheckouts(sessions, windowPlace);
+    sharing = marksShown() ? sharedCheckouts(sessions, windowPlace) : new Map();
     // Windows live in the tab strip now; the sidebar is one row per session.
     const sessionRows = sidebarModel(sessions, current).filter(
       (r): r is Extract<Row, { kind: "session" }> => r.kind === "session",

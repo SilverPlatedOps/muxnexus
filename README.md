@@ -216,7 +216,8 @@ provider itself flags the window as close to its limit.
 
 Every tab with an agent wears its account's badge — the letter and colour from
 its row in the panel — so you can see which quota a tab is burning before you
-give it a big job. `hide profiles` switches the badges off.
+give it a big job. The sliders button at the top of the sidebar opens Display,
+which switches off the badges, the shared-checkout mark, or both.
 
 The numbers come straight from Anthropic's usage endpoint, using the credentials
 Claude Code already keeps in the macOS Keychain. muxnexus only ever reads them:

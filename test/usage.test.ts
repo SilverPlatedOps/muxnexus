@@ -14,7 +14,8 @@ import {
   parseOpencodeUsage,
   profileLabel,
 } from "../src/server/usage";
-import { badgesShown, bar, formatReset, kindLabel, setBadgesShown, type Store } from "../src/client/usage";
+import { bar, formatReset, kindLabel } from "../src/client/usage";
+import { badgesShown, marksShown, setBadgesShown, setMarksShown, type Store } from "../src/client/display";
 import type { UsageSource } from "../src/shared/protocol";
 
 const HOME = "/Users/someone";
@@ -542,5 +543,15 @@ describe("badgesShown", () => {
     const blocked: Store = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
     expect(badgesShown(blocked)).toBe(true);
     expect(() => setBadgesShown(false, blocked)).not.toThrow();
+  });
+
+  test("the shared-checkout mark is switched on its own, and on by default", () => {
+    const store = memory();
+    expect(marksShown(store)).toBe(true);
+    setMarksShown(false, store);
+    expect(marksShown(store)).toBe(false);
+    expect(badgesShown(store)).toBe(true);
+    const blocked: Store = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+    expect(marksShown(blocked)).toBe(true);
   });
 });

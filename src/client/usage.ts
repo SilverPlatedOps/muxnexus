@@ -1,5 +1,6 @@
 import type { UsageSource, UsageWindow } from "../shared/protocol";
 import { profileBadge } from "./agent";
+import { badgesShown } from "./display";
 
 /**
  * The quota panel in the sidebar footer: one row per window per account.
@@ -140,14 +141,13 @@ function setExpanded(on: boolean): void {
 /**
  * Draw the panel. An empty list empties the element, so a machine with no
  * Claude and no opencode gets the sidebar it had before this existed.
- * `onBadges` is told when the badge switch is pressed, so the tabs can redraw.
  */
-export function renderUsage(root: HTMLElement, sources: UsageSource[], now: number = Date.now(), onBadges?: () => void): void {
+export function renderUsage(root: HTMLElement, sources: UsageSource[], now: number = Date.now()): void {
   root.replaceChildren();
   if (sources.length === 0) return;
   const open = expanded();
   root.classList.toggle("expanded", open);
-  if (!open) return renderCollapsed(root, sources, now, onBadges);
+  if (!open) return renderCollapsed(root, sources, now);
   for (const s of sources) {
     const block = el("div", "usage-src");
     if (s.state !== "ok" && s.windows.length === 0) {
@@ -179,39 +179,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
     });
     root.append(block);
   }
-  root.firstElementChild?.firstElementChild?.append(toggle(root, sources, now, true, onBadges));
-  const foot = badgesToggle(root, sources, now, onBadges);
-  if (foot) root.append(foot);
-}
-
-const BADGES_KEY = "muxnexus.badges";
-
-/** What the preference is kept in: `localStorage`, or a stand-in under test. */
-export interface Store {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
-/**
- * Whether the tabs wear their agent's profile badge, remembered per browser
- * like the folded groups: a viewer's convenience, not shared state. On unless
- * switched off, so a browser that has never chosen sees them; a browser whose
- * storage is blocked sees them too, and its choice lasts the page.
- */
-export function badgesShown(store?: Store): boolean {
-  try {
-    return (store ?? localStorage).getItem(BADGES_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-export function setBadgesShown(on: boolean, store?: Store): void {
-  try {
-    (store ?? localStorage).setItem(BADGES_KEY, on ? "1" : "0");
-  } catch {
-    /* not remembered; the page still switches */
-  }
+  root.firstElementChild?.firstElementChild?.append(toggle(root, sources, now, true));
 }
 
 /** The accounts a tab's agent can be spending: every Claude profile, and Codex. */
@@ -231,34 +199,8 @@ function accountBadge(s: UsageSource, sources: UsageSource[]): HTMLElement[] {
   return [el("span", `pbadge${b.slot === null ? "" : ` p${b.slot}`}`, b.initial)];
 }
 
-/**
- * The switch for the badges, under the accounts it is the legend for. A verb
- * for a label, so it says what pressing it does without a state to decode;
- * its own line, since the account rows are full at 280 px. Only when there is
- * an account to badge: opencode alone has nothing.
- */
-function badgesToggle(root: HTMLElement, sources: UsageSource[], now: number, onBadges?: () => void): HTMLElement | null {
-  if (badgedLabels(sources).length === 0) return null;
-  const on = badgesShown();
-  const foot = el("div", "usage-foot");
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "usage-badges";
-  b.textContent = on ? "hide profiles" : "show profiles";
-  b.title = "The account each tab's agent spends, as a letter on the tab";
-  b.setAttribute("aria-pressed", String(on));
-  b.onclick = (e) => {
-    e.stopPropagation();
-    setBadgesShown(!on);
-    renderUsage(root, sources, now, onBadges);
-    onBadges?.();
-  };
-  foot.append(b);
-  return foot;
-}
-
 /** One row per account: the account, its worst window, and the toggle. */
-function renderCollapsed(root: HTMLElement, sources: UsageSource[], now: number, onBadges?: () => void): void {
+function renderCollapsed(root: HTMLElement, sources: UsageSource[], now: number): void {
   const block = el("div", "usage-src");
   for (const s of sources) {
     const row = el("div", `usage-row${s.state !== "ok" ? " stale" : ""}`);
@@ -277,13 +219,11 @@ function renderCollapsed(root: HTMLElement, sources: UsageSource[], now: number,
     }
     block.append(row);
   }
-  block.firstElementChild?.append(toggle(root, sources, now, false, onBadges));
+  block.firstElementChild?.append(toggle(root, sources, now, false));
   root.append(block);
-  const foot = badgesToggle(root, sources, now, onBadges);
-  if (foot) root.append(foot);
 }
 
-function toggle(root: HTMLElement, sources: UsageSource[], now: number, open: boolean, onBadges?: () => void): HTMLElement {
+function toggle(root: HTMLElement, sources: UsageSource[], now: number, open: boolean): HTMLElement {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "usage-toggle";
@@ -293,7 +233,7 @@ function toggle(root: HTMLElement, sources: UsageSource[], now: number, open: bo
   b.onclick = (e) => {
     e.stopPropagation();
     setExpanded(!open);
-    renderUsage(root, sources, now, onBadges);
+    renderUsage(root, sources, now);
   };
   return b;
 }

@@ -249,20 +249,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .pbadge.blank { box-shadow: none; }
 #usage .pbadge { height: 14px; font-size: 9px; align-self: center; }
 
-/* The badge switch, under the accounts it is the legend for. Its own line:
-   the account rows are full at 280px. */
-.usage-foot { display: flex; justify-content: flex-end; margin-top: 1px; }
-.usage-badges {
-  padding: 3px 4px;
-  margin-right: -4px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  color: var(--dim);
-  font: 500 10px/1 var(--mono);
-  cursor: pointer;
-}
-.usage-badges:hover { color: var(--fg); background: var(--hover); }
 
 /* The count of sessions waiting, on the hamburger, so a closed drawer can
    still say that something elsewhere needs you. */
@@ -904,7 +890,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   #overlay { display: block; position: fixed; inset: 0; z-index: 15; background: rgba(15, 17, 21, 0.62); }
   #hamburger { display: flex; width: 44px; height: 44px; margin-left: -10px; }
   #topbar { padding-left: 4px; }
-  #brand .close { display: flex; width: 44px; height: 44px; }
+  #brand .close, #display { display: flex; width: 44px; height: 44px; }
   .row.session { height: 44px; }
   .row-btn { width: 44px; height: 44px; }
   .row { padding-right: 4px; }
@@ -918,7 +904,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   #find { left: 12px; right: 12px; top: 8px; }
   #find-input { flex: 1; width: auto; }
   #usage { font-size: 12px; }
-  .usage-badges { padding: 6px 6px; margin-right: -6px; font-size: 11px; }
   #side-foot { padding-bottom: 22px; }
   #side-foot .btn.block { height: 44px; border-radius: 8px; }
 }
@@ -1031,6 +1016,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .move .upct { width: 32px; text-align: right; color: var(--fg); }
 .move .ureset { color: var(--faint); }
 .move .ustat { color: var(--faint); font-style: italic; }
+
+/* The display switches: the move modal's box and type, one row per mark. */
+.display { width: 360px; }
+.display-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.display-row:hover { background: var(--hover); }
+.display-text { flex: 1; }
+.display-row input { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 
 .move-foot {
   margin-top: 12px;
