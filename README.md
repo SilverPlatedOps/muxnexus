@@ -172,7 +172,7 @@ them and `Home`/`End` jump to 20% and 80%.
 ## Which agent needs you
 
 With the hook installed, every row in the sidebar and every tab carries a mark,
-for Claude Code and Codex alike:
+for Claude Code and for Codex started with `--no-daemon` (see below):
 
 | Mark | Means |
 | --- | --- |
@@ -194,6 +194,12 @@ Pressing Esc mid-turn doesn't fire any Claude Code hook, so muxnexus reads the
 interruption from the conversation's transcript instead — the row goes idle
 rather than spinning for ever. Codex's transcript isn't read; an interrupted
 Codex tab goes idle once its terminal has been quiet for a while.
+
+Codex normally runs its hooks in a shared background server, which has no idea
+which tab you typed `codex` in — so there the hook does nothing rather than
+guess. `codex --no-daemon` runs them in the tab itself, and that is how
+**New Codex tab** starts it. A session started that way stays out of
+`codex agents` and the desktop app, which is the trade.
 
 ## Quota, and which account each tab spends
 
@@ -221,7 +227,7 @@ Go, its quota gets a row as well.
 ## Starting Codex in a new tab
 
 The `⌄` beside the tab strip's `+` has **New Codex tab**: a new window with
-`codex` already running in your login shell. Quit it and the tab drops to a
+`codex --no-daemon` already running in your login shell. Quit it and the tab drops to a
 prompt rather than closing.
 
 ## Move a conversation to another account

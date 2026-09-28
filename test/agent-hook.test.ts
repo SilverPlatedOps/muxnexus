@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { waitFor } from "./helpers";
 import { Tmux } from "../src/server/tmux";
 
 const SOCKET = "mxn-agent-hook-test";
@@ -40,8 +43,19 @@ describe("agent-state.sh", () => {
   });
 
   describe("under Codex", () => {
-    const codex = (event: string, payload: object = {}) =>
-      fire(event, payload, ["codex"], { CODEX_HOME: "/Users/someone/.codex", CLAUDE_CONFIG_DIR: "/Users/someone/.claude-work" });
+    /**
+     * Run it as `codex --no-daemon` does: from a process inside the pane. The
+     * pane's shell runs it, so the hook descends from the pane's own process.
+     */
+    const codex = async (event: string, payload: object = {}) => {
+      const dir = mkdtempSync(join(tmpdir(), "mxn-hook-"));
+      writeFileSync(join(dir, "payload"), JSON.stringify(payload));
+      await tmux.run(["send-keys", "-t", pane, "-l",
+        `CODEX_HOME=/Users/someone/.codex CLAUDE_CONFIG_DIR=/Users/someone/.claude-work sh ${SCRIPT} ${event} codex < ${dir}/payload; touch ${dir}/done`]);
+      await tmux.run(["send-keys", "-t", pane, "Enter"]);
+      await waitFor(() => existsSync(join(dir, "done")), 3000, "hook ran in the pane");
+      rmSync(dir, { recursive: true, force: true });
+    };
 
     test("the stamp names Codex's home as the account, not a Claude profile", async () => {
       await codex("UserPromptSubmit");
@@ -57,6 +71,12 @@ describe("agent-state.sh", () => {
     test("asking the user a question is waiting on them", async () => {
       await codex("PreToolUse", { tool_name: "request_user_input" });
       expect(await state()).toBe("input");
+    });
+
+    test("run from outside the pane -- Codex's shared daemon -- it stamps nothing", async () => {
+      // The daemon holds the $TMUX_PANE of whatever terminal started it.
+      await fire("UserPromptSubmit", {}, ["codex"]);
+      expect(await option("@muxnexus_agent")).toBe("");
     });
   });
 });

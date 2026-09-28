@@ -13,7 +13,9 @@ import { Tmux } from "./tmux";
  * ever names one: with no authentication in front of this server, a command
  * line taken from the wire would be a shell for anyone who can reach it.
  */
-const AGENTS: Record<NewWindowAgent, string> = { codex: "codex" };
+// `--no-daemon` because Codex otherwise runs hooks in its shared daemon, which
+// holds another terminal's $TMUX_PANE: the tab would never show its status.
+const AGENTS: Record<NewWindowAgent, string> = { codex: "codex --no-daemon" };
 
 export interface ServerOptions {
   /** Addresses to listen on, all sharing one port. The first is the one reported. */

@@ -33,6 +33,24 @@ event="${1:-}"
 agent="${2:-claude}"
 payload=$(cat 2>/dev/null)
 
+# Whether this hook runs under the pane's own process. Codex normally runs
+# hooks in its shared app-server daemon, which carries the environment of
+# whichever terminal started it: there $TMUX_PANE names some other pane, maybe
+# one still open, and stamping it would mark the wrong tab. Only `codex
+# --no-daemon` runs them under the TUI in the pane. A few `ps` calls, and only
+# for Codex; Claude Code always runs hooks under itself.
+in_pane() {
+  top=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}' 2>/dev/null) || return 1
+  [ -n "$top" ] || return 1
+  p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    [ "$p" = "$top" ] && return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+[ "$agent" = codex ] && ! in_pane && exit 0
+
 # "name":"value" out of the raw payload, tolerating a space after the colon.
 # Prints nothing and fails if the key is absent or its value is not a string.
 field() {
