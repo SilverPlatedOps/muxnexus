@@ -30,6 +30,8 @@ export interface TabActions {
   moveWindow(id: string): void;
   /** Show this window in a second pane beside the one on screen. */
   openBeside(id: string): void;
+  /** Open this window's note. */
+  openNote(id: string): void;
   /** Where a tab dragged off the strip can land instead: the terminal, to open it beside. */
   dragOut?: {
     over(id: string, x: number, y: number): boolean;
@@ -145,6 +147,14 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       };
       m.append(open);
     }
+    const note = button("btn", "Note");
+    note.onclick = (e) => {
+      e.stopPropagation();
+      ui.menu = null;
+      m.remove();
+      actions.openNote(w.id);
+    };
+    m.append(note);
     // Dragging is the other half of this; on a phone the menu is the only half.
     const order = tabsModel(lastSessions, lastCurrent).map((x) => x.id);
     const at = order.indexOf(w.id);
@@ -230,6 +240,11 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     }
     const shared = sharing.get(w.id);
     if (shared) name.append(checkoutMark(shared));
+    if (w.noteId && !w.noteEmpty) {
+      const n = el("span", "note-mark", "✎");
+      n.title = "Has a note";
+      name.append(n);
+    }
     if (w.panes > 1) {
       const panes = el("span", "panes", String(w.panes));
       panes.title = `${w.panes} panes`;

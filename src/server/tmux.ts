@@ -470,7 +470,7 @@ export class Tmux {
     try {
       winOut = await this.run([
         "list-windows", "-a", "-F",
-        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}\t#{window_bell_flag}\t#{window_activity}\t#{@muxnexus_window_name}",
+        "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}\t#{window_bell_flag}\t#{window_activity}\t#{@muxnexus_window_name}\t#{@muxnexus_note}\t#{@muxnexus_note_empty}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
@@ -510,9 +510,9 @@ export class Tmux {
     // window's bell means "unseen" only if no attached tab session is showing it.
     const rows = lines(winOut)
       .map((l) => l.split("\t"))
-      .filter((p) => p.length === 11)
-      .map(([session, index, name, active, panes, paneTitle, surfaceId, id, bell, activity, customName]) => ({
-        session, index, name, paneTitle, surfaceId, id, customName,
+      .filter((p) => p.length === 13)
+      .map(([session, index, name, active, panes, paneTitle, surfaceId, id, bell, activity, customName, noteId, noteEmpty]) => ({
+        session, index, name, paneTitle, surfaceId, id, customName, noteId, noteEmpty,
         active: active === "1",
         panes: Number(panes),
         bell: bell === "1",
@@ -535,6 +535,7 @@ export class Tmux {
         panes: row.panes,
         ...(row.customName ? { customName: row.customName } : {}),
         ...(row.surfaceId ? { surfaceId: row.surfaceId } : {}),
+        ...(row.noteId ? { noteId: row.noteId, ...(row.noteEmpty === "0" ? {} : { noteEmpty: true }) } : {}),
         ...(state
           ? {
               agent: {
@@ -856,6 +857,27 @@ export class Tmux {
     const target = await this.windowTarget(session, id);
     await this.run(["rename-window", "-t", target, "--", name]);
     await this.run(["set-option", "-w", "-t", target, "@muxnexus_window_name", name]);
+  }
+
+  /**
+   * The id of a window's note, stamping a fresh one the first time it is asked
+   * for. Also where the window is, for the note's sidecar.
+   */
+  async noteOf(session: string, id: string): Promise<{ noteId: string; cwd: string }> {
+    const target = await this.windowTarget(session, id);
+    const [noteId, cwd] = (await this.run(["display", "-p", "-t", target, "#{@muxnexus_note}\t#{pane_current_path}"])).replace(/\n$/, "").split("\t");
+    if (noteId) return { noteId, cwd: cwd ?? "" };
+    const fresh = crypto.randomUUID();
+    await this.run(["set-option", "-w", "-t", target, "@muxnexus_note", fresh]);
+    await this.run(["set-option", "-w", "-t", target, "@muxnexus_note_empty", "1"]);
+    return { noteId: fresh, cwd: cwd ?? "" };
+  }
+
+  /** Whether the window wearing `noteId` has anything in its note, for the tab's mark. Gone windows are skipped. */
+  async markNote(noteId: string, empty: boolean): Promise<void> {
+    const out = await this.run(["list-windows", "-a", "-F", "#{window_id}\t#{@muxnexus_note}"]).catch(() => "");
+    const ids = new Set(lines(out).map((l) => l.split("\t")).filter(([, n]) => n === noteId).map(([w]) => w));
+    for (const w of ids) await this.run(["set-option", "-w", "-t", w, "@muxnexus_note_empty", empty ? "1" : "0"]);
   }
 
   /**

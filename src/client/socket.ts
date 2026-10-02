@@ -71,8 +71,11 @@ export class Connection {
     ws.onerror = () => ws.close();
   }
 
-  send(m: ClientMessage): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
+  /** Whether it went: a note's unsaved edit stays unsaved until one does. */
+  send(m: ClientMessage): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(m));
+    return true;
   }
 
   sendInput(data: string): void {

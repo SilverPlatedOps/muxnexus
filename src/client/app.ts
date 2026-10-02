@@ -6,11 +6,12 @@ import { openMove, targets } from "./move";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
+import { createNotes } from "./notes";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { openDisplay } from "./display";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
-import type { SessionInfo, UsageSource } from "../shared/protocol";
+import type { SessionInfo, UsageSource, WindowInfo } from "../shared/protocol";
 
 const SESSION_KEY = "muxnexus.session";
 const PHONE = "(max-width: 720px)";
@@ -164,6 +165,7 @@ function paintAll() {
   // While the main socket is reconnecting `current` is null for a moment; the
   // session it is re-attaching to is `desired`, and the split should outlive that.
   split.render(sessions, current ?? desired);
+  notes.sync();
   updateChip();
   updateAttention();
 }
@@ -258,6 +260,17 @@ const tabs = createTabs(tabsEl, {
       Date.now(),
     );
   },
+  openNote: (id) => {
+    if (!current) return;
+    if (split.state?.windowId === id) {
+      split.focusSide();
+      notePane = "side";
+    } else {
+      notePane = "main";
+      if (!currentWindows().find((w) => w.id === id)?.active) conn.send({ t: "select-window", session: current, id });
+    }
+    notes.show();
+  },
   openBeside: (id) => {
     if (!current) return;
     if (onPhone()) return sidebar.toast("Split needs a wider screen");
@@ -287,9 +300,39 @@ const split = createSplit({
   changed: () => tabs.setBeside(split.state?.windowId ?? null),
 });
 
+const currentWindows = (): WindowInfo[] => sessions.find((s) => s.name === current)?.windows ?? [];
+
+/**
+ * The terminal pane the note belongs to: the one that last had the keys.
+ * Focus moving into the note itself is not a move, so it is not listened for.
+ */
+let notePane: "main" | "side" = "main";
+document.getElementById("pane-main")!.addEventListener("focusin", () => { notePane = "main"; notes.sync(); });
+document.getElementById("pane-side")!.addEventListener("focusin", () => { notePane = "side"; notes.sync(); });
+
+const notes = createNotes({
+  panes: document.getElementById("panes")!,
+  pane: document.getElementById("note-pane")!,
+  divider: document.getElementById("note-divider")!,
+  text: document.getElementById("note-text") as HTMLTextAreaElement,
+  button: document.getElementById("note-btn")!,
+}, {
+  send: (m) => conn.send(m),
+  session: () => current,
+  owner: () => {
+    const ws = currentWindows();
+    const side = split.state?.windowId;
+    if (notePane === "side" && side) return ws.find((w) => w.id === side) ?? ws.find((w) => w.active);
+    return ws.find((w) => w.active);
+  },
+  phone: onPhone,
+  focusTerminal: () => term.focus(),
+});
+
 const conn = new Connection(wsUrl, {
   onOpen() {
     hideReconnect();
+    notes.reconnected();
     if (desired) attach(desired);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
@@ -350,6 +393,9 @@ const conn = new Connection(wsUrl, {
         showTerminal(false);
         paintAll();
         break;
+      case "note":
+        notes.receive(m);
+        break;
       case "error":
         sidebar.toast(m.message);
         break;
@@ -403,7 +449,15 @@ document.addEventListener("animationstart", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
-  if (e.key === "b") {
+  // Typing a draft must not search the terminal or leave the session.
+  const inNote = e.target instanceof HTMLTextAreaElement && e.target.id === "note-text";
+  if (e.shiftKey && (e.key === "e" || e.key === "E")) {
+    if (wrapEl.hidden) return;
+    e.preventDefault();
+    notes.toggle();
+  } else if (inNote) {
+    return;
+  } else if (e.key === "b") {
     e.preventDefault();
     sidebar.toggle();
     term.fit();

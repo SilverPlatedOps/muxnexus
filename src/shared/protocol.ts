@@ -34,6 +34,10 @@ export interface WindowInfo {
    * it survives cmux being closed and costs nothing to read.
    */
   unread?: boolean;
+  /** The window's note (`@muxnexus_note`), once one has been opened for it. */
+  noteId?: string;
+  /** Its note holds nothing yet, so the tab wears no mark. */
+  noteEmpty?: boolean;
 }
 
 /**
@@ -156,6 +160,9 @@ export type ClientMessage =
    * path crosses the wire.
    */
   | { t: "move-window-to"; session: string; id: string; profile: string }
+  /** Open window `id`'s note, giving it one if it has none; answered with `note`. */
+  | { t: "note-open"; session: string; id: string }
+  | { t: "note-save"; noteId: string; text: string }
   | { t: "ping" };
 
 /** Agents a new window can start with. */
@@ -175,4 +182,9 @@ export type ServerMessage =
    */
   | { t: "renamed"; session: string }
   | { t: "detached"; reason: DetachReason }
+  /**
+   * A note's text: the answer to `note-open` (with the window it was asked for),
+   * or another client's save of it.
+   */
+  | { t: "note"; noteId: string; text: string; updated: string; windowId?: string }
   | { t: "error"; message: string };

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
+import { createNoteStore, isNoteId } from "./notes";
 
 /**
  * What a new window runs for each agent the client may ask for. The client only
@@ -46,6 +47,8 @@ export interface ServerOptions {
    * must not depend on which profiles the machine running them has.
    */
   profiles?: () => string[];
+  /** Where window notes are kept; `~/.local/share/muxnexus/notes` when absent. */
+  notesDir?: string;
 }
 
 export interface RunningServer {
@@ -117,6 +120,7 @@ export function hostAllowed(host: string | null, allowed: readonly string[]): bo
 
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
+  const notes = createNoteStore(opts.notesDir);
   // A server stopped between opening a view and its first output never let tmux
   // clean it up; nothing can be attached through one of ours before we start.
   void tmux.sweepViews().catch(() => {});
@@ -433,6 +437,34 @@ export function createServer(opts: ServerOptions): RunningServer {
             return send(ws, { t: "error", message: "invalid reorder-windows" });
           }
           await tmux.reorderWindows(m.session, m.ids);
+          break;
+        }
+        case "note-open": {
+          if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid note-open" });
+          const { noteId } = await tmux.noteOf(m.session, m.id);
+          const note = await notes.read(noteId);
+          send(ws, { t: "note", noteId, windowId: m.id, ...note });
+          break; // the poll after carries the stamp to every tab strip
+        }
+        case "note-save": {
+          if (!isNoteId(m.noteId) || typeof m.text !== "string") {
+            return send(ws, { t: "error", message: "invalid note-save" });
+          }
+          // Where it was written, while that is still known: what a note whose
+          // window is gone will be found by.
+          const sessions = await tmux.listSessions().catch(() => []);
+          const s = sessions.find((x) => x.windows.some((w) => w.noteId === m.noteId));
+          const w = s?.windows.find((x) => x.noteId === m.noteId);
+          const meta = s && w
+            ? { session: s.customName ?? s.label ?? s.name, window: w.customName ?? w.label ?? w.name, ...(w.agent?.checkout ? { cwd: w.agent.checkout } : {}) }
+            : null;
+          const note = await notes.write(m.noteId, m.text, meta);
+          const json = JSON.stringify({ t: "note", noteId: m.noteId, ...note } satisfies ServerMessage);
+          for (const other of clients) if (other !== ws && other.readyState === WebSocket.OPEN) other.sendText(json);
+          // Only a note turning empty or not changes what a tab shows.
+          const empty = m.text.trim() === "";
+          if (!w || (w.noteEmpty ?? false) === empty) return;
+          await tmux.markNote(m.noteId, empty);
           break;
         }
         default:

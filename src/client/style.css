@@ -559,6 +559,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #crumb-window { color: var(--muted); flex: none; }
 #conn { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
 #conn.down { background: var(--yellow); }
+#note-btn { margin-left: auto; margin-right: -6px; }
+#note-btn.on { color: var(--accent); background: var(--hover); }
 #hamburger { display: none; }
 
 /* The expand affordance when the sidebar is collapsed: the collapse button lives
@@ -615,6 +617,67 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border-radius: 8px;
   overflow: hidden;
 }
+
+/* ---------- the note: a pane of its own beside the terminals ---------- */
+
+/* The terminals' card and the note's card, side by side; the note's side is
+   this browser's choice, so it moves by flex order, not by the DOM. */
+#panes { position: relative; display: flex; flex: 1; min-height: 0; }
+#panes > #term-shell { order: 2; flex: 1 1 0; min-width: 0; }
+#note-divider { order: 3; }
+#note-pane { order: 4; }
+#panes.note-left #note-pane { order: 0; }
+#panes.note-left #note-divider { order: 1; }
+#panes.note-full > #term-shell { display: none; }
+
+#note-pane {
+  min-width: 0;
+  background: var(--term);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+#note-pane .pane-head { cursor: grab; touch-action: none; }
+#note-pane .note-glyph { color: var(--accent); }
+.note-dragging, .note-dragging * { cursor: grabbing !important; user-select: none; }
+#note-text {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 12px 14px;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: 13px/1.5 "JetBrains Mono", Menlo, monospace;
+  tab-size: 2;
+}
+#note-text::placeholder { color: var(--faint); }
+
+#note-divider {
+  position: relative;
+  flex: none;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+#note-divider[hidden] { display: none; }
+#note-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 3px;
+  background: var(--chip);
+  border: 1px solid var(--edge);
+}
+
+/* The mark on a tab whose window has something in its note. */
+.tab .note-mark { color: var(--muted); font-size: 11px; flex: none; }
 
 /* ---------- tab strip ---------- */
 
@@ -895,7 +958,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .row-btn { width: 44px; height: 44px; }
   .row { padding-right: 4px; }
   #wrap { padding: 0; }
-  #term-shell, #tabs[hidden] + #term-shell { border: 0; border-radius: 0; }
+  #term-shell, #note-pane { border: 0; border-radius: 0; }
   #tabs { height: 40px; padding: 0 4px; overflow-x: auto; }
   .tab { height: 36px; flex: none; }
   .tab.active { height: 40px; }

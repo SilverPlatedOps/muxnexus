@@ -72,6 +72,14 @@
           </button>
           <span class="chip"><span id="chip-dot" class="glyph none"></span><span id="chip-name"></span></span>
         </div>
+        <button id="note-btn" class="icon-btn" type="button" aria-label="Note" aria-pressed="false" title="Note (⌘⇧E)">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 2.5h7l3 3v8H3z"></path>
+            <line x1="5.5" y1="7" x2="10.5" y2="7"></line>
+            <line x1="5.5" y1="9.5" x2="10.5" y2="9.5"></line>
+            <line x1="5.5" y1="12" x2="8.5" y2="12"></line>
+          </svg>
+        </button>
         <span id="conn" title="Connected"></span>
       </header>
 
@@ -89,6 +97,7 @@
 
       <div id="wrap" hidden>
         <div id="tabs" hidden></div>
+        <div id="panes">
         <div id="term-shell">
           <div id="pane-main" class="pane">
             <div class="pane-body"><div id="terminal"></div></div>
@@ -116,6 +125,11 @@
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>
             </button>
           </div>
+        </div>
+        <div id="note-divider" role="separator" aria-orientation="vertical" aria-label="Resize the note" hidden></div>
+        <section id="note-pane" class="pane" hidden>
+          <textarea id="note-text" spellcheck="false" aria-label="Note"></textarea>
+        </section>
         </div>
       </div>
     </main>
