@@ -9,12 +9,15 @@ import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import { CMUX_TMUX_SOCKET, resolveSocketPath } from "./main";
 import {
-  applyRestore, loadSnapshots, parseRestoreArgs, pickSnapshot, planRestore, type RestoreStep, serverStamp,
-  type Snapshot, snapshotDir, takeSnapshot,
+  applyRestore, loadSnapshots, parseRestoreArgs, pickSnapshot, planRestore, restoredFrom, type RestoreStep,
+  serverStamp, type Snapshot, snapshotDir, takeSnapshot,
 } from "./restore";
 import { Tmux } from "./tmux";
 
-const short = (p: string) => (p.startsWith(homedir()) ? `~/${relative(homedir(), p)}` : p);
+const short = (p: string) => {
+  if (p === homedir()) return "~";
+  return p.startsWith(`${homedir()}/`) ? `~/${relative(homedir(), p)}` : p;
+};
 
 function describe(step: RestoreStep): string {
   const name = step.window.windowName ? `${step.window.windowName} -- ` : "";
@@ -69,6 +72,14 @@ async function cmdList(tmux: Tmux, dir: string): Promise<number> {
 }
 
 async function cmdRestore(tmux: Tmux, dir: string, dryRun: boolean, path?: string): Promise<number> {
+  // Once this tmux server has been restored into, the old snapshot describes
+  // sessions that have since been closed on purpose. An explicit path overrides,
+  // for the reboot that happened twice without a restore.
+  const already = path ? null : await restoredFrom(tmux);
+  if (already) {
+    console.log(`already restored from ${already}; pass a snapshot path to restore again`);
+    return 0;
+  }
   const snap = path
     ? ((await Bun.file(path).json()) as Snapshot)
     : pickSnapshot(await loadSnapshots(dir), (await serverStamp(tmux)) ?? "");

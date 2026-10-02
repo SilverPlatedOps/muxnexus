@@ -284,7 +284,28 @@ export async function applyRestore(
       await tmux.type(id, `${prefix}claude --resume ${shellQuote(transcript)}`);
     }
   }
+  // Mark the server, so the offer is made once. Without it, closing or renaming
+  // a restored session makes the old snapshot look unfinished again -- and the
+  // next run would bring back the very sessions that were just closed. The mark
+  // lives in tmux, so it goes when that server does.
+  try {
+    await tmux.run(["set-option", "-g", RESTORED_OPTION, snap.stamp]);
+  } catch (e) {
+    if (!noServer(e)) throw e;
+  }
   return steps;
+}
+
+const RESTORED_OPTION = "@muxnexus_restored";
+
+/** The snapshot a restore has already run from on this tmux server, if any. */
+export async function restoredFrom(tmux: Tmux): Promise<string | null> {
+  try {
+    return (await tmux.run(["show-options", "-gqv", RESTORED_OPTION])).trim() || null;
+  } catch (e) {
+    if (noServer(e)) return null;
+    throw e;
+  }
 }
 
 /**
@@ -294,6 +315,7 @@ export async function applyRestore(
  * of its own accord once the restore has run.
  */
 export async function pendingRestore(tmux: Tmux, dir: string): Promise<{ snap: Snapshot; steps: RestoreStep[] } | null> {
+  if (await restoredFrom(tmux)) return null;
   const snap = pickSnapshot(await loadSnapshots(dir), (await serverStamp(tmux)) ?? "");
   if (!snap) return null;
   const steps = await planRestore(tmux, snap);

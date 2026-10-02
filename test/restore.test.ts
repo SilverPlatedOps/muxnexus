@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyRestore, createSnapshotter, liveFrom, type Live, PANE_FIELDS, parsePanes, parseRestoreArgs, pendingRestore,
-  pickSnapshot, planRestore, restoreHint, restorePlan, type Snapshot, type SnapWindow, stalePaths, takeSnapshot,
+  pickSnapshot, planRestore, restoredFrom, restoreHint, restorePlan, type Snapshot, type SnapWindow, stalePaths,
+  takeSnapshot,
 } from "../src/server/restore";
 import { Tmux } from "../src/server/tmux";
 import { sleep, waitFor } from "./helpers";
@@ -363,6 +364,48 @@ describe("pendingRestore", () => {
     await applyRestore(tmux, snap);
 
     expect(await pendingRestore(tmux, dir)).toBeNull();
+  });
+
+  test("stays quiet after a restored session is closed again", async () => {
+    await tmux.newSession("work", dir);
+    await tmux.newSession("scratch", dir);
+    const snap = (await takeSnapshot(tmux, dir))!;
+    await tmux.killServer();
+    await applyRestore(tmux, snap);
+
+    await tmux.killSession("scratch");
+
+    expect(await pendingRestore(tmux, dir)).toBeNull();
+  });
+});
+
+describe("restoredFrom", () => {
+  test("is empty on a tmux server nothing has been restored into", async () => {
+    await tmux.newSession("work", dir);
+
+    expect(await restoredFrom(tmux)).toBeNull();
+  });
+
+  test("names the snapshot a restore ran from", async () => {
+    await tmux.newSession("work", dir);
+    const snap = (await takeSnapshot(tmux, dir))!;
+    await tmux.killServer();
+
+    await applyRestore(tmux, snap);
+
+    expect(await restoredFrom(tmux)).toBe(snap.stamp);
+  });
+
+  test("is empty again on a fresh tmux server", async () => {
+    await tmux.newSession("work", dir);
+    const snap = (await takeSnapshot(tmux, dir))!;
+    await tmux.killServer();
+    await applyRestore(tmux, snap);
+
+    await tmux.killServer();
+    await tmux.newSession("work", dir);
+
+    expect(await restoredFrom(tmux)).toBeNull();
   });
 });
 
