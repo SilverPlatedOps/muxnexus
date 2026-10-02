@@ -86,7 +86,7 @@ export interface TerminalView {
   readonly rows: number;
 }
 
-const THEME = {
+const DARK = {
   // One Dark
   background: "#282c34",
   foreground: "#abb2bf",
@@ -97,6 +97,19 @@ const THEME = {
   brightBlack: "#5c6370", brightRed: "#e06c75", brightGreen: "#98c379", brightYellow: "#d19a66",
   brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
 };
+
+// One Light, picked with ?theme=light; the rest of the page stays dark.
+const LIGHT = {
+  background: "#fafafa",
+  foreground: "#383a42",
+  cursor: "#526fff",
+  selectionBackground: "#d7dce8",
+  black: "#383a42", red: "#e45649", green: "#50a14f", yellow: "#c18401",
+  blue: "#4078f2", magenta: "#a626a4", cyan: "#0184bc", white: "#a0a1a7",
+  brightBlack: "#696c77", brightRed: "#ca1243", brightGreen: "#3d8c3c", brightYellow: "#986801",
+  brightBlue: "#2f5ee0", brightMagenta: "#8d1d8b", brightCyan: "#0997b3", brightWhite: "#ffffff",
+};
+const THEME = typeof location !== "undefined" && new URLSearchParams(location.search).get("theme") === "light" ? LIGHT : DARK;
 
 /**
  * Search marks in amber, the colour terminals search in; decorations take
