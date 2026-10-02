@@ -127,6 +127,35 @@ muxnexus logs             # tail -f the log
 It keeps a pidfile and log under `~/.local/state/muxnexus/`, and `stop` also
 finds a server you started some other way.
 
+### Surviving a reboot
+
+A tmux server takes every window and running agent with it when it stops, while
+every transcript and note stays on disk. muxnexus records the live windows every
+two minutes, so shutting the laptop down costs nothing to remember:
+
+```sh
+muxnexus restore          # put the windows back; --dry-run to see the plan first
+muxnexus snapshot         # record now, rather than waiting for the timer
+muxnexus snapshots        # what is on disk, newest first
+```
+
+Each window comes back in its old directory and order, under its old session and
+tab names, wearing its note, with `claude --resume` typed for the conversation it
+held on the account it was on.
+
+Snapshots live in `~/.local/state/muxnexus/snapshots/`, one file per tmux server
+named for it, newest five kept: the empty tmux that comes up after a reboot
+writes its own file rather than overwriting the one worth restoring. A restore
+takes the newest snapshot some *other* server left behind, and says so at
+startup and in the browser when one is waiting.
+
+Restoring is a command rather than something that happens at startup, because
+the server also restarts for reasons that are not a reboot — and relaunching
+every agent spends real quota. It is safe to run twice: a session that survived
+keeps its windows, a conversation already on screen is never started again, and
+once a server has been restored into, the offer is not made again. Pass a
+snapshot path to override that, for the reboot that happened twice.
+
 ### Which tmux server
 
 muxnexus drives exactly one tmux server, chosen at startup:
