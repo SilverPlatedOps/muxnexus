@@ -187,4 +187,10 @@ export type ServerMessage =
    * or another client's save of it.
    */
   | { t: "note"; noteId: string; text: string; updated: string; windowId?: string }
+  /**
+   * Something worth saying that is not a failure -- today, that a snapshot from
+   * a previous tmux server is still waiting to be restored. Sent as a client
+   * connects, so it reaches a phone that was not open when the laptop rebooted.
+   */
+  | { t: "notice"; message: string }
   | { t: "error"; message: string };

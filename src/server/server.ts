@@ -47,6 +47,12 @@ export interface ServerOptions {
    * must not depend on which profiles the machine running them has.
    */
   profiles?: () => string[];
+  /**
+   * Asked as each client connects: one line worth telling them, or null. Used
+   * for the waiting-restore notice. Absent, nothing is sent and nothing is read,
+   * so the tests never touch the snapshot directory.
+   */
+  hint?: () => Promise<string | null>;
   /** Where window notes are kept; `~/.local/share/muxnexus/notes` when absent. */
   notesDir?: string;
 }
@@ -565,6 +571,11 @@ export function createServer(opts: ServerOptions): RunningServer {
         // endpoint came to answer 429.
         if (lastUsage && ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(lastUsage));
         if (opts.usage && usageDue()) void pollUsage();
+        // Asked per connection rather than once at startup: at login tmux may not
+        // be up yet, and the answer stops being true the moment a restore runs.
+        void opts.hint?.().then((message) => {
+          if (message && ws.readyState === WebSocket.OPEN) send(ws, { t: "notice", message });
+        }).catch(() => {});
       },
       message(ws, msg) {
         if (typeof msg === "string") return void handleControl(ws, msg);

@@ -3,8 +3,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import index from "../client/index.html";
 import { createCmuxMirror } from "./cmux";
+import { createSnapshotter, pendingRestore, restoreHint, snapshotDir } from "./restore";
 import { createServer } from "./server";
+import { Tmux } from "./tmux";
 import { createUsageReader, localProfiles } from "./usage";
+
+/** How often the live windows are recorded. One `list-panes` call, so it is cheap. */
+const SNAPSHOT_MS = 2 * 60 * 1000;
 
 export interface Args {
   /** Addresses to bind (`--host`, repeatable). Empty means "work it out from Tailscale". */
@@ -122,12 +127,22 @@ if (import.meta.main) {
   const mirror = socketPath && cmuxBin ? createCmuxMirror({ cmuxBin, socketPath }) : undefined;
   const allowHosts = [...args.allowHosts, ...magicDnsNames(await tailscaleStatus())];
   const usage = createUsageReader();
-  const running = createServer({ hosts, port: args.port, socketPath, index, mirror, allowHosts, usage, profiles: () => localProfiles() });
+  // Snapshots on a timer, so shutting the laptop down costs nothing to remember.
+  const tmux = new Tmux(undefined, socketPath);
+  const snapshots = snapshotDir();
+  createSnapshotter({ tmux, dir: snapshots, intervalMs: SNAPSHOT_MS });
+  const hint = async () => restoreHint((await pendingRestore(tmux, snapshots))?.steps ?? []);
+  const running = createServer({
+    hosts, port: args.port, socketPath, index, mirror, allowHosts, usage, hint, profiles: () => localProfiles(),
+  });
   for (const h of hosts) console.log(`muxnexus listening on http://${h}:${running.port}`);
   if (hosts.some((h) => h === "0.0.0.0" || h === "::")) {
     console.warn("warning: a wildcard bind answers on every network this machine joins, including untrusted ones.");
   }
   console.log(`tmux socket: ${socketPath ?? "tmux default"}${!args.socket && socketPath ? " (cmux local-tmux)" : ""}`);
   console.log(`cmux workspace mirror: ${mirror ? "on" : "off"}`);
+  console.log(`snapshots: every ${SNAPSHOT_MS / 60000}m -> ${snapshots}`);
   if (allowHosts.length) console.log(`also reachable as: ${allowHosts.join(", ")}`);
+  const waiting = await hint();
+  if (waiting) console.log(waiting);
 }

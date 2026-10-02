@@ -251,7 +251,7 @@ export async function applyRestore(
   snap: Snapshot,
   opts: { resume?: boolean } = {},
 ): Promise<RestoreStep[]> {
-  const steps = restorePlan(snap.windows, liveFrom((await panes(tmux)) ?? []), { home: homedir(), exists: existsSync });
+  const steps = await planRestore(tmux, snap);
   let session = "";
   for (const step of steps) {
     const w = step.window;
@@ -294,11 +294,15 @@ export async function applyRestore(
  * of its own accord once the restore has run.
  */
 export async function pendingRestore(tmux: Tmux, dir: string): Promise<{ snap: Snapshot; steps: RestoreStep[] } | null> {
-  const stamp = await serverStamp(tmux);
-  const snap = pickSnapshot(await loadSnapshots(dir), stamp ?? "");
+  const snap = pickSnapshot(await loadSnapshots(dir), (await serverStamp(tmux)) ?? "");
   if (!snap) return null;
-  const steps = restorePlan(snap.windows, liveFrom((await panes(tmux)) ?? []), { home: homedir(), exists: existsSync });
+  const steps = await planRestore(tmux, snap);
   return steps.length ? { snap, steps } : null;
+}
+
+/** What restoring `snap` into the tmux running right now would do, without doing it. */
+export async function planRestore(tmux: Tmux, snap: Snapshot): Promise<RestoreStep[]> {
+  return restorePlan(snap.windows, liveFrom((await panes(tmux)) ?? []), { home: homedir(), exists: existsSync });
 }
 
 /** The one line that tells you a restore is waiting, or null when none is. */
@@ -324,18 +328,18 @@ export function createSnapshotter(opts: { tmux: Tmux; dir: string; intervalMs: n
 }
 
 export interface RestoreArgs {
-  command: "snapshot" | "restore" | "list";
+  command: "snapshot" | "restore" | "snapshots";
   dryRun: boolean;
   /** An explicit snapshot file, for the reboot that happened twice without a restore. */
   path?: string;
 }
 
-const USAGE = "usage: snapshot | restore [--dry-run] [<snapshot.json>] | list";
+const USAGE = "usage: muxnexus snapshot | restore [--dry-run] [<snapshot.json>] | snapshots";
 
 export function parseRestoreArgs(argv: readonly string[]): RestoreArgs {
   const [command, ...rest] = argv;
   if (command === undefined) throw new Error(USAGE);
-  if (command !== "snapshot" && command !== "restore" && command !== "list") {
+  if (command !== "snapshot" && command !== "restore" && command !== "snapshots") {
     throw new Error(`unknown command: ${command}\n${USAGE}`);
   }
   const args: RestoreArgs = { command, dryRun: false, path: undefined };

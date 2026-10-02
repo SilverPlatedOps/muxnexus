@@ -93,5 +93,13 @@ case "${1:-}" in
   restart) shift; [ "${1:-}" = "--" ] && shift; cmd_stop; cmd_start "$@" ;;
   status)  cmd_status ;;
   logs)    shift; tail "${@:--f}" "$LOG" ;;
-  *) printf '%susage:%s muxnexusctl start [-- <server args>] | stop | restart | status | logs\n' "$B" "$X"; exit 2 ;;
+  # The server snapshots on its own; these are for taking one by hand and for
+  # putting the windows back after a reboot.
+  snapshot)  bun "$ROOT/src/server/restore-cli.ts" snapshot ;;
+  restore)   shift; bun "$ROOT/src/server/restore-cli.ts" restore "$@" ;;
+  snapshots) bun "$ROOT/src/server/restore-cli.ts" snapshots ;;
+  *)
+    printf '%susage:%s muxnexusctl start [-- <server args>] | stop | restart | status | logs\n' "$B" "$X"
+    printf '       muxnexusctl snapshot | restore [--dry-run] [<snapshot.json>] | snapshots\n'
+    exit 2 ;;
 esac

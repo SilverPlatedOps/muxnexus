@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyRestore, createSnapshotter, liveFrom, type Live, PANE_FIELDS, parsePanes, parseRestoreArgs, pendingRestore,
-  pickSnapshot, restoreHint, restorePlan, type Snapshot, type SnapWindow, stalePaths, takeSnapshot,
+  pickSnapshot, planRestore, restoreHint, restorePlan, type Snapshot, type SnapWindow, stalePaths, takeSnapshot,
 } from "../src/server/restore";
 import { Tmux } from "../src/server/tmux";
 import { sleep, waitFor } from "./helpers";
@@ -313,6 +313,18 @@ describe("applyRestore", () => {
   });
 });
 
+describe("planRestore", () => {
+  test("plans against the tmux that is running now", async () => {
+    await tmux.newSession("work", dir);
+    const snap = (await takeSnapshot(tmux, dir))!;
+    await tmux.killServer();
+
+    expect(await planRestore(tmux, snap)).toHaveLength(1);
+    await applyRestore(tmux, snap);
+    expect(await planRestore(tmux, snap)).toEqual([]);
+  });
+});
+
 describe("restoreHint", () => {
   test("counts the windows a restore would bring back", () => {
     const steps = [SNAP(), SNAP({ index: 1 })].map((w) => ({ window: w, cwd: "/tmp", createSession: false }));
@@ -386,6 +398,10 @@ describe("createSnapshotter", () => {
 describe("parseRestoreArgs", () => {
   test("reads the command", () => {
     expect(parseRestoreArgs(["snapshot"])).toEqual({ command: "snapshot", dryRun: false, path: undefined });
+  });
+
+  test("reads the snapshots listing", () => {
+    expect(parseRestoreArgs(["snapshots"])).toMatchObject({ command: "snapshots" });
   });
 
   test("reads a dry run", () => {

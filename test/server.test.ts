@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { ServerMessage } from "../src/shared/protocol";
 import { allowedHostList, createServer, hostAllowed, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
@@ -47,6 +47,33 @@ test("rejects a WebSocket upgrade with a foreign Origin", async () => {
     ws.onclose = () => res();
   });
   expect(opened).toBe(false);
+});
+
+describe("restore hint", () => {
+  test("tells a connecting client that a restore is waiting", async () => {
+    const srv = createServer({
+      hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200,
+      hint: async () => "17 windows from a previous session — run: muxnexus restore",
+    });
+    try {
+      const client = await connect(srv.port);
+      const notice = await waitFor(() => client.last("notice"), 2000, "a notice");
+      expect(notice).toMatchObject({ t: "notice", message: expect.stringContaining("17 windows") });
+    } finally {
+      srv.stop();
+    }
+  });
+
+  test("stays quiet when there is nothing to restore", async () => {
+    const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 200, hint: async () => null });
+    try {
+      const client = await connect(srv.port);
+      await waitFor(() => client.last("state"), 2000, "the first state");
+      expect(client.last("notice")).toBeUndefined();
+    } finally {
+      srv.stop();
+    }
+  });
 });
 
 test("rejects a WebSocket upgrade with no Origin", async () => {

@@ -396,6 +396,7 @@ const conn = new Connection(wsUrl, {
       case "note":
         notes.receive(m);
         break;
+      case "notice":
       case "error":
         sidebar.toast(m.message);
         break;
