@@ -298,6 +298,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    always had spare. It collapses to nothing when nothing reports, so a machine
    with neither Claude nor opencode sees the sidebar it had before. */
 #usage {
+  container-type: inline-size;
   padding: 8px 12px 2px;
   background: var(--chrome);
   border-top: 1px solid var(--line-soft);
@@ -312,14 +313,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .usage-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 5px;
   line-height: 1.55;
   white-space: nowrap;
 }
 
 /* Fixed columns so the bars line up down the panel rather than stepping in and
-   out with the length of each account's name. */
-.usage-name { width: 58px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+   out with the length of each account's name. They must not shrink either: in
+   a narrow sidebar each row would give up a different amount, and the bars
+   would step in and out all the same. The reset time is what gives. */
+.usage-row > * { flex: none; }
+.usage-name { width: 54px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
 .usage-kind { width: 22px; color: var(--faint); }
 .usage-meter { letter-spacing: -0.5px; }
 .usage-fill { color: var(--accent); }
@@ -327,8 +331,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .usage-fill.warning { color: var(--yellow); }
 .usage-fill.critical, .usage-fill.exceeded { color: var(--red); }
 .usage-track { color: var(--line); }
-.usage-pct { width: 32px; text-align: right; color: var(--fg); }
-.usage-reset { color: var(--faint); }
+.usage-pct { width: 30px; text-align: right; color: var(--fg); }
+.usage-row > .usage-reset { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
+/* Too narrow for a reset time to say anything: drop it rather than show "1…". */
+@container (max-width: 250px) { .usage-reset { display: none; } }
 .usage-note { color: var(--faint); font-style: italic; }
 
 .usage-toggle {

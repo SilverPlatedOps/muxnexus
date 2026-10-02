@@ -352,7 +352,7 @@ function notesOwner(): WindowInfo | undefined {
 
 makeResizable({
   grip: document.getElementById("sidebar-grip")!, panel: document.getElementById("sidebar")!, host: layout,
-  cssVar: "--sidebar", storageKey: "muxnexus.sidebar-width", min: 200, max: 480, fallback: 280, edge: "right",
+  cssVar: "--sidebar", storageKey: "muxnexus.sidebar-width", min: 240, max: 480, fallback: 280, edge: "right",
 });
 makeResizable({
   grip: document.getElementById("notes-grip")!, panel: notesPanel, host: layout,
