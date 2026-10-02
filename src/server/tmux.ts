@@ -314,12 +314,12 @@ export class TmuxError extends Error {
   }
 }
 
-const NO_SERVER = /no server running|no sessions|error connecting to/;
+export const NO_SERVER = /no server running|no sessions|error connecting to/;
 const NOT_FOUND = /can't find session/;
 const WINDOW_ID = /^@\d+$/;
 
 /** Foreground commands that mean nothing owns the keyboard -- anything else is a program. */
-const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
+export const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
 
 /** One `list-sessions` row. `id` is `#{session_id}` without its `$`. */
 interface SessionRow {
@@ -674,7 +674,7 @@ export class Tmux {
    * separately as a key, and `C-u` first clears whatever half-typed line the
    * pane was left with, which would otherwise be submitted instead.
    */
-  private async type(target: string, line: string): Promise<void> {
+  async type(target: string, line: string): Promise<void> {
     await this.run(["send-keys", "-t", target, "C-u"]);
     await this.run(["send-keys", "-t", target, "-l", "--", line]);
     await this.run(["send-keys", "-t", target, "Enter"]);
