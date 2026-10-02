@@ -64,6 +64,17 @@ export function windowDots(windows: readonly Pick<WindowInfo, "agent" | "unread"
 }
 
 /**
+ * The dots folded into a count per state, for a row too narrow to give every
+ * window its own: "●1 ○3" still says one is waiting on you, it just no longer
+ * says which tab. Most urgent first, as the glyphs rank; plain windows had a
+ * slot only to keep the dots pointing at tabs, so they are not counted.
+ */
+export function dotCounts(dots: readonly Glyph[]): { glyph: Glyph; count: number }[] {
+  const order = (Object.keys(RANK) as Glyph[]).filter((g) => g !== "none").sort((a, b) => RANK[a] - RANK[b]);
+  return order.map((glyph) => ({ glyph, count: dots.filter((d) => d === glyph).length })).filter((c) => c.count > 0);
+}
+
+/**
  * A profile's badge: its initial, and a slot number that picks its colour. The
  * slot is the profile's row in the quota panel (`profiles`, as the server
  * orders them, `personal` first), so the panel is the legend. A profile the

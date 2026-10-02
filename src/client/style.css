@@ -211,6 +211,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    the row's own glyph already carries the most urgent state of them all. */
 .wdots { display: flex; gap: 1px; padding-left: 6px; min-width: 0; overflow: hidden; }
 .wdots .glyph { width: 11px; font-size: 12px; }
+/* The tight form: a count per state ("●1 ○3"), when a dot per window would
+   clip or push the name into an ellipsis (sidebar.ts fitDots). */
+.wdots.compact { display: none; gap: 5px; flex: none; }
+.row.tight .wdots.full { display: none; }
+.row.tight .wdots.compact { display: flex; padding-left: 0; }
+/* What a tight row has room for goes to what the agents are doing: the name
+   may give up a few more characters, and the timer some of its padding. */
+.row.tight .label { min-width: 7ch; }
+.row.tight .elapsed { padding-left: 4px; }
+.wcount { display: flex; align-items: center; gap: 1px; color: var(--muted); font-size: 11px; }
 
 #tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
 

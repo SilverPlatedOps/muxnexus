@@ -1,6 +1,6 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { MENU_REORDER, makeReorderable } from "./reorder";
-import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, windowGlyph, type Sharing } from "./agent";
+import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, dotCounts, windowGlyph, type Sharing } from "./agent";
 import { findSessions, folderOf } from "./find";
 import { ICONS } from "./icons";
 import { marksShown } from "./display";
@@ -242,14 +242,24 @@ export function createSidebar(
     // worth the space; a session with one agent gets nothing beyond its glyph.
     const dotGlyphs = windowDots(row.windows);
     if (dotGlyphs.length > 0) {
-      const dots = el("span", "wdots");
+      const dots = el("span", "wdots full");
       dotGlyphs.forEach((g, i) => {
         const w = row.windows[i]!;
         const d = el("span", `glyph ${g}`, GLYPH[g]);
         d.title = `${w.label ?? w.name}: ${agentTitle(w)}`;
         dots.append(d);
       });
-      name.append(dots);
+      // The same, counted per state, for when the row is too tight for a dot
+      // per window (fitDots picks which one shows).
+      const counts = dotCounts(dotGlyphs);
+      const compact = el("span", "wdots compact");
+      compact.title = counts.map((c) => `${c.count} ${GLYPH_TITLE[c.glyph]}`).join(", ");
+      for (const c of counts) {
+        const n = el("span", "wcount");
+        n.append(el("span", `glyph ${c.glyph}`, GLYPH[c.glyph]), String(c.count));
+        compact.append(n);
+      }
+      name.append(dots, compact);
     }
     if (row.orphan) name.title = `${row.name} — its cmux workspace is closed`;
     name.onclick = () => actions.attach(row.name);
@@ -372,8 +382,30 @@ export function createSidebar(
       root.append(renderCategory(block, (row, i) =>
         renderSession(row, windowCount(row.name), { up: i > 0, down: i < block.sessions.length - 1 })));
     });
+    fitDots();
     drawFoot();
   }
+
+  /**
+   * A dot per window where the row has room for them and for the whole name;
+   * the per-state counts where it does not. Measured, not guessed from the
+   * sidebar's width: how much room a row has depends on its name.
+   */
+  function fitDots() {
+    for (const r of root.querySelectorAll<HTMLElement>(".row.session")) {
+      const dots = r.querySelector<HTMLElement>(".wdots.full");
+      if (!dots) continue;
+      r.classList.remove("tight");
+      const label = r.querySelector<HTMLElement>(".label");
+      const cut = (e: HTMLElement | null) => !!e && e.scrollWidth > e.clientWidth + 1;
+      r.classList.toggle("tight", cut(dots) || cut(label));
+    }
+  }
+  let fitting = 0;
+  new ResizeObserver(() => {
+    cancelAnimationFrame(fitting);
+    fitting = requestAnimationFrame(fitDots);
+  }).observe(root);
 
   /**
    * A category's header and, unless folded, its sessions. Folded, the header

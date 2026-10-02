@@ -20,6 +20,7 @@ import {
   profileInitials,
   agentTitle,
   windowDots,
+  dotCounts,
   windowGlyph,
 } from "../src/client/agent";
 import { summaryWindow } from "../src/client/usage";
@@ -232,6 +233,13 @@ describe("glyphs", () => {
       .toEqual(["running", "none", "seen"]);
     // A bell counts as something to say, agent or not.
     expect(windowDots([w(undefined, true), w({ state: "input", since: "" })])).toEqual(["unread", "input"]);
+  });
+
+  test("the compact dots count each state, most urgent first, plain windows left out", () => {
+    expect(dotCounts(["seen", "none", "input", "seen", "running", "seen"]))
+      .toEqual([{ glyph: "input", count: 1 }, { glyph: "running", count: 1 }, { glyph: "seen", count: 3 }]);
+    expect(dotCounts(["unread", "seen", "unread"])).toEqual([{ glyph: "unread", count: 2 }, { glyph: "seen", count: 1 }]);
+    expect(dotCounts([])).toEqual([]);
   });
 });
 
