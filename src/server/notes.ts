@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -29,6 +29,12 @@ export interface Note {
   updated: string;
 }
 
+/** A note as the explorer lists it: its text, and where it was last written. */
+export interface StoredNote extends Note {
+  noteId: string;
+  meta: Partial<NoteMeta>;
+}
+
 export function createNoteStore(dir: string = NOTES_DIR) {
   const path = (id: string, ext: string) => join(dir, `${id}.${ext}`);
 
@@ -48,6 +54,27 @@ export function createNoteStore(dir: string = NOTES_DIR) {
       } catch {
         return { text: "", updated: "" };
       }
+    },
+
+    /** Every note on disk. Small enough to read whole: a few hundred drafts are a few hundred kilobytes. */
+    async list(): Promise<StoredNote[]> {
+      const names = await readdir(dir).catch(() => [] as string[]);
+      const ids = names.filter((n) => n.endsWith(".md")).map((n) => n.slice(0, -3)).filter(isNoteId);
+      return Promise.all(ids.map(async (noteId) => {
+        const text = await readFile(path(noteId, "md"), "utf8").catch(() => "");
+        const raw = JSON.parse(await readFile(path(noteId, "json"), "utf8").catch(() => "{}"));
+        const meta: Partial<NoteMeta> = {};
+        if (typeof raw.session === "string") meta.session = raw.session;
+        if (typeof raw.window === "string") meta.window = raw.window;
+        if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
+        return { noteId, text, updated: typeof raw.updated === "string" ? raw.updated : "", meta };
+      }));
+    },
+
+    async remove(id: string): Promise<void> {
+      if (!isNoteId(id)) throw new Error("invalid note id");
+      await rm(path(id, "md"), { force: true });
+      await rm(path(id, "json"), { force: true });
     },
 
     async write(id: string, text: string, meta: NoteMeta | null): Promise<Note> {

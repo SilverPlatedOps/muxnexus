@@ -163,7 +163,22 @@ export type ClientMessage =
   /** Open window `id`'s note, giving it one if it has none; answered with `note`. */
   | { t: "note-open"; session: string; id: string }
   | { t: "note-save"; noteId: string; text: string }
+  /** Every note with anything in it, for the explorer; answered with `notes`. */
+  | { t: "notes-list" }
+  | { t: "note-delete"; noteId: string }
   | { t: "ping" };
+
+/** A note as the explorer lists it. */
+export interface NoteSummary {
+  noteId: string;
+  /** Named after where it lives: the window's current names while it lives, the last ones it was saved under after. */
+  session: string;
+  window: string;
+  text: string;
+  updated: string;
+  /** The window wearing it, while there is one. */
+  live?: { session: string; windowId: string };
+}
 
 /** Agents a new window can start with. */
 export type NewWindowAgent = "codex";
@@ -187,6 +202,9 @@ export type ServerMessage =
    * or another client's save of it.
    */
   | { t: "note"; noteId: string; text: string; updated: string; windowId?: string }
+  | { t: "notes"; notes: NoteSummary[] }
+  /** A note is gone: any pane showing it starts its window's note afresh. */
+  | { t: "note-deleted"; noteId: string }
   /**
    * Something worth saying that is not a failure -- today, that a snapshot from
    * a previous tmux server is still waiting to be restored. Sent as a client

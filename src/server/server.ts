@@ -473,6 +473,34 @@ export function createServer(opts: ServerOptions): RunningServer {
           await tmux.markNote(m.noteId, empty);
           break;
         }
+        case "notes-list": {
+          const [stored, sessions] = await Promise.all([notes.list(), tmux.listSessions().catch(() => [])]);
+          const where = new Map<string, { s: SessionInfo; w: SessionInfo["windows"][number] }>();
+          for (const s of sessions) for (const w of s.windows) if (w.noteId) where.set(w.noteId, { s, w });
+          const list = stored
+            .filter((n) => n.text.trim() !== "")
+            .map((n) => {
+              const at = where.get(n.noteId);
+              return {
+                noteId: n.noteId,
+                session: at ? at.s.customName ?? at.s.label ?? at.s.name : n.meta.session ?? "",
+                window: at ? at.w.customName ?? at.w.label ?? at.w.name : n.meta.window ?? "",
+                text: n.text,
+                updated: n.updated,
+                ...(at ? { live: { session: at.s.name, windowId: at.w.id } } : {}),
+              };
+            })
+            .sort((a, b) => b.updated.localeCompare(a.updated));
+          return send(ws, { t: "notes", notes: list });
+        }
+        case "note-delete": {
+          if (!isNoteId(m.noteId)) return send(ws, { t: "error", message: "invalid note-delete" });
+          await notes.remove(m.noteId);
+          await tmux.dropNote(m.noteId);
+          const json = JSON.stringify({ t: "note-deleted", noteId: m.noteId } satisfies ServerMessage);
+          for (const c of clients) if (c.readyState === WebSocket.OPEN) c.sendText(json);
+          break;
+        }
         default:
           return send(ws, { t: "error", message: `unknown message type: ${String((m as { t?: unknown }).t)}` });
       }

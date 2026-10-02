@@ -7,6 +7,7 @@ import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
 import { createNotes } from "./notes";
+import { openExplorer, type Explorer } from "./explorer";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { openDisplay } from "./display";
@@ -329,6 +330,23 @@ const notes = createNotes({
   focusTerminal: () => term.focus(),
 });
 
+let explorer: Explorer | null = null;
+function openNotesExplorer() {
+  if (explorer) return;
+  if (onPhone()) setDrawer(false);
+  explorer = openExplorer(document.body, {
+    request: () => conn.send({ t: "notes-list" }),
+    goTo: ({ session, windowId }) => {
+      conn.send({ t: "select-window", session, id: windowId });
+      notePane = "main";
+      if (session !== current) attach(session);
+      notes.show();
+    },
+    remove: (noteId) => conn.send({ t: "note-delete", noteId }),
+    toast: (m) => sidebar.toast(m),
+  }, () => { explorer = null; });
+}
+
 const conn = new Connection(wsUrl, {
   onOpen() {
     hideReconnect();
@@ -396,6 +414,13 @@ const conn = new Connection(wsUrl, {
       case "note":
         notes.receive(m);
         break;
+      case "notes":
+        explorer?.receive(m.notes);
+        break;
+      case "note-deleted":
+        notes.deleted(m.noteId);
+        explorer?.deleted(m.noteId);
+        break;
       case "notice":
       case "error":
         sidebar.toast(m.message);
@@ -422,6 +447,7 @@ displayBtn.onclick = () => openDisplay(document.body, () => {
   renderUsage(usageEl, usageSources);
 });
 overlay.onclick = () => setDrawer(false);
+document.getElementById("notes-browse")!.onclick = () => openNotesExplorer();
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);
   sidebar.startNewSession();
@@ -452,7 +478,10 @@ document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
   // Typing a draft must not search the terminal or leave the session.
   const inNote = e.target instanceof HTMLTextAreaElement && e.target.id === "note-text";
-  if (e.shiftKey && (e.key === "e" || e.key === "E")) {
+  if (e.shiftKey && (e.key === "f" || e.key === "F")) {
+    e.preventDefault();
+    openNotesExplorer();
+  } else if (e.shiftKey && (e.key === "e" || e.key === "E")) {
     if (wrapEl.hidden) return;
     e.preventDefault();
     notes.toggle();

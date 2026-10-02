@@ -57,6 +57,8 @@ export interface Notes {
   /** The owner may have changed: a state push, a focus move. */
   sync(): void;
   receive(m: Extract<ServerMessage, { t: "note" }>): void;
+  /** A note was deleted: if it is the one shown, its window starts a new one. */
+  deleted(noteId: string): void;
   /** The socket is back: send what it missed, or ask again for what never came. */
   reconnected(): void;
 }
@@ -270,6 +272,13 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
 
   return {
     get open() { return open; },
+    deleted(id) {
+      if (!open || id !== noteId) return;
+      clearTimeout(timer);
+      dirty = false;
+      windowId = null;
+      sync();
+    },
     reconnected() {
       if (!open) return;
       if (noteId) return flush();

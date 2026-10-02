@@ -873,6 +873,16 @@ export class Tmux {
     return { noteId: fresh, cwd: cwd ?? "" };
   }
 
+  /** Take a deleted note off whatever window wears it, so that window's next note starts afresh. */
+  async dropNote(noteId: string): Promise<void> {
+    const out = await this.run(["list-windows", "-a", "-F", "#{window_id}\t#{@muxnexus_note}"]).catch(() => "");
+    const ids = new Set(lines(out).map((l) => l.split("\t")).filter(([, n]) => n === noteId).map(([w]) => w));
+    for (const w of ids) {
+      await this.run(["set-option", "-wu", "-t", w, "@muxnexus_note"]);
+      await this.run(["set-option", "-wu", "-t", w, "@muxnexus_note_empty"]);
+    }
+  }
+
   /** Whether the window wearing `noteId` has anything in its note, for the tab's mark. Gone windows are skipped. */
   async markNote(noteId: string, empty: boolean): Promise<void> {
     const out = await this.run(["list-windows", "-a", "-F", "#{window_id}\t#{@muxnexus_note}"]).catch(() => "");
