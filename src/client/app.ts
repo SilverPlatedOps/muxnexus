@@ -7,7 +7,8 @@ import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
 import { createNotes } from "./notes";
-import { openExplorer, type Explorer } from "./explorer";
+import { makeResizable } from "./resize";
+import { windowPlace } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { openDisplay } from "./display";
@@ -231,7 +232,8 @@ const sidebar = createSidebar(sessionsEl, layout, {
   killSession: (session) => conn.send({ t: "kill-session", session }),
   renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
   reorderSessions,
-}, footEl);
+  openWindow,
+}, footEl, document.getElementById("side-search-input") as HTMLInputElement);
 
 /** The last quota snapshot, so the account picker can list the same rows the panel shows. */
 let usageSources: UsageSource[] = [];
@@ -270,7 +272,7 @@ const tabs = createTabs(tabsEl, {
       notePane = "main";
       if (!currentWindows().find((w) => w.id === id)?.active) conn.send({ t: "select-window", session: current, id });
     }
-    notes.show();
+    notes.show("window");
   },
   openBeside: (id) => {
     if (!current) return;
@@ -311,47 +313,58 @@ let notePane: "main" | "side" = "main";
 document.getElementById("pane-main")!.addEventListener("focusin", () => { notePane = "main"; notes.sync(); });
 document.getElementById("pane-side")!.addEventListener("focusin", () => { notePane = "side"; notes.sync(); });
 
+const notesPanel = document.getElementById("notes-panel")!;
 const notes = createNotes({
-  panes: document.getElementById("panes")!,
-  pane: document.getElementById("note-pane")!,
-  divider: document.getElementById("note-divider")!,
-  text: document.getElementById("note-text") as HTMLTextAreaElement,
+  layout,
+  panel: notesPanel,
   button: document.getElementById("note-btn")!,
+  tabWindow: document.getElementById("notes-tab-window")!,
+  tabAll: document.getElementById("notes-tab-all")!,
+  close: document.getElementById("notes-close")!,
+  windowView: document.getElementById("notes-window")!,
+  heading: document.getElementById("note-heading")!,
+  text: document.getElementById("note-text") as HTMLTextAreaElement,
+  allView: document.getElementById("notes-all")!,
 }, {
   send: (m) => conn.send(m),
   session: () => current,
-  owner: () => {
-    const ws = currentWindows();
-    const side = split.state?.windowId;
-    if (notePane === "side" && side) return ws.find((w) => w.id === side) ?? ws.find((w) => w.active);
-    return ws.find((w) => w.active);
+  owner: () => notesOwner(),
+  ownerPlace: () => {
+    const s = sessions.find((x) => x.name === current);
+    const w = notesOwner();
+    return s && w ? windowPlace(s, w) : "";
   },
   phone: onPhone,
   focusTerminal: () => term.focus(),
+  toast: (m) => sidebar.toast(m),
+  goTo: ({ session, windowId }) => {
+    openWindow(session, windowId);
+    notes.show("window");
+  },
 });
 
-let explorer: Explorer | null = null;
-function openNotesExplorer() {
-  if (explorer) return;
-  if (onPhone()) setDrawer(false);
-  explorer = openExplorer(document.body, {
-    request: () => conn.send({ t: "notes-list" }),
-    goTo: ({ session, windowId }) => {
-      conn.send({ t: "select-window", session, id: windowId });
-      notePane = "main";
-      if (session !== current) attach(session);
-      notes.show();
-    },
-    remove: (noteId) => conn.send({ t: "note-delete", noteId }),
-    save: (noteId, text) => {
-      if (!conn.send({ t: "note-save", noteId, text })) return false;
-      // The server echoes a save to every other browser, not back to this one:
-      // the note pane here hears of it from the explorer instead.
-      notes.receive({ t: "note", noteId, text, updated: new Date().toISOString() });
-      return true;
-    },
-    toast: (m) => sidebar.toast(m),
-  }, () => { explorer = null; });
+function notesOwner(): WindowInfo | undefined {
+  const ws = currentWindows();
+  const side = split.state?.windowId;
+  if (notePane === "side" && side) return ws.find((w) => w.id === side) ?? ws.find((w) => w.active);
+  return ws.find((w) => w.active);
+}
+
+makeResizable({
+  grip: document.getElementById("sidebar-grip")!, panel: document.getElementById("sidebar")!, host: layout,
+  cssVar: "--sidebar", storageKey: "muxnexus.sidebar-width", min: 200, max: 480, fallback: 280, edge: "right",
+});
+makeResizable({
+  grip: document.getElementById("notes-grip")!, panel: notesPanel, host: layout,
+  cssVar: "--notes", storageKey: "muxnexus.notes-width", min: 260, max: 640, fallback: 380, edge: "left",
+});
+
+/** Show a window: its session attached, the window selected in the main pane. */
+function openWindow(session: string, id: string) {
+  conn.send({ t: "select-window", session, id });
+  notePane = "main";
+  if (session !== current) attach(session);
+  else if (onPhone()) setDrawer(false);
 }
 
 const conn = new Connection(wsUrl, {
@@ -420,14 +433,12 @@ const conn = new Connection(wsUrl, {
         break;
       case "note":
         notes.receive(m);
-        if (m.windowId === undefined) explorer?.updated(m.noteId, m.text, m.updated);
         break;
       case "notes":
-        explorer?.receive(m.notes);
+        notes.list(m.notes);
         break;
       case "note-deleted":
         notes.deleted(m.noteId);
-        explorer?.deleted(m.noteId);
         break;
       case "notice":
       case "error":
@@ -455,7 +466,6 @@ displayBtn.onclick = () => openDisplay(document.body, () => {
   renderUsage(usageEl, usageSources);
 });
 overlay.onclick = () => setDrawer(false);
-document.getElementById("notes-browse")!.onclick = () => openNotesExplorer();
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);
   sidebar.startNewSession();
@@ -484,15 +494,22 @@ document.addEventListener("animationstart", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
-  // Typing a draft must not search the terminal or leave the session.
-  const inNote = e.target instanceof HTMLTextAreaElement && e.target.id === "note-text";
+  // Typing a draft or a search must not search the terminal or leave the session.
+  const inNote = e.target instanceof Element && e.target.closest("#notes-panel, #side-search") !== null;
   if (e.shiftKey && (e.key === "f" || e.key === "F")) {
     e.preventDefault();
-    openNotesExplorer();
+    if (onPhone()) setDrawer(false);
+    notes.show("all");
   } else if (e.shiftKey && (e.key === "e" || e.key === "E")) {
     if (wrapEl.hidden) return;
     e.preventDefault();
-    notes.toggle();
+    if (notes.open && notes.tab === "window") notes.toggle();
+    else notes.show("window");
+  } else if (e.key === "k") {
+    e.preventDefault();
+    if (onPhone()) setDrawer(true);
+    sidebar.focusSearch();
+    term.fit();
   } else if (inNote) {
     return;
   } else if (e.key === "b") {

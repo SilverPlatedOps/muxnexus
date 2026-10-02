@@ -1,28 +1,21 @@
 /**
- * A window's note, in a pane beside the terminals: somewhere to think and draft
- * the next prompt. It belongs to the terminal pane that last had the keys, so
- * clicking into the note never changes whose note it is.
+ * The notes panel, down the right of the page: "This window", the note of the
+ * window in the terminal pane that last had the keys, and "All notes", every
+ * note searchable (explorer.ts). Clicking into the panel never changes whose
+ * note "This window" shows.
  *
  * The text lives on the server (`note-open` / `note-save`), so every device sees
- * one note. Its place on screen -- which side, how wide -- is this browser's.
+ * one note. Whether the panel is open, on which tab, and how wide, is this
+ * browser's.
  */
-import type { ClientMessage, ServerMessage, WindowInfo } from "../shared/protocol";
-import { tabLabel } from "./labels";
+import type { ClientMessage, NoteSummary, ServerMessage, WindowInfo } from "../shared/protocol";
+import { createExplorer } from "./explorer";
 
-export type NoteSide = "left" | "right";
+export type NotesTab = "window" | "all";
 
 /** A save this long after the last keystroke. */
 const SAVE_MS = 500;
-const MIN_NOTE = 240;
-/** What the terminals keep, at least, beside an open note. */
-const MIN_TERMS = 320;
-const KEY = "muxnexus.note";
-
-/** Width of the note for a pointer at `x`, kept to what leaves the terminals room. */
-export function noteWidth(rect: { left: number; width: number }, x: number, side: NoteSide): number {
-  const w = side === "right" ? rect.left + rect.width - x : x - rect.left;
-  return Math.round(Math.max(MIN_NOTE, Math.min(rect.width - MIN_TERMS, w)));
-}
+const KEY = "muxnexus.notes-panel";
 
 /**
  * Whether another device's save may replace what this editor shows. Never while
@@ -34,11 +27,17 @@ export function takesRemote(editing: { focused: boolean; dirty: boolean }): bool
 }
 
 export interface NoteElements {
-  panes: HTMLElement;
-  pane: HTMLElement;
-  divider: HTMLElement;
-  text: HTMLTextAreaElement;
+  layout: HTMLElement;
+  panel: HTMLElement;
+  /** The top bar's toggle. */
   button: HTMLElement;
+  tabWindow: HTMLElement;
+  tabAll: HTMLElement;
+  close: HTMLElement;
+  windowView: HTMLElement;
+  heading: HTMLElement;
+  text: HTMLTextAreaElement;
+  allView: HTMLElement;
 }
 
 export interface NotesHost {
@@ -46,109 +45,79 @@ export interface NotesHost {
   session(): string | null;
   /** The window whose note this is: the one in the terminal pane that last had focus. */
   owner(): WindowInfo | undefined;
+  /** How that window is named, `session › window`. */
+  ownerPlace(): string;
   phone(): boolean;
   focusTerminal(): void;
+  toast(message: string): void;
+  goTo(live: NonNullable<NoteSummary["live"]>): void;
 }
 
 export interface Notes {
   readonly open: boolean;
+  readonly tab: NotesTab;
   toggle(): void;
-  show(): void;
+  show(tab: NotesTab): void;
   /** The owner may have changed: a state push, a focus move. */
   sync(): void;
   receive(m: Extract<ServerMessage, { t: "note" }>): void;
+  list(notes: NoteSummary[]): void;
   /** A note was deleted: if it is the one shown, its window starts a new one. */
   deleted(noteId: string): void;
   /** The socket is back: send what it missed, or ask again for what never came. */
   reconnected(): void;
 }
 
-const ICON = {
-  zoom: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="10,2.5 13.5,2.5 13.5,6"></polyline><polyline points="6,13.5 2.5,13.5 2.5,10"></polyline><line x1="13.5" y1="2.5" x2="9.5" y2="6.5"></line><line x1="2.5" y1="13.5" x2="6.5" y2="9.5"></line></svg>',
-  unzoom: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="13.5,6 10,6 10,2.5"></polyline><polyline points="2.5,10 6,10 6,13.5"></polyline><line x1="10" y1="6" x2="14" y2="2"></line><line x1="6" y1="10" x2="2" y2="14"></line></svg>',
-  close: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>',
-  swap: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="11,2.5 13.5,5 11,7.5"></polyline><line x1="13.5" y1="5" x2="3" y2="5"></line><polyline points="5,8.5 2.5,11 5,13.5"></polyline><line x1="2.5" y1="11" x2="13" y2="11"></line></svg>',
-};
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
-
-function iconButton(icon: string, label: string, onClick: () => void): HTMLButtonElement {
-  const b = el("button", "row-btn");
-  b.type = "button";
-  b.innerHTML = icon;
-  b.title = label;
-  b.setAttribute("aria-label", label);
-  b.onclick = (e) => { e.stopPropagation(); onClick(); };
-  return b;
-}
-
-function load(): { side: NoteSide; width: number } {
+function load(): { open: boolean; tab: NotesTab } {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    return { side: v.side === "left" ? "left" : "right", width: Number.isFinite(v.width) ? v.width : 420 };
+    return { open: v.open === true, tab: v.tab === "all" ? "all" : "window" };
   } catch {
-    return { side: "right", width: 420 };
+    return { open: false, tab: "window" };
   }
 }
 
 export function createNotes(els: NoteElements, host: NotesHost): Notes {
-  let open = false;
-  let zoomed = false;
-  let { side, width } = load();
+  let { open, tab } = load();
+  // A phone opens on the terminal: the panel there covers it.
+  if (host.phone()) open = false;
 
-  /** The window shown, and its note's id once the server has answered for it. */
+  /** The window shown in "This window", and its note's id once the server has answered for it. */
   let windowId: string | null = null;
   let noteId: string | null = null;
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const remember = () => {
-    try { localStorage.setItem(KEY, JSON.stringify({ side, width })); } catch { /* this browser forgets */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ open, tab })); } catch { /* this browser forgets */ }
   };
 
-  // ---- the header ----
-  const head = el("div", "pane-head note-head");
-  const mark = el("span", "glyph note-glyph", "✎");
-  const label = el("span", "label");
-  const swap = iconButton(ICON.swap, "Move to the other side", () => {
-    side = side === "left" ? "right" : "left";
-    remember();
-    layout();
+  const explorer = createExplorer(els.allView, {
+    request: () => host.send({ t: "notes-list" }),
+    goTo: (live) => host.goTo(live),
+    remove: (id) => host.send({ t: "note-delete", noteId: id }),
+    save: (id, text) => {
+      if (!host.send({ t: "note-save", noteId: id, text })) return false;
+      // The server echoes a save to every other browser, not back to this one.
+      if (id === noteId && !dirty) els.text.value = text;
+      return true;
+    },
+    toast: host.toast,
+    currentNote: () => noteId,
+    openCurrent: () => show("window"),
   });
-  const zoom = iconButton(ICON.zoom, "Zoom", () => { zoomed = !zoomed; layout(); });
-  const close = iconButton(ICON.close, "Close note", () => hide());
-  head.append(mark, label, el("span", "spacer"), swap, zoom, close);
-  els.pane.prepend(head);
-
-  const zone = el("div", "drop-zone");
-  zone.hidden = true;
-  els.panes.append(zone);
 
   function layout() {
-    const full = open && (zoomed || host.phone());
-    els.pane.hidden = !open;
-    els.divider.hidden = !open || full;
-    els.panes.classList.toggle("note-open", open);
-    els.panes.classList.toggle("note-left", side === "left");
-    els.panes.classList.toggle("note-full", full);
-    els.pane.style.flex = full ? "1 1 0" : `0 0 ${width}px`;
+    els.panel.hidden = !open;
+    els.layout.classList.toggle("notes-open", open);
     els.button.classList.toggle("on", open);
     els.button.setAttribute("aria-pressed", String(open));
-    zoom.innerHTML = zoomed ? ICON.unzoom : ICON.zoom;
-    zoom.title = zoomed ? "Show the terminals too" : "Zoom";
-    swap.hidden = full;
-    zoom.hidden = host.phone();
-  }
-
-  function paintHead() {
-    const w = host.owner();
-    label.textContent = w ? tabLabel(w) : "";
-    els.pane.setAttribute("aria-label", w ? `Note for ${tabLabel(w)}` : "Note");
+    els.windowView.hidden = tab !== "window";
+    els.allView.hidden = tab !== "all";
+    els.tabWindow.classList.toggle("on", tab === "window");
+    els.tabAll.classList.toggle("on", tab === "all");
+    els.tabWindow.setAttribute("aria-selected", String(tab === "window"));
+    els.tabAll.setAttribute("aria-selected", String(tab === "all"));
   }
 
   function flush() {
@@ -159,8 +128,9 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
 
   function sync() {
     if (!open) return;
-    paintHead();
     const w = host.owner();
+    els.heading.textContent = w ? `✎ ${host.ownerPlace()}` : "";
+    els.heading.title = els.heading.textContent;
     const id = w?.id ?? null;
     if (id === windowId) return;
     // The old note's edit goes out under the old note's id before anything of
@@ -176,22 +146,25 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     if (id && session) host.send({ t: "note-open", session, id });
   }
 
-  function show() {
-    if (!open) {
-      open = true;
-      layout();
-      sync();
-    }
-    els.text.focus();
+  function show(next: NotesTab, focus = true) {
+    if (tab === "all" && next !== "all") explorer.flush();
+    open = true;
+    tab = next;
+    remember();
+    layout();
+    sync();
+    if (tab === "all") explorer.activate(focus);
+    else if (focus) els.text.focus();
   }
 
   function hide() {
     if (!open) return;
     flush();
+    explorer.flush();
     open = false;
-    zoomed = false;
     windowId = null;
     noteId = null;
+    remember();
     layout();
     host.focusTerminal();
   }
@@ -203,90 +176,22 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   });
   els.text.addEventListener("blur", flush);
   // iPad Safari drops a background tab without warning: save on the way out.
-  window.addEventListener("pagehide", flush);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); });
+  const away = () => { flush(); explorer.flush(); };
+  window.addEventListener("pagehide", away);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) away(); });
 
-  // ---- resizing ----
-  els.divider.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    try { els.divider.setPointerCapture(e.pointerId); } catch { /* keep dragging */ }
-    els.panes.classList.add("resizing");
-    const move = (ev: PointerEvent) => {
-      width = noteWidth(els.panes.getBoundingClientRect(), ev.clientX, side);
-      layout();
-    };
-    const up = () => {
-      els.panes.classList.remove("resizing");
-      remember();
-      els.divider.removeEventListener("pointermove", move);
-      els.divider.removeEventListener("pointerup", up);
-      els.divider.removeEventListener("pointercancel", up);
-    };
-    els.divider.addEventListener("pointermove", move);
-    els.divider.addEventListener("pointerup", up);
-    els.divider.addEventListener("pointercancel", up);
-  });
-
-  // ---- dragging the header to the other side ----
-  head.addEventListener("pointerdown", (e) => {
-    if ((e.target as Element).closest("button") || host.phone() || zoomed) return;
-    e.preventDefault(); // no text selection riding along
-    try { head.setPointerCapture(e.pointerId); } catch { /* still tracked while over the header */ }
-    const startX = e.clientX;
-    let armed = false;
-    const target = (x: number): NoteSide => {
-      const r = els.panes.getBoundingClientRect();
-      return x < r.left + r.width / 2 ? "left" : "right";
-    };
-    const move = (ev: PointerEvent) => {
-      if (!armed && Math.abs(ev.clientX - startX) < 8) return;
-      if (!armed) {
-        armed = true;
-        els.panes.classList.add("note-dragging");
-      }
-      const to = target(ev.clientX);
-      const r = els.panes.getBoundingClientRect();
-      zone.style.left = to === "left" ? "8px" : `${r.width / 2 + 4}px`;
-      zone.style.width = `${r.width / 2 - 12}px`;
-      zone.replaceChildren(Object.assign(el("div", "say"), { textContent: to === side ? "Keep here" : "Move note here" }));
-      zone.hidden = false;
-    };
-    const up = (ev: PointerEvent) => {
-      head.removeEventListener("pointermove", move);
-      head.removeEventListener("pointerup", up);
-      head.removeEventListener("pointercancel", up);
-      zone.hidden = true;
-      els.panes.classList.remove("note-dragging");
-      if (!armed || ev.type === "pointercancel") return;
-      side = target(ev.clientX);
-      remember();
-      layout();
-    };
-    head.addEventListener("pointermove", move);
-    head.addEventListener("pointerup", up);
-    head.addEventListener("pointercancel", up);
-  });
-
-  els.button.onclick = () => (open ? hide() : show());
+  els.tabWindow.onclick = () => show("window");
+  els.tabAll.onclick = () => show("all", false);
+  els.close.onclick = () => hide();
+  els.button.onclick = () => (open ? hide() : show(tab));
   layout();
+  if (open && tab === "all") explorer.activate(false);
 
   return {
     get open() { return open; },
-    deleted(id) {
-      if (!open || id !== noteId) return;
-      clearTimeout(timer);
-      dirty = false;
-      windowId = null;
-      sync();
-    },
-    reconnected() {
-      if (!open) return;
-      if (noteId) return flush();
-      windowId = null;
-      sync();
-    },
-    toggle: () => (open ? hide() : show()),
-    show,
+    get tab() { return tab; },
+    toggle: () => (open ? hide() : show(tab)),
+    show: (t) => show(t),
     sync,
     receive(m) {
       if (m.windowId !== undefined) {
@@ -299,8 +204,25 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
         dirty = false;
         return;
       }
+      explorer.updated(m.noteId, m.text, m.updated);
       if (m.noteId !== noteId) return;
       if (takesRemote({ focused: document.activeElement === els.text, dirty })) els.text.value = m.text;
+    },
+    list: (notes) => explorer.receive(notes),
+    deleted(id) {
+      explorer.deleted(id);
+      if (!open || id !== noteId) return;
+      clearTimeout(timer);
+      dirty = false;
+      windowId = null;
+      sync();
+    },
+    reconnected() {
+      if (!open) return;
+      if (tab === "all") explorer.activate(false);
+      if (noteId) return flush();
+      windowId = null;
+      sync();
     },
   };
 }

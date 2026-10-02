@@ -127,6 +127,17 @@ export function hostAllowed(host: string | null, allowed: readonly string[]): bo
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
   const notes = createNoteStore(opts.notesDir);
+  /**
+   * Note requests run one at a time, in the order they arrived: a save sent a
+   * moment before the list is asked for must be in the list, and the socket's
+   * messages are otherwise handled side by side.
+   */
+  let noteQueue: Promise<unknown> = Promise.resolve();
+  const inTurn = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = noteQueue.then(fn, fn);
+    noteQueue = run.catch(() => {});
+    return run;
+  };
   // A server stopped between opening a view and its first output never let tmux
   // clean it up; nothing can be attached through one of ours before we start.
   void tmux.sweepViews().catch(() => {});
@@ -456,15 +467,19 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (!isNoteId(m.noteId) || typeof m.text !== "string") {
             return send(ws, { t: "error", message: "invalid note-save" });
           }
-          // Where it was written, while that is still known: what a note whose
-          // window is gone will be found by.
-          const sessions = await tmux.listSessions().catch(() => []);
-          const s = sessions.find((x) => x.windows.some((w) => w.noteId === m.noteId));
-          const w = s?.windows.find((x) => x.noteId === m.noteId);
-          const meta = s && w
-            ? { session: s.customName ?? s.label ?? s.name, window: w.customName ?? w.label ?? w.name, ...(w.agent?.checkout ? { cwd: w.agent.checkout } : {}) }
-            : null;
-          const note = await notes.write(m.noteId, m.text, meta);
+          // Queued as it arrives, the lookup included: a list asked for after
+          // this save must find it written.
+          const { note, w } = await inTurn(async () => {
+            // Where it was written, while that is still known: what a note
+            // whose window is gone will be found by.
+            const sessions = await tmux.listSessions().catch(() => []);
+            const s = sessions.find((x) => x.windows.some((v) => v.noteId === m.noteId));
+            const w = s?.windows.find((x) => x.noteId === m.noteId);
+            const meta = s && w
+              ? { session: s.customName ?? s.label ?? s.name, window: w.customName ?? w.label ?? w.name, ...(w.agent?.checkout ? { cwd: w.agent.checkout } : {}) }
+              : null;
+            return { note: await notes.write(m.noteId, m.text, meta), w };
+          });
           const json = JSON.stringify({ t: "note", noteId: m.noteId, ...note } satisfies ServerMessage);
           for (const other of clients) if (other !== ws && other.readyState === WebSocket.OPEN) other.sendText(json);
           // Only a note turning empty or not changes what a tab shows.
@@ -474,7 +489,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           break;
         }
         case "notes-list": {
-          const [stored, sessions] = await Promise.all([notes.list(), tmux.listSessions().catch(() => [])]);
+          const [stored, sessions] = await inTurn(() => Promise.all([notes.list(), tmux.listSessions().catch(() => [])]));
           const where = new Map<string, { s: SessionInfo; w: SessionInfo["windows"][number] }>();
           for (const s of sessions) for (const w of s.windows) if (w.noteId) where.set(w.noteId, { s, w });
           const list = stored
@@ -495,7 +510,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         }
         case "note-delete": {
           if (!isNoteId(m.noteId)) return send(ws, { t: "error", message: "invalid note-delete" });
-          await notes.remove(m.noteId);
+          await inTurn(() => notes.remove(m.noteId));
           await tmux.dropNote(m.noteId);
           const json = JSON.stringify({ t: "note-deleted", noteId: m.noteId } satisfies ServerMessage);
           for (const c of clients) if (c.readyState === WebSocket.OPEN) c.sendText(json);

@@ -1,9 +1,10 @@
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { MENU_REORDER, makeReorderable } from "./reorder";
-import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, type Sharing } from "./agent";
+import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, windowGlyph, type Sharing } from "./agent";
+import { findSessions, folderOf } from "./find";
 import { ICONS } from "./icons";
 import { marksShown } from "./display";
-import { sessionLabel, windowPlace } from "./labels";
+import { sessionLabel, tabLabel, windowPlace } from "./labels";
 import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
 import { categoryKey, splitCategory } from "../shared/category";
 
@@ -40,6 +41,8 @@ export interface SidebarActions {
   renameSession(session: string, name: string): void;
   /** The whole wanted sidebar order, by tmux session name. */
   reorderSessions(names: string[]): void;
+  /** A window found by the search: its session, showing it. */
+  openWindow(session: string, id: string): void;
 }
 
 export interface Sidebar {
@@ -48,6 +51,7 @@ export interface Sidebar {
   toggle(): void;
   /** Open the "new session" prompt in the footer and focus it. */
   startNewSession(): void;
+  focusSearch(): void;
 }
 
 const ICON = {
@@ -96,12 +100,15 @@ export function createSidebar(
   layout: HTMLElement,
   actions: SidebarActions,
   foot?: HTMLElement | null,
+  search?: HTMLInputElement | null,
 ): Sidebar {
   const ui: UiState = { menu: null, confirm: null, editing: null };
   const collapsed = loadCollapsed();
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
+  /** The windows each session's search found, by session name; null when nothing is searched for. */
+  let found: Map<string, WindowInfo[]> | null = null;
 
   const rerender = () => draw(lastSessions, lastCurrent);
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -257,6 +264,7 @@ export function createSidebar(
     // a click still attaches and a double-click still renames.
     r.append(name, menuButton(row.name));
     group.append(r);
+    for (const w of found?.get(row.name) ?? []) group.append(renderHit(row.name, w));
 
     if (ui.menu === row.name) {
       group.append(menuFor(
@@ -272,6 +280,20 @@ export function createSidebar(
       group.append(confirmFor(`Kill ${windows} window${windows === 1 ? "" : "s"}?`, () => actions.killSession(row.name)));
     }
     return group;
+  }
+
+  /** A window the search found, under its session: one click shows it. */
+  function renderHit(session: string, w: WindowInfo): HTMLElement {
+    const b = button(`row win-hit${w.active && session === lastCurrent ? " current" : ""}`);
+    const g = windowGlyph(w);
+    const mark = el("span", `glyph ${g}`, GLYPH[g]);
+    mark.title = agentTitle(w);
+    b.append(mark, el("span", "label", tabLabel(w)));
+    const folder = folderOf(w);
+    if (folder) b.append(el("span", "folder", folder));
+    b.title = `${tabLabel(w)}${folder ? ` \u2014 ${folder}` : ""}`;
+    b.onclick = () => actions.openWindow(session, w.id);
+    return b;
   }
 
   function newSessionButton(): HTMLElement {
@@ -326,10 +348,19 @@ export function createSidebar(
       return;
     }
     sharing = marksShown() ? sharedCheckouts(sessions, windowPlace) : new Map();
-    // Windows live in the tab strip now; the sidebar is one row per session.
+    // Windows live in the tab strip now; the sidebar is one row per session --
+    // and, while searching, the windows the search found under theirs.
+    const query = search?.value.trim() ?? "";
+    found = query ? new Map(findSessions(sessions, query).map((h) => [h.session.name, h.windows])) : null;
+    root.classList.toggle("searching", found !== null);
     const sessionRows = sidebarModel(sessions, current).filter(
-      (r): r is Extract<Row, { kind: "session" }> => r.kind === "session",
+      (r): r is Extract<Row, { kind: "session" }> => r.kind === "session" && (!found || found.has(r.name)),
     );
+    if (found && sessionRows.length === 0) {
+      root.append(el("div", "row note", "Nothing matches"));
+      drawFoot();
+      return;
+    }
     const windowCount = (name: string) => sessions.find((s) => s.name === name)?.windows.length ?? 0;
     const blocks = groupSessions(sessionRows, (r) => r.label);
     blocks.forEach((block, bi) => {
@@ -356,7 +387,8 @@ export function createSidebar(
   ): HTMLElement {
     const category = block.category!;
     const key = categoryKey(category);
-    const folded = collapsed.has(key);
+    // A search looks inside folded groups too: a hit you cannot see is no hit.
+    const folded = collapsed.has(key) && found === null;
     const holdsCurrent = block.sessions.some((r) => r.current);
     const section = el("section", `cat${folded ? " folded" : ""}${folded && holdsCurrent ? " current" : ""}`);
 
@@ -385,10 +417,30 @@ export function createSidebar(
 
   drawFoot();
 
+  if (search) {
+    search.addEventListener("input", rerender);
+    search.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        search.value = "";
+        rerender();
+        search.blur();
+      } else if (e.key === "Enter") {
+        // The first thing found, as drawn: a window if the search named one.
+        e.preventDefault();
+        const first = root.querySelector<HTMLElement>(".win-hit") ?? root.querySelector<HTMLElement>(".group .name");
+        first?.click();
+      }
+    });
+  }
+
   // Every drawn session row, in or out of a group, in the order shown. A folded
   // group's sessions are not drawn, so the drag sees only some of the order and
   // mergeOrder puts the rest back in their places.
-  const drawnRows = () => [...root.querySelectorAll<HTMLElement>(".group")];
+  // Nothing drags while a search has the list cut down: the order it would
+  // commit could only be the visible part of it.
+  const drawnRows = () => (found ? [] : [...root.querySelectorAll<HTMLElement>(".group")]);
   makeReorderable(root, {
     rows: drawnRows,
     commit: (order) => {
@@ -410,5 +462,11 @@ export function createSidebar(
       layout.classList.toggle("collapsed");
     },
     startNewSession,
+    focusSearch() {
+      if (!search) return;
+      layout.classList.remove("collapsed");
+      search.focus();
+      search.select();
+    },
   };
 }

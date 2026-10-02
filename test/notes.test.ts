@@ -6,7 +6,8 @@ import type { ServerMessage } from "../src/shared/protocol";
 import { createNoteStore, isNoteId } from "../src/server/notes";
 import { createServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
-import { noteWidth, takesRemote } from "../src/client/notes";
+import { takesRemote } from "../src/client/notes";
+import { clampWidth } from "../src/client/resize";
 import { ago, excerpt, noteMatches, noteTitle } from "../src/client/explorer";
 import { waitFor } from "./helpers";
 
@@ -52,12 +53,10 @@ test("a bad id is refused before it reaches the disk", async () => {
   await expect(store.write("../x", "hi", null)).rejects.toThrow("invalid note id");
 });
 
-test("the note keeps to what leaves the terminals room", () => {
-  const rect = { left: 100, width: 1000 };
-  expect(noteWidth(rect, 700, "right")).toBe(400);
-  expect(noteWidth(rect, 500, "left")).toBe(400);
-  expect(noteWidth(rect, 1090, "right")).toBe(240);
-  expect(noteWidth(rect, 120, "right")).toBe(680);
+test("a panel keeps to its limits", () => {
+  expect(clampWidth(100, 200, 480)).toBe(200);
+  expect(clampWidth(333.4, 200, 480)).toBe(333);
+  expect(clampWidth(900, 260, 640)).toBe(640);
 });
 
 test("another device's save waits for the editor to be left alone", () => {

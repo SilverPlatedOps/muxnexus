@@ -1,8 +1,9 @@
 /**
  * Every note, searchable: by the session and window it belongs to, or by what
- * it says. Each can be edited here as in its pane -- saved the same way, and
- * yielding to another device's save the same way -- with a way back to the
- * window while it lives, a copy, and a delete.
+ * it says. The "All notes" side of the notes panel. A note picked here is edited
+ * here as in "This window" -- saved the same way, yielding to another device's
+ * save the same way -- with a way back to its window while it lives, a copy,
+ * and a delete.
  */
 import type { NoteSummary } from "../shared/protocol";
 import { takesRemote } from "./notes";
@@ -81,9 +82,17 @@ export interface ExplorerHooks {
   /** Whether it went: an edit stays unsaved until one does. */
   save(noteId: string, text: string): boolean;
   toast(message: string): void;
+  /** The note of the window on screen, which "This window" already edits. */
+  currentNote(): string | null;
+  /** Show that one where it already lives. */
+  openCurrent(): void;
 }
 
 export interface Explorer {
+  /** The tab came into view: fetch the list afresh, and focus the search if asked. */
+  activate(focusSearch: boolean): void;
+  /** Send any edit not yet saved: the tab is going out of view. */
+  flush(): void;
   receive(notes: NoteSummary[]): void;
   /** A note went, here or on another device. */
   deleted(noteId: string): void;
@@ -91,7 +100,7 @@ export interface Explorer {
   updated(noteId: string, text: string, updated: string): void;
 }
 
-export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: () => void): Explorer {
+export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explorer {
   let all: NoteSummary[] | null = null;
   let selected: string | null = null;
   let confirming = false;
@@ -100,78 +109,71 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
   let editingId: string | null = null;
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const editor = el("textarea", "explorer-text");
+  const editor = el("textarea", "note-editor");
   editor.spellcheck = false;
   editor.setAttribute("aria-label", "Note text");
   const status = el("span", "explorer-status");
 
-  const back = el("div", "modal-back");
-  const box = el("div", "move explorer");
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-label", "Notes");
-
-  const head = el("div", "explorer-head");
+  // One column: the search and its list, or the note picked from it.
+  const listView = el("div", "explorer-listview");
   const search = el("input", "explorer-search");
   search.type = "search";
-  search.placeholder = "Search notes by window or text";
+  search.placeholder = "Search by window or text";
   search.setAttribute("aria-label", "Search notes");
   search.spellcheck = false;
   const count = el("span", "explorer-count");
-  const shut = el("button", "row-btn");
-  shut.type = "button";
-  shut.setAttribute("aria-label", "Close notes");
-  shut.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>';
-  head.append(search, count, shut);
-
-  const body = el("div", "explorer-body");
+  const searchRow = el("div", "explorer-head");
+  searchRow.append(search, count);
   const list = el("div", "explorer-list");
   list.setAttribute("role", "listbox");
+  listView.append(searchRow, list);
   const view = el("div", "explorer-view");
-  body.append(list, view);
-  box.append(head, body);
-  back.append(box);
+  root.append(listView, view);
 
   const shown = () => (all ?? []).filter((n) => noteMatches(n, search.value));
+
+  function pick(noteId: string) {
+    flush();
+    if (noteId === hooks.currentNote()) return hooks.openCurrent();
+    selected = noteId;
+    confirming = false;
+    paint();
+  }
 
   function paintList() {
     const notes = shown();
     count.textContent = all === null ? "" : `${notes.length}`;
     list.replaceChildren();
     if (all === null) list.append(el("div", "explorer-empty", "Loading…"));
-    else if (!all.length) list.append(el("div", "explorer-empty", "No notes yet. Open one from a window's tab menu or the ✎ button."));
+    else if (!all.length) list.append(el("div", "explorer-empty", "No notes yet. Write one in \u201cThis window\u201d."));
     else if (!notes.length) list.append(el("div", "explorer-empty", "Nothing matches."));
     const now = Date.now();
+    const here = hooks.currentNote();
     for (const n of notes) {
-      const row = el("button", `explorer-row${n.noteId === selected ? " sel" : ""}`);
+      const row = el("button", "explorer-row");
       row.type = "button";
       row.setAttribute("role", "option");
-      row.setAttribute("aria-selected", String(n.noteId === selected));
       const top = el("div", "explorer-row-top");
       const title = el("span", "explorer-title");
       title.append(highlighted(noteTitle(n), search.value));
       top.append(title);
-      if (!n.live) top.append(el("span", "explorer-gone", "window closed"));
+      if (n.noteId === here) top.append(el("span", "explorer-tag here", "this window"));
+      else if (!n.live) top.append(el("span", "explorer-tag", "window closed"));
       top.append(el("span", "explorer-when", ago(n.updated, now)));
       const snip = el("div", "explorer-snip");
       snip.append(highlighted(excerpt(n.text, search.value), search.value));
       row.append(top, snip);
-      row.onclick = () => {
-        flush();
-        selected = n.noteId;
-        confirming = false;
-        paint();
-      };
+      row.onclick = () => pick(n.noteId);
       list.append(row);
     }
   }
 
   function paintView() {
     const n = (all ?? []).find((x) => x.noteId === selected);
-    box.classList.toggle("reading", !!n);
+    root.classList.toggle("reading", !!n);
     view.replaceChildren();
     if (!n) {
       editingId = null;
-      view.append(el("div", "explorer-empty", all?.length ? "Pick a note to read or edit it." : ""));
       return;
     }
     if (n.noteId !== editingId) {
@@ -181,16 +183,18 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
       status.textContent = "";
     }
     const bar = el("div", "explorer-bar");
-    const backBtn = el("button", "btn explorer-back", "‹ Notes");
+    const backBtn = el("button", "btn explorer-back", "\u2039 All notes");
     backBtn.type = "button";
     backBtn.onclick = () => { flush(); selected = null; paint(); };
-    const title = el("span", "explorer-view-title", noteTitle(n));
-    bar.append(backBtn, title, el("span", "spacer"), status);
+    bar.append(backBtn, el("span", "spacer"), status);
+    const title = el("div", "note-heading", noteTitle(n));
+    title.title = noteTitle(n);
+    const actions = el("div", "explorer-bar actions");
     if (n.live) {
       const go = el("button", "btn", "Go to window");
       go.type = "button";
-      go.onclick = () => { flush(); hooks.goTo(n.live!); close(); };
-      bar.append(go);
+      go.onclick = () => { flush(); hooks.goTo(n.live!); };
+      actions.append(go);
     }
     const copy = el("button", "btn", "Copy");
     copy.type = "button";
@@ -200,7 +204,7 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
         () => hooks.toast("Copy failed: select the text instead"),
       );
     };
-    bar.append(copy);
+    actions.append(copy);
     if (confirming) {
       const yes = el("button", "btn danger", "Delete");
       yes.type = "button";
@@ -208,14 +212,14 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
       const no = el("button", "btn", "Cancel");
       no.type = "button";
       no.onclick = () => { confirming = false; paintView(); };
-      bar.append(el("span", "explorer-ask", n.live ? "Delete? Its window starts a new note." : "Delete for good?"), yes, no);
+      actions.append(el("span", "explorer-ask", n.live ? "Its window starts a new note." : "Delete for good?"), yes, no);
     } else {
       const del = el("button", "btn", "Delete");
       del.type = "button";
       del.onclick = () => { confirming = true; paintView(); };
-      bar.append(del);
+      actions.append(del);
     }
-    view.append(bar, editor);
+    view.append(bar, title, actions, editor);
   }
 
   function flush() {
@@ -231,14 +235,12 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
 
   editor.addEventListener("input", () => {
     dirty = true;
-    status.textContent = "Saving…";
-    // The list follows the text: its excerpt, its time, and what a search finds.
+    status.textContent = "Saving\u2026";
     const n = all?.find((x) => x.noteId === editingId);
     if (n) {
       n.text = editor.value;
       n.updated = new Date().toISOString();
     }
-    paintList();
     clearTimeout(timer);
     timer = setTimeout(flush, SAVE_MS);
   });
@@ -249,54 +251,51 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
     paintView();
   }
 
-  function close() {
-    flush();
-    back.remove();
-    document.removeEventListener("keydown", esc);
-    onClose();
-  }
-  const esc = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    if (confirming) { confirming = false; paintView(); }
-    else if (selected && box.classList.contains("reading") && window.matchMedia("(max-width: 720px)").matches) { selected = null; paint(); }
-    else close();
-  };
   search.oninput = () => paintList();
   search.onkeydown = (e) => {
-    // Enter reads the first match: search, then the note, without the mouse.
-    if (e.key === "Enter") {
-      const first = shown()[0];
-      if (!first) return;
-      // Focus moves to the note mid-keystroke: the Enter must not follow it in.
+    if (e.key === "Escape" && search.value) {
       e.preventDefault();
-      flush();
-      selected = first.noteId;
-      confirming = false;
-      paint();
-      // Straight into the text, at the first word searched for.
-      const w = words(search.value)[0];
-      const at = w ? editor.value.toLowerCase().indexOf(w) : -1;
-      editor.focus();
-      if (at >= 0) {
-        editor.setSelectionRange(at, at + w.length);
-        // A textarea scrolls to its caret only on typing: put the match in view.
-        const line = editor.value.slice(0, at).split("\n").length;
-        editor.scrollTop = Math.max(0, (line - 3) * parseFloat(getComputedStyle(editor).lineHeight || "19"));
-      }
+      search.value = "";
+      paintList();
+      return;
+    }
+    // Enter reads the first match: search, then the note, without the mouse.
+    if (e.key !== "Enter") return;
+    const first = shown()[0];
+    if (!first) return;
+    // Focus moves to the note mid-keystroke: the Enter must not follow it in.
+    e.preventDefault();
+    const w = words(search.value)[0];
+    pick(first.noteId);
+    if (selected !== first.noteId) return; // it was this window's: shown there
+    // Straight into the text, at the first word searched for.
+    const at = w ? editor.value.toLowerCase().indexOf(w) : -1;
+    editor.focus();
+    if (at >= 0) {
+      editor.setSelectionRange(at, at + w.length);
+      // A textarea scrolls to its caret only on typing: put the match in view.
+      const line = editor.value.slice(0, at).split("\n").length;
+      editor.scrollTop = Math.max(0, (line - 3) * parseFloat(getComputedStyle(editor).lineHeight || "19"));
     }
   };
-  shut.onclick = close;
-  back.onclick = (e) => { if (e.target === back) close(); };
-  document.addEventListener("keydown", esc);
-  host.append(back);
   paint();
-  search.focus();
-  hooks.request();
 
   return {
+    activate(focusSearch) {
+      hooks.request();
+      if (focusSearch) {
+        flush();
+        selected = null;
+        paint();
+        search.focus();
+        search.select();
+      }
+    },
+    flush,
     receive(notes) {
       all = notes;
+      // The note open here may have gone while the list was away.
+      if (selected && !notes.some((n) => n.noteId === selected) && !dirty) selected = null;
       paint();
     },
     deleted(noteId) {

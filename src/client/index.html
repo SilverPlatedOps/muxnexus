@@ -23,6 +23,7 @@
     </button>
 
     <aside id="sidebar" aria-label="tmux sessions">
+      <div id="sidebar-grip" class="grip" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
       <header id="brand">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#61afef" stroke-width="1.3" aria-hidden="true">
           <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"></rect>
@@ -31,14 +32,6 @@
         </svg>
         <span class="word">muxnexus</span>
         <span class="spacer"></span>
-        <button id="notes-browse" class="icon-btn" type="button" aria-label="All notes (Command Shift F)" title="All notes &#8984;&#8679;F">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 2.5h6l3 3v4"></path>
-            <path d="M3 2.5v11h5"></path>
-            <circle cx="11" cy="11.5" r="2.2"></circle>
-            <line x1="12.6" y1="13.1" x2="14.2" y2="14.7"></line>
-          </svg>
-        </button>
         <button id="display" class="icon-btn" type="button" aria-label="Display" title="Display">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
             <line x1="2.5" y1="4.5" x2="13.5" y2="4.5"></line>
@@ -61,6 +54,11 @@
         </button>
       </header>
 
+      <div id="side-search">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"></circle><line x1="10.4" y1="10.4" x2="13.5" y2="13.5"></line></svg>
+        <input id="side-search-input" type="search" placeholder="Sessions and windows" aria-label="Search sessions and windows" autocomplete="off" spellcheck="false" />
+        <kbd>&#8984;K</kbd>
+      </div>
       <div id="sessions"></div>
       <!-- A sibling of the footer, not a child: the footer is rebuilt on every
            session render and would take the panel with it. -->
@@ -105,7 +103,6 @@
 
       <div id="wrap" hidden>
         <div id="tabs" hidden></div>
-        <div id="panes">
         <div id="term-shell">
           <div id="pane-main" class="pane">
             <div class="pane-body"><div id="terminal"></div></div>
@@ -133,14 +130,27 @@
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>
             </button>
           </div>
-        </div>
-        <div id="note-divider" role="separator" aria-orientation="vertical" aria-label="Resize the note" hidden></div>
-        <section id="note-pane" class="pane" hidden>
-          <textarea id="note-text" spellcheck="false" aria-label="Note"></textarea>
-        </section>
-        </div>
       </div>
     </main>
+
+    <aside id="notes-panel" aria-label="Notes" hidden>
+      <div id="notes-grip" class="grip" role="separator" aria-orientation="vertical" aria-label="Resize notes" tabindex="0"></div>
+      <header id="notes-head">
+        <div class="notes-tabs" role="tablist">
+          <button id="notes-tab-window" class="notes-tab" type="button" role="tab" title="This window's note (&#8984;&#8679;E)">This window</button>
+          <button id="notes-tab-all" class="notes-tab" type="button" role="tab" title="Search every note (&#8984;&#8679;F)">All notes</button>
+        </div>
+        <span class="spacer"></span>
+        <button id="notes-close" class="icon-btn" type="button" aria-label="Close notes" title="Close notes">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>
+        </button>
+      </header>
+      <section id="notes-window" class="notes-body" role="tabpanel">
+        <div id="note-heading" class="note-heading"></div>
+        <textarea id="note-text" class="note-editor" spellcheck="false" aria-label="This window's note"></textarea>
+      </section>
+      <section id="notes-all" class="notes-body" role="tabpanel" hidden></section>
+    </aside>
   </div>
 </body>
 </html>
