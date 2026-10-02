@@ -343,6 +343,13 @@ function openNotesExplorer() {
       notes.show();
     },
     remove: (noteId) => conn.send({ t: "note-delete", noteId }),
+    save: (noteId, text) => {
+      if (!conn.send({ t: "note-save", noteId, text })) return false;
+      // The server echoes a save to every other browser, not back to this one:
+      // the note pane here hears of it from the explorer instead.
+      notes.receive({ t: "note", noteId, text, updated: new Date().toISOString() });
+      return true;
+    },
     toast: (m) => sidebar.toast(m),
   }, () => { explorer = null; });
 }
@@ -413,6 +420,7 @@ const conn = new Connection(wsUrl, {
         break;
       case "note":
         notes.receive(m);
+        if (m.windowId === undefined) explorer?.updated(m.noteId, m.text, m.updated);
         break;
       case "notes":
         explorer?.receive(m.notes);

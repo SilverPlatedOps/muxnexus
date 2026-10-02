@@ -1,9 +1,14 @@
 /**
  * Every note, searchable: by the session and window it belongs to, or by what
- * it says. Read-only -- a note is written in its pane -- with a way back to the
+ * it says. Each can be edited here as in its pane -- saved the same way, and
+ * yielding to another device's save the same way -- with a way back to the
  * window while it lives, a copy, and a delete.
  */
 import type { NoteSummary } from "../shared/protocol";
+import { takesRemote } from "./notes";
+
+/** A save this long after the last keystroke, as in the note pane. */
+const SAVE_MS = 500;
 
 export const noteTitle = (n: Pick<NoteSummary, "session" | "window">): string =>
   [n.session, n.window].filter(Boolean).join(" › ") || "Untitled";
@@ -73,6 +78,8 @@ export interface ExplorerHooks {
   request(): void;
   goTo(live: NonNullable<NoteSummary["live"]>): void;
   remove(noteId: string): void;
+  /** Whether it went: an edit stays unsaved until one does. */
+  save(noteId: string, text: string): boolean;
   toast(message: string): void;
 }
 
@@ -80,12 +87,23 @@ export interface Explorer {
   receive(notes: NoteSummary[]): void;
   /** A note went, here or on another device. */
   deleted(noteId: string): void;
+  /** Another device saved a note. */
+  updated(noteId: string, text: string, updated: string): void;
 }
 
 export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: () => void): Explorer {
   let all: NoteSummary[] | null = null;
   let selected: string | null = null;
   let confirming = false;
+
+  /** The note in the editor, and whether it holds an edit not yet sent. */
+  let editingId: string | null = null;
+  let dirty = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const editor = el("textarea", "explorer-text");
+  editor.spellcheck = false;
+  editor.setAttribute("aria-label", "Note text");
+  const status = el("span", "explorer-status");
 
   const back = el("div", "modal-back");
   const box = el("div", "move explorer");
@@ -117,7 +135,6 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
 
   function paintList() {
     const notes = shown();
-    if (selected && !notes.some((n) => n.noteId === selected)) selected = null;
     count.textContent = all === null ? "" : `${notes.length}`;
     list.replaceChildren();
     if (all === null) list.append(el("div", "explorer-empty", "Loading…"));
@@ -139,6 +156,7 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
       snip.append(highlighted(excerpt(n.text, search.value), search.value));
       row.append(top, snip);
       row.onclick = () => {
+        flush();
         selected = n.noteId;
         confirming = false;
         paint();
@@ -152,25 +170,32 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
     box.classList.toggle("reading", !!n);
     view.replaceChildren();
     if (!n) {
-      view.append(el("div", "explorer-empty", all?.length ? "Pick a note to read it." : ""));
+      editingId = null;
+      view.append(el("div", "explorer-empty", all?.length ? "Pick a note to read or edit it." : ""));
       return;
+    }
+    if (n.noteId !== editingId) {
+      editingId = n.noteId;
+      editor.value = n.text;
+      dirty = false;
+      status.textContent = "";
     }
     const bar = el("div", "explorer-bar");
     const backBtn = el("button", "btn explorer-back", "‹ Notes");
     backBtn.type = "button";
-    backBtn.onclick = () => { selected = null; paint(); };
+    backBtn.onclick = () => { flush(); selected = null; paint(); };
     const title = el("span", "explorer-view-title", noteTitle(n));
-    bar.append(backBtn, title, el("span", "spacer"));
+    bar.append(backBtn, title, el("span", "spacer"), status);
     if (n.live) {
       const go = el("button", "btn", "Go to window");
       go.type = "button";
-      go.onclick = () => { hooks.goTo(n.live!); close(); };
+      go.onclick = () => { flush(); hooks.goTo(n.live!); close(); };
       bar.append(go);
     }
     const copy = el("button", "btn", "Copy");
     copy.type = "button";
     copy.onclick = () => {
-      navigator.clipboard.writeText(n.text).then(
+      navigator.clipboard.writeText(editor.value).then(
         () => hooks.toast("Note copied"),
         () => hooks.toast("Copy failed: select the text instead"),
       );
@@ -190,10 +215,34 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
       del.onclick = () => { confirming = true; paintView(); };
       bar.append(del);
     }
-    const text = el("pre", "explorer-text");
-    text.append(highlighted(n.text, search.value));
-    view.append(bar, text);
+    view.append(bar, editor);
   }
+
+  function flush() {
+    clearTimeout(timer);
+    if (!dirty || !editingId) return;
+    if (hooks.save(editingId, editor.value)) {
+      dirty = false;
+      status.textContent = "Saved";
+    } else {
+      status.textContent = "Not saved: reconnecting";
+    }
+  }
+
+  editor.addEventListener("input", () => {
+    dirty = true;
+    status.textContent = "Saving…";
+    // The list follows the text: its excerpt, its time, and what a search finds.
+    const n = all?.find((x) => x.noteId === editingId);
+    if (n) {
+      n.text = editor.value;
+      n.updated = new Date().toISOString();
+    }
+    paintList();
+    clearTimeout(timer);
+    timer = setTimeout(flush, SAVE_MS);
+  });
+  editor.addEventListener("blur", flush);
 
   function paint() {
     paintList();
@@ -201,6 +250,7 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
   }
 
   function close() {
+    flush();
     back.remove();
     document.removeEventListener("keydown", esc);
     onClose();
@@ -217,7 +267,23 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
     // Enter reads the first match: search, then the note, without the mouse.
     if (e.key === "Enter") {
       const first = shown()[0];
-      if (first) { selected = first.noteId; confirming = false; paint(); }
+      if (!first) return;
+      // Focus moves to the note mid-keystroke: the Enter must not follow it in.
+      e.preventDefault();
+      flush();
+      selected = first.noteId;
+      confirming = false;
+      paint();
+      // Straight into the text, at the first word searched for.
+      const w = words(search.value)[0];
+      const at = w ? editor.value.toLowerCase().indexOf(w) : -1;
+      editor.focus();
+      if (at >= 0) {
+        editor.setSelectionRange(at, at + w.length);
+        // A textarea scrolls to its caret only on typing: put the match in view.
+        const line = editor.value.slice(0, at).split("\n").length;
+        editor.scrollTop = Math.max(0, (line - 3) * parseFloat(getComputedStyle(editor).lineHeight || "19"));
+      }
     }
   };
   shut.onclick = close;
@@ -237,7 +303,18 @@ export function openExplorer(host: HTMLElement, hooks: ExplorerHooks, onClose: (
       if (!all) return;
       all = all.filter((n) => n.noteId !== noteId);
       if (selected === noteId) { selected = null; confirming = false; }
+      if (editingId === noteId) { clearTimeout(timer); dirty = false; editingId = null; }
       paint();
+    },
+    updated(noteId, text, updated) {
+      const n = all?.find((x) => x.noteId === noteId);
+      if (!n) return; // a note new since the list was read: it shows next time
+      const mine = noteId === editingId;
+      if (mine && !takesRemote({ focused: document.activeElement === editor, dirty })) return;
+      n.text = text;
+      n.updated = updated;
+      if (mine) editor.value = text;
+      paintList();
     },
   };
 }

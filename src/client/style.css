@@ -1204,15 +1204,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .explorer-text {
   flex: 1;
   min-height: 0;
+  width: 100%;
   margin: 0;
   padding: 14px 16px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
   color: var(--fg);
   font: 13px/1.5 var(--mono);
-  user-select: text;
+  tab-size: 2;
 }
+.explorer-status { color: var(--faint); font-size: 11px; }
 .explorer-empty { padding: 18px 14px; color: var(--faint); font-size: 12px; }
 
 /* A phone has room for one column: the list, or the note it opened. */
