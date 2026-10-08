@@ -10,6 +10,7 @@
  */
 import type { ClientMessage, NoteSummary, ServerMessage, WindowInfo } from "../shared/protocol";
 import { createExplorer } from "./explorer";
+import { createNoteEditor } from "./note-editor";
 
 export type NotesTab = "window" | "all";
 
@@ -36,7 +37,8 @@ export interface NoteElements {
   close: HTMLElement;
   windowView: HTMLElement;
   heading: HTMLElement;
-  text: HTMLTextAreaElement;
+  /** Where the editor goes. */
+  text: HTMLElement;
   allView: HTMLElement;
 }
 
@@ -87,6 +89,16 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   let noteId: string | null = null;
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const editor = createNoteEditor({
+    label: "This window's note",
+    onEdit() {
+      dirty = true;
+      clearTimeout(timer);
+      timer = setTimeout(flush, SAVE_MS);
+    },
+    onBlur: () => flush(),
+  });
+  els.text.replaceWith(editor.el);
 
   const remember = () => {
     try { localStorage.setItem(KEY, JSON.stringify({ open, tab })); } catch { /* this browser forgets */ }
@@ -99,7 +111,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     save: (id, text) => {
       if (!host.send({ t: "note-save", noteId: id, text })) return false;
       // The server echoes a save to every other browser, not back to this one.
-      if (id === noteId && !dirty) els.text.value = text;
+      if (id === noteId && !dirty) editor.replace(text);
       return true;
     },
     toast: host.toast,
@@ -123,7 +135,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   function flush() {
     clearTimeout(timer);
     if (!dirty || !noteId) return;
-    if (host.send({ t: "note-save", noteId, text: els.text.value })) dirty = false;
+    if (host.send({ t: "note-save", noteId, text: editor.value })) dirty = false;
   }
 
   function sync() {
@@ -139,9 +151,9 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     windowId = id;
     noteId = null;
     dirty = false;
-    els.text.value = "";
-    els.text.readOnly = true;
-    els.text.placeholder = id ? "Loading…" : "No window";
+    editor.load("");
+    editor.setReadOnly(true);
+    editor.setPlaceholder(id ? "Loading…" : "No window");
     const session = host.session();
     if (id && session) host.send({ t: "note-open", session, id });
   }
@@ -154,7 +166,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     layout();
     sync();
     if (tab === "all") explorer.activate(focus);
-    else if (focus) els.text.focus();
+    else if (focus) editor.focus();
   }
 
   function hide() {
@@ -169,12 +181,6 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     host.focusTerminal();
   }
 
-  els.text.addEventListener("input", () => {
-    dirty = true;
-    clearTimeout(timer);
-    timer = setTimeout(flush, SAVE_MS);
-  });
-  els.text.addEventListener("blur", flush);
   // iPad Safari drops a background tab without warning: save on the way out.
   const away = () => { flush(); explorer.flush(); };
   window.addEventListener("pagehide", away);
@@ -198,15 +204,15 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
         // The answer to an open: only for the window still shown.
         if (m.windowId !== windowId || noteId !== null) return;
         noteId = m.noteId;
-        els.text.value = m.text;
-        els.text.readOnly = false;
-        els.text.placeholder = "Thoughts, the next prompt…";
+        editor.load(m.text);
+        editor.setReadOnly(false);
+        editor.setPlaceholder("Thoughts, the next prompt…");
         dirty = false;
         return;
       }
       explorer.updated(m.noteId, m.text, m.updated);
       if (m.noteId !== noteId) return;
-      if (takesRemote({ focused: document.activeElement === els.text, dirty })) els.text.value = m.text;
+      if (takesRemote({ focused: editor.focused, dirty })) editor.replace(m.text);
     },
     list: (notes) => explorer.receive(notes),
     deleted(id) {

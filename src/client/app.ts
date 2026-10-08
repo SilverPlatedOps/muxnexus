@@ -324,7 +324,7 @@ const notes = createNotes({
   close: document.getElementById("notes-close")!,
   windowView: document.getElementById("notes-window")!,
   heading: document.getElementById("note-heading")!,
-  text: document.getElementById("note-text") as HTMLTextAreaElement,
+  text: document.getElementById("note-text")!,
   allView: document.getElementById("notes-all")!,
 }, {
   send: (m) => conn.send(m),

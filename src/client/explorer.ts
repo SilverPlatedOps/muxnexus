@@ -6,6 +6,7 @@
  * and a delete.
  */
 import type { NoteSummary } from "../shared/protocol";
+import { createNoteEditor } from "./note-editor";
 import { takesRemote } from "./notes";
 
 /** A save this long after the last keystroke, as in the note pane. */
@@ -109,9 +110,21 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
   let editingId: string | null = null;
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const editor = el("textarea", "note-editor");
-  editor.spellcheck = false;
-  editor.setAttribute("aria-label", "Note text");
+  const editor = createNoteEditor({
+    label: "Note text",
+    onEdit() {
+      dirty = true;
+      status.textContent = "Saving\u2026";
+      const n = all?.find((x) => x.noteId === editingId);
+      if (n) {
+        n.text = editor.value;
+        n.updated = new Date().toISOString();
+      }
+      clearTimeout(timer);
+      timer = setTimeout(flush, SAVE_MS);
+    },
+    onBlur: () => flush(),
+  });
   const status = el("span", "explorer-status");
 
   // One column: the search and its list, or the note picked from it.
@@ -178,7 +191,7 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
     }
     if (n.noteId !== editingId) {
       editingId = n.noteId;
-      editor.value = n.text;
+      editor.load(n.text);
       dirty = false;
       status.textContent = "";
     }
@@ -219,7 +232,7 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
       del.onclick = () => { confirming = true; paintView(); };
       actions.append(del);
     }
-    view.append(bar, title, actions, editor);
+    view.append(bar, title, actions, editor.el);
   }
 
   function flush() {
@@ -233,18 +246,6 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
     }
   }
 
-  editor.addEventListener("input", () => {
-    dirty = true;
-    status.textContent = "Saving\u2026";
-    const n = all?.find((x) => x.noteId === editingId);
-    if (n) {
-      n.text = editor.value;
-      n.updated = new Date().toISOString();
-    }
-    clearTimeout(timer);
-    timer = setTimeout(flush, SAVE_MS);
-  });
-  editor.addEventListener("blur", flush);
 
   function paint() {
     paintList();
@@ -271,12 +272,7 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
     // Straight into the text, at the first word searched for.
     const at = w ? editor.value.toLowerCase().indexOf(w) : -1;
     editor.focus();
-    if (at >= 0) {
-      editor.setSelectionRange(at, at + w.length);
-      // A textarea scrolls to its caret only on typing: put the match in view.
-      const line = editor.value.slice(0, at).split("\n").length;
-      editor.scrollTop = Math.max(0, (line - 3) * parseFloat(getComputedStyle(editor).lineHeight || "19"));
-    }
+    if (at >= 0) editor.select(at, at + w.length);
   };
   paint();
 
@@ -309,10 +305,10 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
       const n = all?.find((x) => x.noteId === noteId);
       if (!n) return; // a note new since the list was read: it shows next time
       const mine = noteId === editingId;
-      if (mine && !takesRemote({ focused: document.activeElement === editor, dirty })) return;
+      if (mine && !takesRemote({ focused: editor.focused, dirty })) return;
       n.text = text;
       n.updated = updated;
-      if (mine) editor.value = text;
+      if (mine) editor.replace(text);
       paintList();
     },
   };

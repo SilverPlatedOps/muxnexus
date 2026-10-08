@@ -1240,20 +1240,37 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   font-weight: 600;
   font-size: 12.5px;
 }
-.note-editor {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  padding: 8px 14px 14px;
-  resize: none;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font: 13px/1.55 var(--mono);
-  tab-size: 2;
+/* A note's editor (CodeMirror): under #notes-panel to outrank the base theme
+   it injects at runtime, light selection and all. */
+#notes-panel .note-editor { flex: 1; min-height: 0; background: transparent; color: var(--fg); font: 13px/1.55 var(--mono); }
+#notes-panel .note-editor.cm-focused { outline: none; }
+#notes-panel .note-editor .cm-scroller { font: inherit; line-height: inherit; overflow-y: auto; }
+#notes-panel .note-editor .cm-content { padding: 8px 0 14px; caret-color: var(--accent); }
+#notes-panel .note-editor .cm-line { padding: 0 14px; }
+#notes-panel .note-editor .cm-cursor { border-left: 2px solid var(--accent); }
+#notes-panel .note-editor .cm-selectionBackground { background: var(--chip); }
+#notes-panel .note-editor .cm-placeholder { color: var(--faint); }
+
+/* Markdown as it is typed (live-markdown.ts): the marks fold away off the
+   caret's line, and these are what is left. */
+.cm-md-h { color: var(--fg-strong); font-weight: 700; }
+.cm-md-h1 { font-size: 16px; }
+.cm-md-h2 { font-size: 14.5px; }
+.cm-md-h3 { font-size: 13.5px; }
+.cm-md-strong { color: var(--fg-strong); font-weight: 700; }
+.cm-md-em { font-style: italic; }
+.cm-md-strike, .cm-md-done { color: var(--muted); text-decoration: line-through; }
+.cm-md-code { padding: 1px 3px; background: var(--well); border-radius: 4px; font-size: 12px; }
+.cm-md-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.cm-md-bullet { color: var(--muted); }
+.cm-md-task { margin: 0 4px 0 0; vertical-align: -1px; accent-color: var(--accent); cursor: pointer; }
+#notes-panel .note-editor .cm-line.cm-md-quote {
+  padding-left: 24px;
+  color: var(--muted);
+  background: linear-gradient(var(--edge), var(--edge)) 14px 0 / 2px 100% no-repeat;
 }
-.note-editor::placeholder { color: var(--faint); }
+.cm-md-codeblock { background: var(--well); font-size: 12px; }
+.cm-md-fence { color: var(--faint); }
 
 /* "All notes": the search and its list, or the note picked from it. */
 #notes-all .explorer-listview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
