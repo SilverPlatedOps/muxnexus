@@ -893,6 +893,53 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #empty .btn { height: 32px; padding: 0 14px; font-weight: 600; font-size: 12px; border-radius: 6px; border-color: var(--accent); color: var(--fg-strong); }
 
 #overlay { display: none; }
+
+/* ---------- find in scrollback: one row floating over the terminal's corner ---------- */
+
+#find {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 9px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+#find > svg { flex: none; }
+#find-input {
+  width: 200px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  outline: none;
+  color: var(--fg-strong);
+  font: 12px var(--mono);
+}
+#find-input:focus { border-color: var(--accent); }
+/* Wide enough for "12/345", so the buttons hold still while the count changes. */
+#find-count { min-width: 6ch; text-align: center; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+#find-count.none { color: var(--red); }
+#find .row-btn { color: var(--muted); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 #brand .close { display: none; }
 
 /* ---------- phone: the sidebar becomes a drawer, rows become 44px ---------- */
