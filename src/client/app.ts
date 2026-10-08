@@ -68,6 +68,7 @@ const term = createTerminal(termEl, {
   onInput: (d) => conn.sendInput(d),
   onResize: (cols, rows) => conn.send({ t: "resize", cols, rows }),
   onScroll: (lines) => conn.send({ t: "scroll", lines }),
+  onSearch: (s) => { if (!findEl.hidden) paintFind(s); },
 });
 
 function onPhone(): boolean {
@@ -175,7 +176,7 @@ function paintAll() {
 // ---- find in scrollback ----
 
 function paintFind(s: { total: number; index: number }) {
-  findCount.textContent = findInput.value === "" ? "" : s.total === 0 ? "0" : `${s.index}/${s.total}`;
+  findCount.textContent = findInput.value === "" ? "" : s.total === 0 ? "0" : s.index ? `${s.index}/${s.total}` : `${s.total}`;
   findCount.classList.toggle("none", findInput.value !== "" && s.total === 0);
 }
 

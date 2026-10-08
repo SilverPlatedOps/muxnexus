@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
@@ -17,6 +18,8 @@ export interface TerminalHandlers {
   onResize(cols: number, rows: number): void;
   /** The wheel, over a program that did not ask for the mouse: rows of history to scroll, negative up. */
   onScroll(lines: number): void;
+  /** An open search's matches changed as the screen redrew. */
+  onSearch?(s: SearchState): void;
 }
 
 /**
@@ -68,6 +71,24 @@ const THEME = {
   brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
 };
 
+/**
+ * Search marks in amber, the colour terminals search in; decorations take
+ * #RRGGBB only. The addon tracks the match you are on by selecting it, and the
+ * selection paints over its mark, so while a search is open the selection
+ * itself takes the active colour, in white, so a dimmed line still reads.
+ */
+const MATCH = "#5a4a26";
+const ACTIVE = "#9a7a32";
+const FIND: ISearchOptions = {
+  decorations: {
+    matchBackground: MATCH,
+    matchOverviewRuler: MATCH,
+    activeMatchBackground: ACTIVE,
+    activeMatchColorOverviewRuler: ACTIVE,
+  },
+};
+const FINDING = { ...THEME, selectionBackground: ACTIVE, selectionInactiveBackground: ACTIVE, selectionForeground: "#ffffff" };
+
 export function createTerminal(container: HTMLElement, h: TerminalHandlers): TerminalView {
   const term = new Terminal({
     fontFamily: '"JetBrains Mono", Menlo, monospace',
@@ -77,6 +98,7 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     macOptionIsMeta: true,
     scrollback: 1000,
     theme: THEME,
+    allowProposedApi: true, // the search addon's match marks are decorations, still a proposed API
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -121,48 +143,28 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
   });
 
   let reported = "";
-  // Search over the scrollback buffer: xterm gives us the lines, selection does
-  // the highlighting. A match that wraps across two rows is not found.
-  interface Match { row: number; col: number }
-  let matches: Match[] = [];
-  let at = -1;
+  // Search the buffer with xterm's addon: it marks every match and finds them
+  // again as tmux redraws the screen, where a mark placed once would sit on
+  // whatever text moved under it. A new query lands on the newest match.
+  const search = new SearchAddon();
+  term.loadAddon(search);
   let query = "";
-
-  const state = (): SearchState => ({ total: matches.length, index: at < 0 ? 0 : at + 1 });
-
-  function show(i: number): SearchState {
-    const m = matches[i];
-    if (!m) {
-      term.clearSelection();
-      return state();
-    }
-    at = i;
-    term.scrollToLine(Math.max(0, m.row - Math.floor(term.rows / 2)));
-    term.select(m.col, m.row, query.length);
-    return state();
-  }
-
+  let found: SearchState = { total: 0, index: 0 };
+  search.onDidChangeResults(({ resultIndex, resultCount }) => {
+    found = { total: resultCount, index: resultIndex + 1 }; // -1, past the highlight limit, becomes 0
+    h.onSearch?.(found);
+  });
+  const step = (find: (q: string, o: ISearchOptions) => boolean): SearchState => {
+    if (query) find(query, FIND);
+    return found;
+  };
   function scan(next: string): SearchState {
     query = next;
-    matches = [];
-    at = -1;
+    found = { total: 0, index: 0 };
+    search.clearDecorations();
     term.clearSelection();
-    if (!next) return state();
-    const buf = term.buffer.active;
-    const needle = next.toLowerCase();
-    for (let row = 0; row < buf.length; row++) {
-      const text = buf.getLine(row)?.translateToString(true).toLowerCase();
-      if (!text) continue;
-      for (let col = text.indexOf(needle); col !== -1; col = text.indexOf(needle, col + needle.length)) {
-        matches.push({ row, col });
-      }
-    }
-    return matches.length ? show(matches.length - 1) : state(); // newest match first
-  }
-
-  function step(delta: number): SearchState {
-    if (!matches.length) return state();
-    return show((at + delta + matches.length) % matches.length);
+    term.options.theme = next ? FINDING : THEME;
+    return step((q, o) => search.findPrevious(q, o));
   }
 
   const fitAndReport = () => {
@@ -179,9 +181,9 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     reset: () => term.reset(),
     fit: fitAndReport,
     focus: () => term.focus(),
-    search: (q) => (q === query ? state() : scan(q)),
-    findNext: () => step(1),
-    findPrev: () => step(-1),
+    search: (q) => (q === query ? found : scan(q)),
+    findNext: () => step((q, o) => search.findNext(q, o)),
+    findPrev: () => step((q, o) => search.findPrevious(q, o)),
     clearSearch: () => { scan(""); },
     get cols() { return term.cols; },
     get rows() { return term.rows; },
