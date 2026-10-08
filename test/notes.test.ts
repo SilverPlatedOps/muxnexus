@@ -3,9 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerMessage } from "../src/shared/protocol";
-import { createNoteStore, isNoteId } from "../src/server/notes";
+import { createNoteStore, isNoteId, pickOrphan } from "../src/server/notes";
 import { createServer } from "../src/server/server";
-import { Tmux } from "../src/server/tmux";
+import { conversationIds, Tmux } from "../src/server/tmux";
 import { takesRemote } from "../src/client/notes";
 import { clampWidth } from "../src/client/resize";
 import { ago, excerpt, noteMatches, noteTitle } from "../src/client/explorer";
@@ -214,6 +214,110 @@ test("the explorer lists notes with their window, and a delete frees the window"
     expect(reopened.t === "note" && reopened.text).toBe("");
   } finally {
     ws.close();
+    srv.stop();
+    await tmux.killServer();
+  }
+});
+
+// ---- a note follows its conversation into a new window ----
+
+test("a window's conversation ids: the one it holds, and the one it was forked from", () => {
+  expect(conversationIds({ sessionId: "F", transcriptPath: "/a/F.jsonl" }, { sessionId: "F", transcriptPath: "/b/S.jsonl" })).toEqual(["F", "S"]);
+  expect(conversationIds({ sessionId: "S", transcriptPath: "/a/S.jsonl" }, null)).toEqual(["S"]);
+  expect(conversationIds(null, null)).toEqual([]);
+});
+
+test("a note remembers every conversation it was written beside, without being touched", async () => {
+  const dir = scratch();
+  const store = createNoteStore(dir);
+  await store.link(ID, ["S"]); // nothing written yet: nothing to remember
+  expect(existsSync(join(dir, `${ID}.json`))).toBe(false);
+  await store.write(ID, "text", { session: "s", window: "w", conversations: ["S"] });
+  const updated = (await store.read(ID)).updated;
+  await store.link(ID, ["F", "S"]);
+  await store.write(ID, "text", { session: "s", window: "w", conversations: ["G"] });
+  const [n] = await store.list();
+  expect(n!.meta.conversations).toEqual(["S", "F", "G"]);
+  await store.link(ID, ["S"]);
+  expect((await store.read(ID)).updated >= updated).toBe(true);
+});
+
+test("an orphan is a written note no window wears, newest first, of the same conversation", () => {
+  const note = (noteId: string, text: string, updated: string, conversations: string[]) =>
+    ({ noteId, text, updated, meta: { conversations } });
+  const stored = [
+    note("old", "older", "2026-10-01T00:00:00Z", ["S"]),
+    note("new", "newer", "2026-10-08T00:00:00Z", ["S", "F"]),
+    note("blank", " ", "2026-10-09T00:00:00Z", ["S"]),
+    note("other", "x", "2026-10-09T00:00:00Z", ["T"]),
+  ];
+  expect(pickOrphan(stored, new Set(), ["F"])).toBe("new");
+  expect(pickOrphan(stored, new Set(["new"]), ["S"])).toBe("old");
+  expect(pickOrphan(stored, new Set(["new", "old"]), ["S"])).toBeNull();
+  expect(pickOrphan(stored, new Set(), [])).toBeNull();
+});
+
+test("a note follows its conversation to a new window, never taken from a live one, never over a written one", async () => {
+  const SOCK = "cmux-viewer-test-notes-follow";
+  const tmux = new Tmux(SOCK);
+  await tmux.killServer();
+  const dir = scratch();
+  const srv = createServer({ hosts: ["127.0.0.1"], port: 0, socketName: SOCK, pollMs: 100, notesDir: dir });
+  const sh = (...a: string[]) => Bun.spawnSync(["tmux", "-L", SOCK, ...a]).stdout.toString().trim();
+  const holding = (win: string, session: string) => sh("set-option", "-p", "-t", win, "@muxnexus_session", `${session} /tmp/${session}.jsonl`);
+  const newWindow = () => sh("new-window", "-d", "-t", "follow:", "-P", "-F", "#{window_id}");
+  const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, { headers: { Origin: `http://127.0.0.1:${srv.port}` } } as any);
+  const got: ServerMessage[] = [];
+  ws.onmessage = (e) => { if (typeof e.data === "string") got.push(JSON.parse(e.data)); };
+  await new Promise<void>((res) => { ws.onopen = () => res(); });
+  const open = async (id: string) => {
+    const before = got.filter((m) => m.t === "note").length;
+    ws.send(JSON.stringify({ t: "note-open", session: "follow", id }));
+    await waitFor(() => got.filter((m) => m.t === "note").length > before, 3000, "note");
+    const m = got.filter((x) => x.t === "note").at(-1)!;
+    if (m.t !== "note") throw new Error("unreachable");
+    return m;
+  };
+  const save = async (noteId: string, text: string) => {
+    ws.send(JSON.stringify({ t: "note-save", noteId, text }));
+    await waitFor(() => existsSync(join(dir, `${noteId}.md`)) && readFileSync(join(dir, `${noteId}.md`), "utf8") === text, 3000, "saved");
+  };
+  try {
+    await tmux.newSession("follow");
+    const first = sh("display", "-p", "-t", "follow:", "#{window_id}");
+    holding(first, "S1");
+    const kept = await open(first);
+    await save(kept.noteId, "keep me");
+
+    // The tab dies; the conversation is resumed in a new one.
+    const second = newWindow();
+    sh("kill-window", "-t", first);
+    holding(second, "S1");
+    const followed = await open(second);
+    expect(followed).toMatchObject({ noteId: kept.noteId, text: "keep me" });
+
+    // A third tab of the same conversation does not take it from the second.
+    const third = newWindow();
+    holding(third, "S1");
+    expect((await open(third)).noteId).not.toBe(kept.noteId);
+
+    // A blank note, opened before the resume, gives way to the orphan...
+    const fourth = newWindow();
+    const blank = await open(fourth);
+    expect(blank.text).toBe("");
+    sh("kill-window", "-t", second);
+    holding(fourth, "S1");
+    expect(await open(fourth)).toMatchObject({ noteId: kept.noteId, text: "keep me" });
+
+    // ...but a written one is never replaced.
+    const fifth = newWindow();
+    const mine = await open(fifth);
+    await save(mine.noteId, "mine");
+    sh("kill-window", "-t", fourth);
+    holding(fifth, "S1");
+    expect(await open(fifth)).toMatchObject({ noteId: mine.noteId, text: "mine" });
+    ws.close();
+  } finally {
     srv.stop();
     await tmux.killServer();
   }

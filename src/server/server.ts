@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
-import { createNoteStore, isNoteId } from "./notes";
+import { createNoteStore, isNoteId, pickOrphan } from "./notes";
 
 /**
  * What a new window runs for each agent the client may ask for. The client only
@@ -145,6 +145,40 @@ export function createServer(opts: ServerOptions): RunningServer {
   const allowedHosts = allowedHostList(opts.hosts, opts.allowHosts ?? []);
   /** The last quota read, so a socket opening between polls is not blank for a minute. */
   let lastUsage: ServerMessage | null = null;
+
+  /**
+   * The note a window wears, stamping one the first time. A window whose note
+   * is blank and whose conversation an earlier tab left a written note beside
+   * -- a tab that died, its conversation resumed here -- wears that one
+   * instead. A note a live window wears is never taken, and a written one is
+   * never replaced.
+   */
+  async function noteFor(session: string, id: string): Promise<string> {
+    const { noteId, conversations } = await tmux.noteStamp(session, id);
+    if (conversations.length) {
+      if (!noteId || (await notes.read(noteId)).text.trim() === "") {
+        const orphan = pickOrphan(await notes.list(), await tmux.wornNotes(), conversations);
+        if (orphan) {
+          await tmux.stampNote(session, id, orphan, false);
+          return orphan;
+        }
+      }
+      if (noteId) await notes.link(noteId, conversations);
+    }
+    return noteId ?? (await tmux.noteOf(session, id)).noteId;
+  }
+
+  // Notes written before conversations were recorded: tied to their windows'
+  // now, so a tab that dies from here on still leaves one that can be found.
+  void inTurn(async () => {
+    for (const s of await tmux.listSessions().catch(() => [])) {
+      for (const w of s.windows) {
+        if (!w.noteId || !w.conversation) continue;
+        const { conversations } = await tmux.noteStamp(s.name, w.id).catch(() => ({ conversations: [] as string[] }));
+        await notes.link(w.noteId, conversations).catch(() => {});
+      }
+    }
+  });
 
   function send(ws: Socket, m: ServerMessage) {
     if (ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(m));
@@ -458,7 +492,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         }
         case "note-open": {
           if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid note-open" });
-          const { noteId } = await tmux.noteOf(m.session, m.id);
+          const noteId = await inTurn(() => noteFor(m.session, m.id));
           const note = await notes.read(noteId);
           send(ws, { t: "note", noteId, windowId: m.id, ...note });
           break; // the poll after carries the stamp to every tab strip
@@ -475,8 +509,14 @@ export function createServer(opts: ServerOptions): RunningServer {
             const sessions = await tmux.listSessions().catch(() => []);
             const s = sessions.find((x) => x.windows.some((v) => v.noteId === m.noteId));
             const w = s?.windows.find((x) => x.noteId === m.noteId);
+            const conversations = s && w ? (await tmux.noteStamp(s.name, w.id).catch(() => null))?.conversations ?? [] : [];
             const meta = s && w
-              ? { session: s.customName ?? s.label ?? s.name, window: w.customName ?? w.label ?? w.name, ...(w.agent?.checkout ? { cwd: w.agent.checkout } : {}) }
+              ? {
+                session: s.customName ?? s.label ?? s.name,
+                window: w.customName ?? w.label ?? w.name,
+                ...(w.agent?.checkout ? { cwd: w.agent.checkout } : {}),
+                ...(conversations.length ? { conversations } : {}),
+              }
               : null;
             return { note: await notes.write(m.noteId, m.text, meta), w };
           });

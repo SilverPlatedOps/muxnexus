@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +23,12 @@ export interface NoteMeta {
   session: string;
   window: string;
   cwd?: string;
+  /**
+   * The Claude conversations the window held while the note was beside it. A
+   * tab that dies leaves its note behind; the tab its conversation is resumed
+   * in finds it again by these (pickOrphan).
+   */
+  conversations?: string[];
 }
 
 export interface Note {
@@ -33,6 +40,22 @@ export interface Note {
 export interface StoredNote extends Note {
   noteId: string;
   meta: Partial<NoteMeta>;
+}
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+const union = (a: readonly string[], b: readonly string[]) => [...new Set([...a, ...b])];
+
+/**
+ * The note a window holding one of `ids` should wear instead of a blank one:
+ * a written note no window wears, recorded beside one of those conversations,
+ * the newest if several are. Never one a live window still wears.
+ */
+export function pickOrphan(stored: readonly StoredNote[], worn: ReadonlySet<string>, ids: readonly string[]): string | null {
+  if (!ids.length) return null;
+  const hit = stored
+    .filter((n) => !worn.has(n.noteId) && n.text.trim() !== "" && (n.meta.conversations ?? []).some((c) => ids.includes(c)))
+    .sort((a, b) => b.updated.localeCompare(a.updated))[0];
+  return hit?.noteId ?? null;
 }
 
 export function createNoteStore(dir: string = NOTES_DIR) {
@@ -67,6 +90,7 @@ export function createNoteStore(dir: string = NOTES_DIR) {
         if (typeof raw.session === "string") meta.session = raw.session;
         if (typeof raw.window === "string") meta.window = raw.window;
         if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
+        if (Array.isArray(raw.conversations)) meta.conversations = strings(raw.conversations);
         return { noteId, text, updated: typeof raw.updated === "string" ? raw.updated : "", meta };
       }));
     },
@@ -85,8 +109,20 @@ export function createNoteStore(dir: string = NOTES_DIR) {
       await put(path(id, "md"), text);
       // A window killed while its note was open still saves; the last known
       // place it came from is kept rather than blanked.
-      await put(path(id, "json"), JSON.stringify({ ...old, ...(meta ?? {}), created: old.created ?? updated, updated }, null, 2));
+      const conversations = union(strings(old.conversations), meta?.conversations ?? []);
+      await put(path(id, "json"), JSON.stringify({
+        ...old, ...(meta ?? {}), ...(conversations.length ? { conversations } : {}), created: old.created ?? updated, updated,
+      }, null, 2));
       return { text, updated };
+    },
+
+    /** Remember `ids` beside a written note, leaving its text and time as they were. */
+    async link(id: string, ids: readonly string[]): Promise<void> {
+      if (!isNoteId(id) || !ids.length || !existsSync(path(id, "md"))) return;
+      const old = JSON.parse(await readFile(path(id, "json"), "utf8").catch(() => "{}"));
+      const had = strings(old.conversations);
+      if (ids.every((c) => had.includes(c))) return;
+      await put(path(id, "json"), JSON.stringify({ ...old, conversations: union(had, ids) }, null, 2));
     },
   };
 }

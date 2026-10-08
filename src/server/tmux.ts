@@ -89,6 +89,17 @@ export function parseSession(raw: string): ConversationInfo | null {
 }
 
 /**
+ * Every conversation id a window answers to: the one it holds, and -- for a
+ * fork made by a move -- the one the fork was made from, named by its
+ * transcript's file. A note is matched to a window by any of them.
+ */
+export function conversationIds(session: ConversationInfo | null, from: ConversationInfo | null): string[] {
+  const fileId = (p: string) => p.split("/").pop()?.replace(/\.jsonl$/, "") ?? "";
+  const ids = [session?.sessionId, from?.sessionId, from ? fileId(from.transcriptPath) : ""];
+  return [...new Set(ids.filter((x): x is string => !!x))];
+}
+
+/**
  * The transcript to resume a tab's conversation from.
  *
  * Normally the stamped one. But a fork's file is written on its first message,
@@ -871,6 +882,27 @@ export class Tmux {
     await this.run(["set-option", "-w", "-t", target, "@muxnexus_note", fresh]);
     await this.run(["set-option", "-w", "-t", target, "@muxnexus_note_empty", "1"]);
     return { noteId: fresh, cwd: cwd ?? "" };
+  }
+
+  /** The note a window wears, if any, and the conversations it answers to; nothing is stamped. */
+  async noteStamp(session: string, id: string): Promise<{ noteId: string | null; conversations: string[] }> {
+    const target = await this.windowTarget(session, id);
+    const raw = await this.run(["display", "-p", "-t", target, "#{@muxnexus_note}\t#{@muxnexus_session}\t#{@muxnexus_from}"]);
+    const [noteId, held, from] = raw.replace(/\n$/, "").split("\t");
+    return { noteId: noteId || null, conversations: conversationIds(parseSession(held ?? ""), parseSession(from ?? "")) };
+  }
+
+  /** Every note some live window wears. */
+  async wornNotes(): Promise<Set<string>> {
+    const out = await this.run(["list-windows", "-a", "-F", "#{@muxnexus_note}"]).catch(() => "");
+    return new Set(lines(out).filter(Boolean));
+  }
+
+  /** Put `noteId` on a window, in place of whatever it wore. */
+  async stampNote(session: string, id: string, noteId: string, empty: boolean): Promise<void> {
+    const target = await this.windowTarget(session, id);
+    await this.run(["set-option", "-w", "-t", target, "@muxnexus_note", noteId]);
+    await this.run(["set-option", "-w", "-t", target, "@muxnexus_note_empty", empty ? "1" : "0"]);
   }
 
   /** Take a deleted note off whatever window wears it, so that window's next note starts afresh. */

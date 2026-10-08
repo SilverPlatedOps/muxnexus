@@ -89,6 +89,8 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   let noteId: string | null = null;
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** The conversation the window held when last looked at. */
+  let conversation: string | undefined;
   const editor = createNoteEditor({
     label: "This window's note",
     onEdit() {
@@ -144,7 +146,21 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     els.heading.textContent = w ? `✎ ${host.ownerPlace()}` : "";
     els.heading.title = els.heading.textContent;
     const id = w?.id ?? null;
-    if (id === windowId) return;
+    const held = w?.conversation?.sessionId;
+    if (id === windowId) {
+      // The tab took up a conversation while its note was blank: ask again, in
+      // case an earlier tab of that conversation left a note to wear instead.
+      if (held !== conversation && noteId && !dirty && !editor.focused && editor.value.trim() === "") {
+        const session = host.session();
+        if (session && id) {
+          noteId = null;
+          host.send({ t: "note-open", session, id });
+        }
+      }
+      conversation = held;
+      return;
+    }
+    conversation = held;
     // The old note's edit goes out under the old note's id before anything of
     // the new one arrives: a late save must never land on the wrong window.
     flush();
