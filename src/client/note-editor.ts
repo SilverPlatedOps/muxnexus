@@ -5,9 +5,12 @@
  */
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
+import { syntaxHighlighting } from "@codemirror/language";
+import { codeLanguages } from "./code-languages";
+import { classHighlighter } from "@lezer/highlight";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderText } from "@codemirror/view";
-import { livePreview } from "./live-markdown";
+import { livePreview, setFocus } from "./live-markdown";
 
 export interface NoteEditorHooks {
   /** Aria label of the text. */
@@ -44,7 +47,10 @@ export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
   const extensions = () => [
     history(),
     keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
-    markdown({ base: markdownLanguage }),
+    // A fenced block's language loads when one first appears; its tokens get
+    // `tok-*` classes, coloured only inside code blocks (style.css).
+    markdown({ base: markdownLanguage, codeLanguages }),
+    syntaxHighlighting(classHighlighter),
     livePreview,
     EditorView.lineWrapping,
     // CodeMirror owns its root's class list: a class added by hand is dropped on the next update.
@@ -66,6 +72,8 @@ export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
     get focused() { return view.hasFocus; },
     load(text) {
       view.setState(EditorState.create({ doc: text, extensions: extensions() }));
+      // A new state starts unfocused; the editor may well have the keys.
+      if (view.hasFocus) view.dispatch({ effects: setFocus.of(true) });
     },
     replace(text) {
       if (text === view.state.doc.toString()) return;

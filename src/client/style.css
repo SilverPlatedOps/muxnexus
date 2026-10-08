@@ -1260,7 +1260,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .cm-md-strong { color: var(--fg-strong); font-weight: 700; }
 .cm-md-em { font-style: italic; }
 .cm-md-strike, .cm-md-done { color: var(--muted); text-decoration: line-through; }
-.cm-md-code { padding: 1px 3px; background: var(--well); border-radius: 4px; font-size: 12px; }
+/* Inline code: a chip around the code alone, its backticks (when shown) dimmed outside it. */
+.cm-md-code { padding: 1px 4px; background: var(--well); border: 1px solid var(--line); border-radius: 4px; color: var(--fg-strong); font-size: 12px; }
 .cm-md-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .cm-md-bullet { color: var(--muted); }
 .cm-md-task { margin: 0 4px 0 0; vertical-align: -1px; accent-color: var(--accent); cursor: pointer; }
@@ -1269,8 +1270,59 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   color: var(--muted);
   background: linear-gradient(var(--edge), var(--edge)) 14px 0 / 2px 100% no-repeat;
 }
-.cm-md-codeblock { background: var(--well); font-size: 12px; }
+/* A code block: a box inset from the panel's edges, drawn behind its lines
+   (CodeMirror measures lines, so the box is a pseudo-element, not a margin). */
+#notes-panel .note-editor .cm-line.cm-md-codeblock { position: relative; z-index: 0; padding: 0 24px; font-size: 12px; }
+.cm-md-codeblock::before {
+  content: "";
+  position: absolute;
+  inset: 0 10px;
+  z-index: -1;
+  background: var(--well);
+  border: solid var(--line);
+  border-width: 0 1px;
+}
+#notes-panel .note-editor .cm-line.cm-md-codeblock-first { padding-top: 5px; }
+#notes-panel .note-editor .cm-line.cm-md-codeblock-last { padding-bottom: 5px; }
+.cm-md-codeblock-first::before { top: 1px; border-top-width: 1px; border-radius: 6px 6px 0 0; }
+.cm-md-codeblock-last::before { bottom: 1px; border-bottom-width: 1px; border-radius: 0 0 6px 6px; }
+.cm-md-codeblock-first.cm-md-codeblock-last::before { border-radius: 6px; }
+/* The closing fence, folded: a thin bottom edge rather than an empty line. */
+#notes-panel .note-editor .cm-line.cm-md-codeblock-close { font-size: 1px; line-height: 3px; }
 .cm-md-fence { color: var(--faint); }
+.cm-md-codelang { color: var(--faint); font-size: 11px; }
+.cm-md-copy {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  padding: 1px 7px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 11px/1.5 var(--mono);
+  cursor: pointer;
+}
+.cm-md-copy:hover { color: var(--fg-strong); border-color: var(--edge); }
+
+/* Code tokens in the terminal's One Dark, inside code blocks only: the same
+   classes land on markdown's own tokens, which must keep their look. */
+.cm-md-codeblock :is(.tok-keyword, .tok-operator.tok-keyword) { color: #c678dd; }
+.cm-md-codeblock :is(.tok-string, .tok-inserted) { color: #98c379; }
+.cm-md-codeblock :is(.tok-string2, .tok-operator, .tok-url) { color: #56b6c2; }
+.cm-md-codeblock :is(.tok-number, .tok-bool, .tok-atom, .tok-literal, .tok-variableName2) { color: #d19a66; }
+.cm-md-codeblock :is(.tok-typeName, .tok-className, .tok-namespace, .tok-macroName) { color: #e5c07b; }
+.cm-md-codeblock :is(.tok-propertyName, .tok-deleted) { color: #e06c75; }
+.cm-md-codeblock .tok-definition { color: #61afef; }
+.cm-md-codeblock :is(.tok-comment, .tok-meta) { color: #7f848e; font-style: italic; }
+.cm-md-codeblock .tok-invalid { color: var(--red); }
+
+/* A table the caret is not in: a grid. Wide ones scroll inside their box. */
+.cm-md-table-wrap { margin: 2px 14px 6px; overflow-x: auto; cursor: text; }
+.cm-md-table { border-collapse: collapse; font-size: 12px; }
+.cm-md-table :is(th, td) { padding: 3px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cm-md-table th { background: var(--group); color: var(--fg-strong); font-weight: 600; }
+.cm-md-table tbody tr:nth-child(even) td { background: color-mix(in oklab, var(--group) 45%, transparent); }
 
 /* "All notes": the search and its list, or the note picked from it. */
 #notes-all .explorer-listview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
