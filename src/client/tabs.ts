@@ -198,8 +198,12 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
 
   function confirmFor(w: WindowInfo): HTMLElement {
     const c = el("div", "tab-menu confirm");
-    // Named by what the tab shows: its index is not on screen any more.
-    c.append(el("span", "label", `Kill ${tabLabel(w)}?`));
+    // Named by what the tab shows: its index is not on screen any more. The
+    // name is its own span so it can ellipsise -- a tab wearing a raw shell
+    // title would otherwise stretch the row until the buttons leave the strip.
+    const label = el("span", "label");
+    label.append("Kill", el("span", "who", tabLabel(w)));
+    c.append(label);
     const yes = button("btn danger", "Kill");
     yes.onclick = (e) => {
       e.stopPropagation();
@@ -335,6 +339,20 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       const r = more.getBoundingClientRect();
       menu.style.top = `${r.bottom + 4}px`;
       menu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+    }
+    // A tab's own menu hangs off that tab, so one opened far along the strip
+    // runs past the column's clipped edge and takes its buttons with it. The
+    // strip is the boundary, not the viewport: the notes panel covers the gap
+    // between the two whenever it is open.
+    for (const m of root.querySelectorAll<HTMLElement>(":scope > .tab > .tab-menu")) {
+      m.style.maxWidth = `${Math.max(120, root.clientWidth - 16)}px`;
+      const strip = root.getBoundingClientRect();
+      // Slid, not re-anchored: `left` is read against the tab's own box and
+      // feeds back into how wide this one is allowed to be, while a translate
+      // moves the box it just measured by exactly as much as it overhangs.
+      const box = m.getBoundingClientRect();
+      const shift = Math.round(Math.max(strip.right - 8 - box.right, strip.left + 8 - box.left));
+      if (shift < 0) m.style.transform = `translateX(${shift}px)`;
     }
   }
 
