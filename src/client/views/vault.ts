@@ -1095,7 +1095,8 @@ export function createVaultView(): View {
     cam.y += (cam.ty - cam.y) * k;
     worldLayer.scale.set(cam.s);
     worldLayer.position.set(Math.round(app.screen.width / 2 - cam.x * cam.s), Math.round(app.screen.height / 2 - cam.y * cam.s));
-    const tagScale = clamp(1 / cam.s, 1, 1.7);
+    // Tags and plates keep one size on screen whatever the zoom: they are read, not looked at.
+    const tagScale = clamp(1 / cam.s, 0.45, 1.7);
 
     // Outside: the real time of day, the chosen weather, a little parallax.
     const phase = skyAt(new Date(host?.now() ?? Date.now()));
