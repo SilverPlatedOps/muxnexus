@@ -41,10 +41,11 @@ export const POSE_ART: Record<Pose, string> = { "hand-up": handUp, calm, typing,
  * A room in four pieces: its two ends and its centrepiece stay put, and a plain
  * strip of wall fills between them, so a floor of any width keeps its features once.
  */
+const OFFICE = { left: officeL, centre: officeC, right: officeR, fill: officeF };
 export const ROOM_ART: Record<RoomType, { left: string; centre: string; right: string; fill: string }> = {
-  office: { left: officeL, centre: officeC, right: officeR, fill: officeF },
-  // The glass office is the vault's alone; here it falls back to the open office.
-  glass: { left: officeL, centre: officeC, right: officeR, fill: officeF },
+  // The glass office is the vault's alone; this view does not offer it, and would draw it as the open office.
+  glass: OFFICE,
+  office: OFFICE,
   war: { left: warL, centre: warC, right: warR, fill: warF },
   study: { left: studyL, centre: studyC, right: studyR, fill: studyF },
   lounge: { left: loungeL, centre: loungeC, right: loungeR, fill: loungeF },

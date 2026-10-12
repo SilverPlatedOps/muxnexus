@@ -153,6 +153,8 @@ export function createVaultView(): View {
   let stopTick: (() => void) | null = null;
   let focusTaken = false;
   let alive = false;
+  /** Each mount's boot carries its own number: a boot from an earlier mount gives up. */
+  let mountNo = 0;
 
   // ---- the page parts: top bar, stage, generator, card, and the keyboard's list ----
   const root = el("div", "bld vlt");
@@ -186,14 +188,15 @@ export function createVaultView(): View {
     const raw = pref("rooms", {}, isRecord);
     return Object.fromEntries(Object.entries(raw).filter(([, v]) => ROOM_CHOICES.includes(v as RoomType))) as Record<string, RoomType>;
   }
-  /** Floors whose lights are off, by floor key. */
-  function darkFloors(): Set<string> {
-    const raw = pref("dark", [] as string[], (v): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string"));
-    return new Set(raw);
+  /** Floors whose lights are off, by floor key, and the chosen weather: read once a second, not every frame. */
+  let darkCache = new Set<string>();
+  let weatherCache: Weather = "clear";
+  function readPrefs() {
+    darkCache = new Set(pref("dark", [] as string[], (v): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string")));
+    weatherCache = pref<Weather>("weather", "clear", (v): v is Weather => WEATHERS.includes(v as Weather));
   }
-  function weather(): Weather {
-    return pref<Weather>("weather", "clear", (v): v is Weather => WEATHERS.includes(v as Weather));
-  }
+  const darkFloors = () => darkCache;
+  const weather = () => weatherCache;
 
   // ---- top bar ----
   const clockEl = el("span", "bld-clock");
@@ -209,6 +212,7 @@ export function createVaultView(): View {
   weatherBtn.onclick = () => {
     const next = WEATHERS[(WEATHERS.indexOf(weather()) + 1) % WEATHERS.length];
     host?.prefs.set("weather", JSON.stringify(next));
+    readPrefs();
     paintHud();
   };
   const toTerminal = button("bld-btn");
@@ -399,10 +403,11 @@ export function createVaultView(): View {
   });
 
   function toggleLights(key: string) {
-    const dark = darkFloors();
+    const dark = new Set(darkFloors());
     if (dark.has(key)) dark.delete(key);
     else dark.add(key);
     host?.prefs.set("dark", JSON.stringify([...dark]));
+    readPrefs();
   }
 
   // ---- the renderer ----
@@ -431,14 +436,15 @@ export function createVaultView(): View {
 
   const reduced = () => host?.reducedMotion() ?? false;
 
-  async function boot() {
+  async function boot(no: number) {
+    const current = () => alive && no === mountNo;
     const mod = (await import(/* @vite-ignore */ pixiUrl)) as typeof Pixi;
-    if (!alive) return;
+    if (!current()) return;
     P = mod;
     P.TextureStyle.defaultOptions.scaleMode = "nearest";
     const a = new P.Application();
     await a.init({ resizeTo: stage, background: 0x0d1838, antialias: false, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1), preference: "webgl" });
-    if (!alive) {
+    if (!current()) {
       a.destroy(true, { children: true });
       return;
     }
@@ -452,8 +458,8 @@ export function createVaultView(): View {
       ...Object.fromEntries(Object.entries(PET_PICTURE.cat).map(([k, v]) => [`cat:${k}`, v])),
       ...Object.fromEntries(Object.entries(PET_PICTURE.dog).map(([k, v]) => [`dog:${k}`, v])),
     };
-    const loaded = await Promise.all(Object.entries(urls).map(async ([k, u]) => [k, await P!.Assets.load<Pixi.Texture>(u)] as const));
-    if (!alive) return;
+    const loaded = await Promise.all(Object.entries(urls).map(async ([k, u]) => [k, await mod.Assets.load<Pixi.Texture>(u)] as const));
+    if (!current() || app !== a) return;
     tex = Object.fromEntries(loaded);
     // Seated figures are cut at the desktop: only their top shows above it.
     for (const k of ["typing", "hand-up", "calm", "asleep", "ghost"]) {
@@ -657,9 +663,10 @@ export function createVaultView(): View {
     const live = new Set(people().map((p) => p.id));
     for (const [id, d] of desks) {
       if (live.has(id)) continue;
-      d.root.destroy({ children: true });
-      d.face.destroy();
-      d.tag.destroy({ children: true });
+      // A desk whose floor went is already destroyed with it.
+      if (!d.root.destroyed) d.root.destroy({ children: true });
+      if (!d.face.destroyed) d.face.destroy();
+      if (!d.tag.destroyed) d.tag.destroy({ children: true });
       desks.delete(id);
     }
     worldLayer.addChild(car, rideLayer);
@@ -690,7 +697,7 @@ export function createVaultView(): View {
     return new P!.Text({ text: t, style: { fontFamily: family, fontSize: size, fill, fontWeight: weight }, resolution: 3 });
   }
 
-  function makeFloor(fl: Floor): FloorVis {
+  function makeFloor(fl: Pick<Floor, "key">): FloorVis {
     const p = P!;
     const v: FloorVis = {
       key: fl.key,
@@ -720,10 +727,10 @@ export function createVaultView(): View {
     v.plate.eventMode = "static";
     v.plate.cursor = "pointer";
     v.plate.on("pointertap", () => {
-      // The plate furnishes the floor: each tap tries the next room type.
-      const cur = ROOM_CHOICES.indexOf(fl.room);
-      const next = ROOM_CHOICES[(cur + 1) % ROOM_CHOICES.length];
-      if (v.key === "archived") return;
+      // The plate furnishes the floor: each tap tries the next room type. Read now, not when the floor was made.
+      const now = model?.floors.find((f) => f.key === v.key);
+      if (!now || now.kind === "basement") return;
+      const next = ROOM_CHOICES[(ROOM_CHOICES.indexOf(now.room) + 1) % ROOM_CHOICES.length];
       host?.prefs.set("rooms", JSON.stringify({ ...rooms(), [v.key]: next }));
       draw();
     });
@@ -904,7 +911,9 @@ export function createVaultView(): View {
       s.anchor.set(0.5, 1);
       s.eventMode = "static";
       s.cursor = "pointer";
-      const pet: PetVis = { kind, sprite: s, floor: home.key, x: layout.room.x + layout.room.w - (kind === "cat" ? 90 : 300), steps: [], until: 0, act: "sit", goal: "", touchedUntil: 0 };
+      const pet: PetVis = { kind, sprite: s, floor: home.key, x: layout.room.x + layout.room.w - (kind === "cat" ? 90 : 300), steps: [], until: 0, act: "walk", goal: "", touchedUntil: 0 };
+      // Touched, a pet answers: hovering, the cat stretches and the dog wags; a click gets a heart too.
+      s.on("pointerover", () => { pet.touchedUntil = performance.now() + 700; });
       s.on("pointertap", () => {
         pet.touchedUntil = performance.now() + 900;
         heart(pet);
@@ -1026,7 +1035,17 @@ export function createVaultView(): View {
             rideLayer?.addChild(s);
             carTarget = toY;
           }
-        } else if (Math.abs(carY - toY) < 1) {
+        } else if (!to) {
+          // The floor it was going to has gone: the ride ends, and the pet goes home.
+          pet.steps = [];
+          pet.act = "walk";
+          liftBusy = null;
+          const home = homeFloor();
+          if (home) moveToFloor(pet, home.key, (layout?.room.x ?? 0) + 200);
+        } else if (Math.abs(carY - toY) >= 1) {
+          // Sent every frame: a rebuild mid-ride must not leave the car parked.
+          carTarget = toY;
+        } else {
           moveToFloor(pet, step.to, pet.x);
           pet.steps.shift();
           pet.act = "walk";
@@ -1034,7 +1053,7 @@ export function createVaultView(): View {
         }
       }
     } else if (step.kind === "stay") {
-      if (pet.act !== step.act) {
+      if (pet.act === "walk" || pet.act === "ride") {
         pet.act = step.act;
         pet.until = now + step.ms;
       }
@@ -1079,7 +1098,7 @@ export function createVaultView(): View {
     const tagScale = clamp(1 / cam.s, 1, 1.7);
 
     // Outside: the real time of day, the chosen weather, a little parallax.
-    const phase = skyAt(new Date());
+    const phase = skyAt(new Date(host?.now() ?? Date.now()));
     if (phase !== skyPhase) {
       skyPhase = phase;
       sky.texture = tex[`sky:${phase}`];
@@ -1288,6 +1307,7 @@ export function createVaultView(): View {
   // ---- the model, once a second and on every push ----
   function draw() {
     if (!host) return;
+    readPrefs();
     paintHud();
     if (!world) return;
     model = deriveBuilding(world, host.now(), rooms());
@@ -1316,13 +1336,14 @@ export function createVaultView(): View {
     mount(h) {
       host = h;
       alive = true;
+      mountNo++;
       gen.replaceChildren(el("span", "bld-gen-title", "generator"), el("div", "bld-fuels"));
       root.tabIndex = -1;
       root.replaceChildren(hud, stage, gen, card);
       h.root.replaceChildren(root);
       stopTick = h.tick(1, draw);
       draw();
-      boot().catch((e) => {
+      boot(mountNo).catch((e) => {
         note.textContent = `The vault could not open: ${e instanceof Error ? e.message : String(e)}`;
         if (!note.isConnected) stage.prepend(note);
       });
@@ -1348,9 +1369,15 @@ export function createVaultView(): View {
       desks.clear();
       pets.length = 0;
       drops.length = 0;
-      dropsFor = structure = "";
+      dropsFor = structure = skyPhase = "";
       layout = null;
       liftBusy = null;
+      tex = {};
+      propSprites.length = 0;
+      bowlAt = bedAt = null;
+      Object.assign(cam, { x: 0, y: 0, s: 1, tx: 0, ty: 0, ts: 1, manual: false });
+      carY = carTarget = 0;
+      nextFlash = 0;
       host = null;
       focusTaken = false;
       carded = null;

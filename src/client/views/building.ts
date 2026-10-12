@@ -219,7 +219,8 @@ export function createBuildingView(): View {
     const meta = el("span", "bld-plate-meta");
     const pick = el("select", "bld-roompick");
     pick.setAttribute("aria-label", "Room type");
-    for (const r of ROOM_CHOICES) {
+    // The glass office needs the vault's see-through windows; this view has no art for it.
+    for (const r of ROOM_CHOICES.filter((x) => x !== "glass")) {
       const o = el("option", undefined, ROOM_LABEL[r]);
       o.value = r;
       pick.append(o);
