@@ -55,6 +55,12 @@ function phase(id: string, periodMs: number): string {
 function setPose(holder: Element, pose: Pose) {
   const [a, b] = holder.children as unknown as [HTMLImageElement, HTMLImageElement];
   const on = b.classList.contains("on") ? b : a;
+  // A new person appears as they are; only a change of pose fades.
+  if (!on.dataset.pose) {
+    on.src = POSE_ART[pose];
+    on.dataset.pose = pose;
+    return;
+  }
   if (on.dataset.pose === pose && on.classList.contains("on")) return;
   const off = on === a ? b : a;
   if (off.dataset.pose !== pose) {
@@ -175,6 +181,8 @@ export function createBuildingView(): View {
   dogBox.append(img("bld-dog", PET_ART.dogSit));
   dogBox.onclick = (e) => { e.stopPropagation(); heart(dogBox); };
 
+  let trotEnd: ReturnType<typeof setTimeout> | null = null;
+
   function placePets(b: Building) {
     const catFloor = b.floors.find((f) => f.room === "study") ?? b.floors.find((f) => f.kind !== "basement");
     const catRoom = catFloor ? floors.get(`${catFloor.kind}:${catFloor.key}`)?.querySelector(".bld-room") ?? null : null;
@@ -193,7 +201,8 @@ export function createBuildingView(): View {
       // Along its own floor it trots over; to another floor it simply turns up there.
       const trots = dogBox.parentElement === where && dogBox.style.left !== "" && left !== "";
       dogBox.classList.toggle("trot", trots);
-      if (trots) setTimeout(() => dogBox.classList.remove("trot"), 1400);
+      if (trotEnd) clearTimeout(trotEnd);
+      trotEnd = trots ? setTimeout(() => dogBox.classList.remove("trot"), 1400) : null;
       dogBox.style.left = left;
     }
     dogBox.title = wait ? "the dog sits with whoever has waited longest" : "the dog";
@@ -354,8 +363,6 @@ export function createBuildingView(): View {
   const cardActs = el("div", "bld-card-acts");
   cardActs.append(el("kbd", undefined, "↵"), " sit with them");
   card.append(cardHead, cardState, cardList, cardActs);
-  /** Who the card was last placed beside, so it moves only when that changes. */
-  let cardAt = "";
 
   function makeJob(): HTMLElement {
     const li = el("li");
@@ -369,7 +376,6 @@ export function createBuildingView(): View {
     const fl = carded ? floorOf(carded) : null;
     if (!p || !d || !fl || !host) {
       card.classList.remove("show");
-      cardAt = "";
       return;
     }
     const now = host.now();
@@ -391,17 +397,18 @@ export function createBuildingView(): View {
       setText(name, s.name);
       setText(what, sheetLine(s, now));
     });
-    const at = `${p.id}:${p.sheets.length}`;
-    if (at !== cardAt || !card.classList.contains("show")) {
-      cardAt = at;
+    // Placed on every paint: the desk moves when its floor scrolls or the window changes size.
+    {
       // Beside the desk, flipped to its left when the right edge is near.
       const r = d.getBoundingClientRect();
       const box = root.getBoundingClientRect();
       const w = card.offsetWidth;
       const right = r.right - box.left + 8;
       const x = right + w > box.width - 8 ? r.left - box.left - w - 8 : right;
-      card.style.left = `${Math.max(8, x)}px`;
-      card.style.top = `${Math.max(8, Math.min(r.top - box.top, box.height - card.offsetHeight - 8))}px`;
+      const left = `${Math.max(8, x)}px`;
+      const top = `${Math.max(8, Math.min(r.top - box.top, box.height - card.offsetHeight - 8))}px`;
+      if (card.style.left !== left) card.style.left = left;
+      if (card.style.top !== top) card.style.top = top;
     }
     card.classList.add("show");
   }
@@ -485,7 +492,9 @@ export function createBuildingView(): View {
     const z = Math.max(0.6, Math.min(1, room / (floorCount * FLOOR_PX + 16)));
     setVar(tower, "--z", z.toFixed(3));
   }
-  const resize = new ResizeObserver(fit);
+  const resize = new ResizeObserver(() => { fit(); if (carded) paintCard(); });
+  tower.addEventListener("scroll", () => { if (carded) paintCard(); }, { passive: true });
+  shell.addEventListener("scroll", () => { if (carded) paintCard(); }, { passive: true, capture: true });
 
   // ---- draw ----
   function draw() {
@@ -562,7 +571,8 @@ export function createBuildingView(): View {
       carded = null;
       cardFromKeys = false;
       card.classList.remove("show");
-      cardAt = "";
+      if (trotEnd) clearTimeout(trotEnd);
+      trotEnd = null;
       for (const t of looking.values()) if (t) clearTimeout(t);
       looking.clear();
       floors.clear();
