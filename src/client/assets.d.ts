@@ -3,3 +3,9 @@ declare module "*.png" {
   const url: string;
   export default url;
 }
+
+/** A prebuilt module, imported as a file: Bun serves it at a URL, loaded only when needed. */
+declare module "*/pixi.min.mjs" {
+  const url: string;
+  export default url;
+}

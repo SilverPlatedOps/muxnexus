@@ -22,8 +22,11 @@ export interface PetWorld {
 export type PetAct = "sit" | "eat" | "nap" | "visit";
 export interface Errand { to: PetPlace; then: PetAct; stayMs: number }
 
-/** Where a pet sits beside a desk: the dog at its left, the cat at its right. */
-const BESIDE = { dog: -28, cat: 24 } as const;
+/**
+ * Where a pet sits by a desk: the dog at its left, the cat past the right end,
+ * where an idle person stands -- close enough to be petted.
+ */
+const BESIDE = { dog: -28, cat: 88 } as const;
 const MARGIN = { left: 120, right: 60 };
 
 export function planErrand(kind: PetKind, here: PetPlace, world: PetWorld, rand: () => number = Math.random): Errand {

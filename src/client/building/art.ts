@@ -43,13 +43,15 @@ export const POSE_ART: Record<Pose, string> = { "hand-up": handUp, calm, typing,
  */
 export const ROOM_ART: Record<RoomType, { left: string; centre: string; right: string; fill: string }> = {
   office: { left: officeL, centre: officeC, right: officeR, fill: officeF },
+  // The glass office is the vault's alone; here it falls back to the open office.
+  glass: { left: officeL, centre: officeC, right: officeR, fill: officeF },
   war: { left: warL, centre: warC, right: warR, fill: warF },
   study: { left: studyL, centre: studyC, right: studyR, fill: studyF },
   lounge: { left: loungeL, centre: loungeC, right: loungeR, fill: loungeF },
   storage: { left: storageL, centre: storageC, right: storageR, fill: storageF },
 };
 
-export const DESK_ART: Record<RoomType, string> = { office: deskOffice, war: deskWar, study: deskStudy, lounge: deskOffice, storage: deskStudy };
+export const DESK_ART: Record<RoomType, string> = { office: deskOffice, glass: deskOffice, war: deskWar, study: deskStudy, lounge: deskOffice, storage: deskStudy };
 
 export const SKY_ART = sky;
 export const LIFT_ART = lift;

@@ -40,7 +40,7 @@ describe("planErrand", () => {
     expect(planErrand("cat", place("a", 10), world, rand(0.1)).to).toEqual(place("b", 660));
     expect(planErrand("cat", place("a", 10), world, rand(0.45)).then).toBe("eat");
     expect(planErrand("cat", place("a", 10), { ...world, longestIdle: place("a", 400) }, rand(0.65)))
-      .toEqual({ to: place("a", 424), then: "visit", stayMs: 15_000 });
+      .toEqual({ to: place("a", 488), then: "visit", stayMs: 15_000 });
     expect(planErrand("cat", place("a", 10), world, rand(0.65)).then).toBe("sit");
   });
 

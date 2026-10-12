@@ -47,10 +47,10 @@ export interface Person {
   alt: string;
 }
 /** A floor's room: its walls and props, and the desks its people spawn with. Decor, chosen per floor. */
-export type RoomType = "office" | "war" | "study" | "lounge" | "storage";
+export type RoomType = "office" | "glass" | "war" | "study" | "lounge" | "storage";
 /** What the plate's picker offers; storage is the basement's alone. */
-export const ROOM_CHOICES: readonly RoomType[] = ["office", "war", "study", "lounge"];
-export const ROOM_LABEL: Record<RoomType, string> = { office: "open office", war: "war room", study: "study", lounge: "lounge", storage: "storage" };
+export const ROOM_CHOICES: readonly RoomType[] = ["office", "glass", "war", "study", "lounge"];
+export const ROOM_LABEL: Record<RoomType, string> = { office: "open office", glass: "glass office", war: "war room", study: "study", lounge: "lounge", storage: "storage" };
 
 export interface Floor { key: string; name: string; kind: "group" | "lobby" | "basement"; room: RoomType; people: Person[] }
 export interface QueueEntry { ref: WindowRef; label: string; wait: string }
