@@ -76,6 +76,8 @@ export function createBuildingView(): View {
   let selected: string | null = null;
   /** The person the card is about, while it shows. */
   let carded: string | null = null;
+  /** The card came from the arrows: it follows the selection, and a passing mouse hands it back. */
+  let cardFromKeys = false;
   let stopTick: (() => void) | null = null;
   let focusTaken = false;
 
@@ -100,8 +102,10 @@ export function createBuildingView(): View {
   /** What the room picker remembers: a room per floor key, in this browser. */
   function rooms(): Record<string, RoomType> {
     try {
-      const raw = JSON.parse(host?.prefs.get("rooms") ?? "{}");
-      return raw && typeof raw === "object" ? raw : {};
+      const raw: unknown = JSON.parse(host?.prefs.get("rooms") ?? "{}");
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+      // Only what the picker could have written survives: a damaged pref heals on the next pick.
+      return Object.fromEntries(Object.entries(raw).filter(([, v]) => ROOM_CHOICES.includes(v as RoomType))) as Record<string, RoomType>;
     } catch {
       return {};
     }
@@ -157,10 +161,15 @@ export function createBuildingView(): View {
     if (catRoom && catBox.parentElement !== catRoom) catRoom.append(catBox);
     if (!catRoom) catBox.remove();
 
+    // In the room beside the desk -- not inside the desk, where touching the dog would touch the desk,
+    // nor in the row, whose children are the desks alone (a stranger there gets it rebuilt, and focus lost).
     const wait = b.longestWait ? desks.get(b.longestWait) ?? null : null;
+    const row = wait?.parentElement ?? null;
     const top = b.floors[0];
-    const where = wait ?? (top ? floors.get(`${top.kind}:${top.key}`)?.querySelector(".bld-room") ?? null : null);
+    const where = row?.parentElement ?? (top ? floors.get(`${top.kind}:${top.key}`)?.querySelector(".bld-room") ?? null : null);
     dogBox.classList.toggle("by-desk", !!wait);
+    const left = wait && row ? `${row.offsetLeft + wait.offsetLeft - 20}px` : "";
+    if (dogBox.style.left !== left) dogBox.style.left = left;
     dogBox.title = wait ? "the dog sits with whoever has waited longest" : "the dog";
     if (where && dogBox.parentElement !== where) where.append(dogBox);
     if (!where) dogBox.remove();
@@ -210,7 +219,7 @@ export function createBuildingView(): View {
     };
     d.onfocus = () => { selected = d.dataset.session ?? null; paintSelection(); };
     d.onmouseenter = () => showCard(d.dataset.session ?? null);
-    d.onmouseleave = () => showCard(null);
+    d.onmouseleave = () => showCard(cardFromKeys ? selected : null);
     return d;
   }
 
@@ -360,6 +369,7 @@ export function createBuildingView(): View {
     const d = desks.get(selected);
     d?.focus({ preventScroll: true });
     d?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    cardFromKeys = true;
     showCard(selected);
   }
 
@@ -370,12 +380,15 @@ export function createBuildingView(): View {
       e.preventDefault();
       move(...step[e.key]);
     } else if (e.key === "Escape") {
+      cardFromKeys = false;
       showCard(null);
     }
     // Enter and Space on a focused desk are its click.
   });
   root.addEventListener("focusout", (e) => {
-    if (!root.contains(e.relatedTarget as Node | null)) showCard(null);
+    if (root.contains(e.relatedTarget as Node | null)) return;
+    cardFromKeys = false;
+    showCard(null);
   });
 
   // ---- fit: every floor on screen, down to 60 %, before the tower scrolls ----
@@ -462,6 +475,8 @@ export function createBuildingView(): View {
       floorCount = 0;
       focusTaken = false;
       carded = null;
+      cardFromKeys = false;
+      card.hidden = true;
       floors.clear();
       desks.clear();
       pills.clear();

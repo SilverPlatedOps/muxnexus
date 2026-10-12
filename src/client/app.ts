@@ -147,7 +147,8 @@ function paintMain() {
     sidebarBefore = layout.classList.contains("collapsed");
     layout.classList.add("collapsed");
   } else if (!full && sidebarBefore !== null) {
-    layout.classList.toggle("collapsed", sidebarBefore);
+    // Put it back only if it is still folded: a ⌘B while the view was up was the user's say.
+    if (layout.classList.contains("collapsed")) layout.classList.toggle("collapsed", sidebarBefore);
     sidebarBefore = null;
   }
   viewToggle.hidden = views.chosen() === "terminal";

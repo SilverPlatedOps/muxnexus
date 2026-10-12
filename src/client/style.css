@@ -2366,7 +2366,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .bld-cat-box { right: 24px; bottom: 30px; }
 .bld-cat { display: block; height: 30px; }
 .bld-dog-box { left: 24px; bottom: 26px; }
-.bld-dog-box.by-desk { left: -20px; bottom: 26px; }
+.bld-dog-box.by-desk { bottom: 26px; z-index: 6; }
 .bld-dog { display: block; height: 42px; }
 .bld-dog-box:hover .bld-dog { animation: bld-wag .3s steps(1) 2; }
 @keyframes bld-wag { 50% { transform: scaleX(-1); } }
