@@ -878,3 +878,48 @@ test("closing the socket while a view is being made leaves no view behind", asyn
   await Bun.sleep(300);
   await waitFor(async () => (await allSessionIds()).length === before.length, 3000, "no stray view");
 });
+
+// ---- local files, for the file:// links a program prints ----
+
+describe("/file", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "muxnexus-file-"));
+    writeFileSync(join(dir, "shot.png"), new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]));
+    writeFileSync(join(dir, "page.html"), "<script>alert(1)</script>");
+    writeFileSync(join(dir, "main.ts"), "export const x = 1;\n");
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const get = (path: string, headers: Record<string, string> = {}) =>
+    fetch(`http://127.0.0.1:${server.port}/file?path=${encodeURIComponent(path)}`, { headers });
+
+  test("an image comes back as itself, to show in the browser", async () => {
+    const res = await get(join(dir, "shot.png"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]));
+  });
+
+  test("anything else is plain text in a sandbox, so a page or script never runs as ours", async () => {
+    for (const name of ["page.html", "main.ts"]) {
+      const res = await get(join(dir, name));
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+      expect(res.headers.get("content-security-policy")).toBe("sandbox");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    }
+  });
+
+  test("a missing file, a directory or a relative path is not found", async () => {
+    for (const p of [join(dir, "gone.png"), dir, "shot.png"]) expect((await get(p)).status).toBe(404);
+  });
+
+  test("refuses a Host that is not ours", async () => {
+    expect((await get(join(dir, "shot.png"), { Host: "evil.example" })).status).toBe(403);
+  });
+
+  test("opens from this page, never embedded in another site's", async () => {
+    expect((await get(join(dir, "shot.png"), { "Sec-Fetch-Site": "same-origin" })).status).toBe(200);
+    expect((await get(join(dir, "shot.png"), { "Sec-Fetch-Site": "cross-site" })).status).toBe(403);
+  });
+});

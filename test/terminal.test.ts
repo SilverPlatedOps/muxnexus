@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { debounce, wheelLines } from "../src/client/terminal";
+import { debounce, linkTarget, wheelLines } from "../src/client/terminal";
 
 test("debounce collapses rapid calls into the last one", async () => {
   const calls: number[] = [];
@@ -24,4 +24,15 @@ test("the wheel scrolls by whole rows, keeping a trackpad's small deltas until t
 test("line and page deltas are rows already, or a screenful of them", () => {
   expect(wheelLines(0, { deltaY: 3, deltaMode: 1 }, 15, 40).lines).toBe(3);
   expect(wheelLines(0, { deltaY: -1, deltaMode: 2 }, 15, 40).lines).toBe(-40);
+});
+
+test("a link opens on the web as itself, a local file through the server, anything else not at all", () => {
+  expect(linkTarget("https://example.com/a?b=1")).toBe("https://example.com/a?b=1");
+  expect(linkTarget("file:///private/tmp/a%20b/shot.png")).toBe(`/file?path=${encodeURIComponent("/private/tmp/a b/shot.png")}`);
+  expect(linkTarget("file://localhost/tmp/x.ts#L3")).toBe(`/file?path=${encodeURIComponent("/tmp/x.ts")}`);
+  expect(linkTarget("file://otherhost/etc/hosts")).toBeNull();
+  expect(linkTarget("javascript:alert(1)")).toBeNull();
+  expect(linkTarget("vscode://file/tmp/x")).toBeNull();
+  expect(linkTarget("not a url")).toBeNull();
+  expect(linkTarget("file:///tmp/100%zz.png")).toBeNull();
 });

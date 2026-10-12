@@ -39,6 +39,23 @@ export function wheelLines(
   return { lines, rest: total - lines };
 }
 
+/**
+ * Where a link opens: a web one as itself, a local file (Claude Code links the
+ * images it writes) through the server, which can read it -- this page cannot
+ * open file:// itself. Any other scheme, `javascript:` among them, not at all.
+ */
+export function linkTarget(uri: string): string | null {
+  try {
+    const url = new URL(uri);
+    if (url.protocol === "http:" || url.protocol === "https:") return uri;
+    // Another machine's file is not this one's, whatever its path.
+    if (url.protocol === "file:" && (url.hostname === "" || url.hostname === "localhost")) return `/file?path=${encodeURIComponent(decodeURIComponent(url.pathname))}`;
+  } catch {
+    // not a URL, or a file path with a broken %-escape
+  }
+  return null;
+}
+
 /** Where the viewer is in the current search: 1-based index of `total` matches. */
 export interface SearchState {
   total: number;
@@ -100,9 +117,14 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     theme: THEME,
     allowProposedApi: true, // the search addon's match marks are decorations, still a proposed API
     // A link a program printed with its own text (OSC 8) opens in a new tab,
-    // as a bare URL does, instead of behind xterm's confirm() dialog. xterm
-    // only offers http(s) ones.
-    linkHandler: { activate: (_ev, uri) => { window.open(uri, "_blank", "noopener"); } },
+    // as a bare URL does, instead of behind xterm's confirm() dialog.
+    linkHandler: {
+      allowNonHttpProtocols: true, // file:// too; linkTarget turns away the rest
+      activate: (_ev, uri) => {
+        const target = linkTarget(uri);
+        if (target) window.open(target, "_blank", "noopener");
+      },
+    },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);

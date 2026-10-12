@@ -2,8 +2,9 @@ import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo } from "../shared/protocol";
 import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
@@ -122,6 +123,30 @@ export function hostAllowed(host: string | null, allowed: readonly string[]): bo
   const name = hostOnly(host);
   if (name === "") return false;
   return allowed.some((a) => hostOnly(a) === name);
+}
+
+/** Sent as their own type: a browser shows these and runs nothing in them. */
+const SHOWN_AS_IS = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]);
+
+/**
+ * A local file a program linked to (`file:///...`), for the browser to show.
+ * Anything but a picture or a PDF goes as plain text -- Bun would call a `.ts`
+ * file MPEG video -- and all of it in a sandbox: an HTML or SVG file served as
+ * itself would run as this page, and this page can type into every terminal.
+ */
+async function serveFile(path: string | null): Promise<Response> {
+  const notFound = new Response("Not found", { status: 404 });
+  if (!path || !isAbsolute(path)) return notFound;
+  if (!(await stat(path).catch(() => null))?.isFile()) return notFound;
+  const file = Bun.file(path);
+  const type = file.type.split(";")[0];
+  return new Response(file, {
+    headers: {
+      "Content-Type": SHOWN_AS_IS.has(type) ? type : "text/plain; charset=utf-8",
+      "Content-Security-Policy": "sandbox",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 export function createServer(opts: ServerOptions): RunningServer {
@@ -619,7 +644,18 @@ export function createServer(opts: ServerOptions): RunningServer {
     development: { hmr: false },
     routes: opts.index ? { "/": opts.index } : {},
     fetch(req, srv) {
-      if (new URL(req.url).pathname === "/ws") {
+      const url = new URL(req.url);
+      if (url.pathname === "/file") {
+        // The same rebinding guard as the socket's: a name pointed at this
+        // machine must not be able to read its files.
+        if (!hostAllowed(req.headers.get("host"), allowedHosts)) return new Response("Forbidden: unrecognised Host", { status: 403 });
+        // Opened from this page or typed in; never embedded by another site's,
+        // which could otherwise learn whether a file exists and its size.
+        const site = req.headers.get("sec-fetch-site");
+        if (site !== null && site !== "same-origin" && site !== "none") return new Response("Forbidden: cross-site", { status: 403 });
+        return serveFile(url.searchParams.get("path"));
+      }
+      if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
         // policy, so any page open in the user's browser could otherwise
         // connect and send keystrokes. Neither check is authentication: the
