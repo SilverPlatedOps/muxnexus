@@ -174,3 +174,10 @@ describe("nextWaiting", () => {
     expect(nextWaiting([ses("$9", "x", [win("@9")])], null)).toBeNull();
   });
 });
+
+describe("buildWorld: accounts", () => {
+  test("an account says whether it is signed in", () => {
+    const usage = [{ id: "a", label: "alpha", provider: "claude" as const, windows: [], state: "signed-out" as const, checkedAt: T(0) }];
+    expect(buildWorld(input([], { usage })).accounts).toEqual([{ label: "alpha", provider: "claude", windows: [], state: "signed-out" }]);
+  });
+});

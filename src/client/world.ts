@@ -88,6 +88,7 @@ export interface WorldAccount {
   label: string;
   provider: UsageSource["provider"];
   windows: UsageWindow[];
+  state: UsageSource["state"];
 }
 
 export interface World {
@@ -217,7 +218,7 @@ export function buildWorld(input: WorldInput): World {
     groups,
     attention: sumAttention(groups.map((g) => g.attention)),
     queue,
-    accounts: input.usage.map((u) => ({ label: u.label, provider: u.provider, windows: u.windows })),
+    accounts: input.usage.map((u) => ({ label: u.label, provider: u.provider, windows: u.windows, state: u.state })),
   };
 }
 
