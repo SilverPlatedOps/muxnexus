@@ -330,6 +330,9 @@ export function createSidebar(
 
   function drawFoot() {
     if (!foot) return;
+    // Keep an open prompt, and what is typed in it: with agents running, a
+    // state push redraws the sidebar every few seconds.
+    if (ui.editing === "new-session" && foot.querySelector("input")) return;
     foot.replaceChildren(ui.editing === "new-session" ? newSessionPrompt() : newSessionButton());
     if (ui.editing === "new-session") (foot.firstElementChild as HTMLInputElement | null)?.focus();
   }
