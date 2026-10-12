@@ -50,6 +50,7 @@ export interface Floor { key: string; name: string; kind: "group" | "lobby" | "b
 export interface QueueEntry { ref: WindowRef; label: string; wait: string }
 export interface Fuel {
   label: string;
+  provider: World["accounts"][number]["provider"];
   letter: string;
   slot: number | null;
   percent: number | null;
@@ -147,6 +148,7 @@ export function deriveBuilding(world: World, now: number): Building {
     const badge = a.provider === "opencode" ? null : profileBadge(a.label, labels);
     return {
       label: a.label,
+      provider: a.provider,
       letter: badge?.initial ?? a.label.slice(0, 1).toUpperCase(),
       slot: badge?.slot ?? null,
       percent,

@@ -17,6 +17,13 @@ const BLOCKS = 10;
 
 const colour = (slot: number | null) => (slot === null ? NEUTRAL : PALETTE[slot % PALETTE.length]);
 
+/** When an empty account comes back: a clock time within the day, else how long. */
+function backAt(resetsAt: string, now: number): string {
+  const ms = Date.parse(resetsAt) - now;
+  if (ms > 0 && ms < 20 * 3600_000) return `back at ${new Date(resetsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `back in ${formatReset(resetsAt, now)}`;
+}
+
 function img(cls: string): HTMLImageElement {
   const i = el("img", cls);
   i.alt = "";
@@ -35,6 +42,7 @@ export function createBuildingView(): View {
   /** The selected person, by session id; kept across pushes while the session lives. */
   let selected: string | null = null;
   let stopTick: (() => void) | null = null;
+  let focusTaken = false;
 
   const root = el("div", "bld");
   const hud = el("div", "bld-hud");
@@ -163,7 +171,7 @@ export function createBuildingView(): View {
     const reset = f.resetsAt ? formatReset(f.resetsAt, now) : "";
     setText(text, f.signedOut ? "signed out"
       : f.percent === null ? "no reading"
-      : f.level === "empty" ? `empty${f.resetsAt ? ` · back at ${new Date(f.resetsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
+      : f.level === "empty" ? `empty${f.resetsAt ? ` · ${backAt(f.resetsAt, now)}` : ""}`
       : `${f.percent}%${reset ? ` · ${reset}` : ""}`);
   }
 
@@ -235,7 +243,7 @@ export function createBuildingView(): View {
 
     const seenF = new Set<string>();
     const seenD = new Set<string>();
-    place(tower, model.floors, (f) => f.key, floors, seenF, makeFloor, (f, fl) => patchFloor(f, fl, seenD));
+    place(tower, model.floors, (f) => `${f.kind}:${f.key}`, floors, seenF, makeFloor, (f, fl) => patchFloor(f, fl, seenD));
     sweep(floors, seenF);
     sweep(desks, seenD);
     if (floorCount !== model.floors.length) {
@@ -245,12 +253,16 @@ export function createBuildingView(): View {
 
     const seenG = new Set<string>();
     const fuelRow = gen.querySelector<HTMLElement>(".bld-fuels")!;
-    place(fuelRow, model.fuel, (f) => f.label, fuels, seenG, makeFuel, (r, f) => patchFuel(r, f, now));
+    place(fuelRow, model.fuel, (f) => `${f.provider}:${f.label}`, fuels, seenG, makeFuel, (r, f) => patchFuel(r, f, now));
     sweep(fuels, seenG);
     paintSelection();
-    // Arrows need focus here; take it only from nobody, never from the search or a note.
-    const active = document.activeElement;
-    if (!active || active === document.body) desks.get(selected ?? "")?.focus({ preventScroll: true });
+    // Arrows need focus here: taken once, when the first desks appear, and only from nobody --
+    // never from the search or a note, and never again on a later tick.
+    if (!focusTaken && desks.size) {
+      focusTaken = true;
+      const active = document.activeElement;
+      if (!active || active === document.body) desks.get(selected ?? "")?.focus({ preventScroll: true });
+    }
   }
 
   return {
@@ -277,6 +289,7 @@ export function createBuildingView(): View {
       resize.disconnect();
       host = null;
       floorCount = 0;
+      focusTaken = false;
       floors.clear();
       desks.clear();
       pills.clear();
