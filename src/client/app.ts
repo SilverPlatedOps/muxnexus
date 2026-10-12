@@ -11,9 +11,15 @@ import { makeResizable } from "./resize";
 import { windowPlace } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { openDisplay } from "./display";
+import { marksShown, openDisplay } from "./display";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, UsageSource, WindowInfo } from "../shared/protocol";
+import { createFolded } from "./folded";
+import { buildWorld, nextWaiting, type World } from "./world";
+import { diffWorlds } from "./transitions";
+import { sessionName, type WorldActions } from "./world-actions";
+import { createViewHost } from "./view-host";
+import { createDebugView } from "./views/debug";
 
 const SESSION_KEY = "muxnexus.session";
 const PHONE = "(max-width: 720px)";
@@ -46,6 +52,8 @@ const findCount = document.getElementById("find-count")!;
 const findPrevBtn = document.getElementById("find-prev")!;
 const findNextBtn = document.getElementById("find-next")!;
 const findCloseBtn = document.getElementById("find-close")!;
+const viewEl = document.getElementById("view")!;
+const viewToggle = document.getElementById("view-toggle")!;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
@@ -62,6 +70,13 @@ let pendingUntil = 0;
 let pendingTabs: { session: string; ids: string[] } | null = null;
 let pendingTabsUntil = 0;
 const PENDING_MS = 5000;
+/** The tmux server the last state came from; a change means its ids were handed out again. */
+let tmuxServer: string | null = null;
+/** The last world views were given, so the next one can be told apart from it. */
+let world: World | null = null;
+/** Whether a session is attached and the terminal is what the main area would show. */
+let terminalOn = false;
+const folded = createFolded();
 const winKey = (w: { id: string }) => w.id;
 
 const term = createTerminal(termEl, {
@@ -81,11 +96,32 @@ function setDrawer(open: boolean) {
 }
 
 function showTerminal(on: boolean) {
-  wrapEl.hidden = !on;
-  topbar.hidden = !on;
-  emptyEl.hidden = on;
+  terminalOn = on;
   if (!on) closeFind();
-  if (on) {
+  paintMain();
+  if (on && !views.showing()) {
+    term.fit();
+    term.focus();
+  }
+}
+
+/** What the main area shows: a view while one is up, else the terminal or the empty prompt. */
+function paintMain() {
+  const viewing = views.showing();
+  wrapEl.hidden = viewing || !terminalOn;
+  emptyEl.hidden = viewing || terminalOn;
+  topbar.hidden = !(viewing || terminalOn);
+  viewToggle.hidden = views.chosen() === "terminal";
+  viewToggle.setAttribute("aria-pressed", String(viewing));
+  // Nothing typed may reach tmux while a view is up: xterm takes keys only while focused.
+  const active = document.activeElement;
+  if (viewing && active instanceof HTMLElement && wrapEl.contains(active)) active.blur();
+}
+
+/** The view came or went: back on the terminal, it gets the room and the keys again. */
+function viewChanged() {
+  paintMain();
+  if (!views.showing() && terminalOn) {
     term.fit();
     term.focus();
   }
@@ -171,6 +207,7 @@ function paintAll() {
   notes.sync();
   updateChip();
   updateAttention();
+  rebuildWorld();
 }
 
 // ---- find in scrollback ----
@@ -234,7 +271,7 @@ const sidebar = createSidebar(sessionsEl, layout, {
   renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
   reorderSessions,
   openWindow,
-}, footEl, document.getElementById("side-search-input") as HTMLInputElement);
+}, footEl, document.getElementById("side-search-input") as HTMLInputElement, folded);
 
 /** The last quota snapshot, so the account picker can list the same rows the panel shows. */
 let usageSources: UsageSource[] = [];
@@ -368,6 +405,82 @@ function openWindow(session: string, id: string) {
   else if (onPhone()) setDrawer(false);
 }
 
+/** A session's tmux name now, from the id a world ref carries. */
+const nameOf = (id: string) => sessionName(sessions, id);
+
+const worldActions: WorldActions = {
+  openWindow(ref) {
+    const name = nameOf(ref.session);
+    if (!name) return;
+    views.show(false);
+    openWindow(name, ref.window);
+  },
+  openNote(ref) {
+    const name = nameOf(ref.session);
+    if (!name) return;
+    views.show(false);
+    openWindow(name, ref.window);
+    notes.show("window");
+  },
+  openBeside(ref) {
+    const name = nameOf(ref.session);
+    if (!name) return;
+    if (onPhone()) return sidebar.toast("Split needs a wider screen");
+    if (name !== current) return sidebar.toast("A split shows two windows of the open session");
+    views.show(false);
+    split.open(name, ref.window, split.state?.side ?? "right");
+  },
+  nextWaiting: () => nextWaiting(sessions, current),
+  setFolded: (key, on) => folded.set(key, on),
+  newSession: (name) => conn.send({ t: "new-session", name }),
+  renameSession(ref, name) {
+    const s = nameOf(ref.session);
+    if (s) conn.send({ t: "rename-session", session: s, name });
+  },
+  killSession(ref) {
+    const s = nameOf(ref.session);
+    if (s) conn.send({ t: "kill-session", session: s });
+  },
+  newWindow(ref, agent) {
+    const s = nameOf(ref.session);
+    if (s) conn.send({ t: "new-window", session: s, ...(agent ? { agent } : {}) });
+  },
+  renameWindow(ref, name) {
+    const s = nameOf(ref.session);
+    if (s) conn.send({ t: "rename-window", session: s, id: ref.window, name });
+  },
+  killWindow(ref) {
+    const s = nameOf(ref.session);
+    if (s) conn.send({ t: "kill-window", session: s, id: ref.window });
+  },
+  moveWindowTo(ref, profile) {
+    const s = nameOf(ref.session);
+    if (s) conn.send({ t: "move-window-to", session: s, id: ref.window, profile });
+  },
+};
+
+const views = createViewHost({
+  slot: viewEl,
+  actions: worldActions,
+  views: { debug: createDebugView },
+  changed: viewChanged,
+});
+
+/**
+ * The world every view draws from, rebuilt whenever something in it changes --
+ * never on a timer: durations are timestamps, counted by each view's own clock.
+ */
+function rebuildWorld() {
+  const next = buildWorld({
+    sessions, tmuxServer, usage: usageSources, folded: folded.keys(), current, marksShown: marksShown(),
+  });
+  const events = diffWorlds(world, next, Date.now());
+  world = next;
+  views.update(next, events);
+}
+// A group folded in the sidebar folds in the view too.
+folded.subscribe(rebuildWorld);
+
 const conn = new Connection(wsUrl, {
   onOpen() {
     hideReconnect();
@@ -381,6 +494,9 @@ const conn = new Connection(wsUrl, {
     // the reconnect's onOpen re-sends `attach` instead of treating it as a
     // same-session no-op (attach()'s current === session guard).
     current = null;
+    // The reconnect's first state starts afresh: whatever changed while the
+    // socket was down is not a transition anyone watched happen.
+    world = null;
   },
   onMessage(m) {
     switch (m.t) {
@@ -395,6 +511,7 @@ const conn = new Connection(wsUrl, {
             pendingTabs = null;
           }
         }
+        tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         paintAll();
         break;
@@ -408,6 +525,7 @@ const conn = new Connection(wsUrl, {
         // conversation can be moved to. Codex's tabs still wear its badge.
         profileLabels = m.sources.filter((s) => s.provider === "claude").map((s) => s.label);
         tabs.setProfiles(badgedLabels(m.sources));
+        rebuildWorld();
         break;
       case "attached":
         current = m.session;
@@ -465,7 +583,8 @@ drawerClose.onclick = () => setDrawer(false);
 displayBtn.onclick = () => openDisplay(document.body, () => {
   paintAll();
   renderUsage(usageEl, usageSources);
-});
+}, { chosen: views.chosen(), choose: (name) => views.choose(name) });
+viewToggle.onclick = () => views.show(!views.showing());
 overlay.onclick = () => setDrawer(false);
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);
@@ -524,11 +643,21 @@ document.addEventListener("keydown", (e) => {
     // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
     // ⌘J for itself -- it costs one clause and saves finding out the hard way.
     // In the order the sidebar draws, so ⌘J walks down the list you can see.
+    if (views.showing()) {
+      const ref = nextWaiting(sessions, current);
+      if (!ref) return;
+      e.preventDefault();
+      views.reveal(ref);
+      return;
+    }
     const next = nextAttention(visualOrder(sessions, sessionLabel), current);
     if (!next) return;
     e.preventDefault();
     attach(next);
   }
 });
+
+// The chosen view is what this browser wants to see first.
+if (views.chosen() !== "terminal") views.show(true);
 
 conn.connect();

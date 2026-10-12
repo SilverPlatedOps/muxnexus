@@ -78,6 +78,14 @@
           </button>
           <span class="chip"><span id="chip-dot" class="glyph none"></span><span id="chip-name"></span></span>
         </div>
+        <button id="view-toggle" class="icon-btn" type="button" aria-label="Switch between the terminal and the view" aria-pressed="false" title="Terminal / view" hidden>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <rect x="2" y="2" width="5" height="5" rx="1"></rect>
+            <rect x="9" y="2" width="5" height="5" rx="1"></rect>
+            <rect x="2" y="9" width="5" height="5" rx="1"></rect>
+            <rect x="9" y="9" width="5" height="5" rx="1"></rect>
+          </svg>
+        </button>
         <button id="note-btn" class="icon-btn" type="button" aria-label="Note" aria-pressed="false" title="Note (⌘⇧E)">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M3 2.5h7l3 3v8H3z"></path>
@@ -100,6 +108,10 @@
         <span>Pick a session, or</span>
         <button id="empty-new" class="btn" type="button">New session</button>
       </div>
+
+      <!-- An alternative view of every agent, in place of the terminal; the
+           terminal stays attached underneath. -->
+      <div id="view" hidden></div>
 
       <div id="wrap" hidden>
         <div id="tabs" hidden></div>

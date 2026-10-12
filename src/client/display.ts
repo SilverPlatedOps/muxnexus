@@ -1,3 +1,5 @@
+import { VIEW_CHOICES, type ViewName } from "./view-host";
+
 /**
  * What the tabs and rows wear besides their name, and the one modal that
  * switches it: the profile badge and the shared-checkout mark. Remembered per
@@ -48,10 +50,15 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 
 /**
  * The display modal: one switch per mark, each saying what it is for, so a
- * mark that has become noise can go without hunting for where it lives.
+ * mark that has become noise can go without hunting for where it lives; and,
+ * when `view` is given, which view the main area can show besides the terminal.
  * `onChange` is told after every switch, to redraw whatever wears the marks.
  */
-export function openDisplay(host: HTMLElement, onChange: () => void): void {
+export function openDisplay(
+  host: HTMLElement,
+  onChange: () => void,
+  view?: { chosen: ViewName; choose(name: ViewName): void },
+): void {
   const back = el("div", "modal-back");
   const box = el("div", "move display");
   box.setAttribute("role", "dialog");
@@ -73,6 +80,25 @@ export function openDisplay(host: HTMLElement, onChange: () => void): void {
     const text = el("span", "display-text");
     text.append(el("span", "move-opt-name", name), el("span", "move-opt-note", note));
     row.append(text, input);
+    box.append(row);
+  }
+
+  if (view) {
+    const row = el("label", "display-row");
+    const select = el("select", "display-select");
+    for (const c of VIEW_CHOICES) {
+      const o = el("option", undefined, c.title);
+      o.value = c.name;
+      o.selected = c.name === view.chosen;
+      select.append(o);
+    }
+    select.onchange = () => view.choose(select.value as ViewName);
+    const text = el("span", "display-text");
+    text.append(
+      el("span", "move-opt-name", "View"),
+      el("span", "move-opt-note", "What the main area can show besides the terminal; the top bar switches between them"),
+    );
+    row.append(text, select);
     box.append(row);
   }
 
