@@ -9,11 +9,16 @@
 # with `case` rather than parsed with jq -- this runs on every tool call, so it
 # must cost nothing.
 #
-# Writes one pane option:
+# Writes three pane options:
 #
 #   @muxnexus_agent = "<state> <epoch> <pid> <config dir>"
 #     e.g. "running 1790242563 61936 /Users/me/.claude-work"
 #     Under Codex the last field is its home, "/Users/me/.codex".
+#     The epoch is the latest event's time.
+#
+#   @muxnexus_turn = "<start>[ <end>]"    (UserPromptSubmit; Stop appends the end)
+#   @muxnexus_wait = "<epoch>"            (entering input from any other state)
+#     Boundaries, so a running turn's or a wait's length survives tool calls.
 #
 #   @muxnexus_session = "<session id> <transcript path>"    (SessionStart only,
 #     and never under Codex: Move to... resumes with `claude`, which cannot read
@@ -88,19 +93,33 @@ has() {
   esac
 }
 
+now=$(date +%s)
+# Turn and wait boundaries live in pane options of their own, written only when
+# a turn or a wait begins or a turn ends -- never on an ordinary tool call, so
+# the hot path costs what it always did. @muxnexus_agent keeps saying when the
+# latest event was.
+mark_turn=0
+end_turn=0
+
 case "$event" in
   # The agent is blocked on the human.
   PermissionRequest)
     state=input ;;
   PreToolUse|PostToolUse)
-    # Asking the user a question is the tool that means "waiting"; every other
-    # tool means a turn is under way. Stamping tool events at all matters
-    # because an agent resumed by a background subagent never fires
-    # UserPromptSubmit -- tool events are the only sign it woke up.
+    # Asking the user a question is the tool that means "waiting" -- until it
+    # returns: its PostToolUse fires once the user has answered, and the turn
+    # carries on. Every other tool means a turn is under way. Stamping tool
+    # events at all matters because an agent resumed by a background subagent
+    # never fires UserPromptSubmit -- tool events are the only sign it woke up.
     # Codex's equivalent is request_user_input.
-    if has tool_name AskUserQuestion || has tool_name request_user_input; then state=input; else state=running; fi ;;
+    if has tool_name AskUserQuestion || has tool_name request_user_input; then
+      if [ "$event" = PreToolUse ]; then state=input; else state=running; fi
+    else
+      state=running
+    fi ;;
   UserPromptSubmit)
-    state=running ;;
+    state=running
+    mark_turn=1 ;;
   Notification)
     case "$payload" in
       *permission_prompt*|*elicitation_dialog*) state=input ;;
@@ -111,16 +130,41 @@ case "$event" in
   # session opened with nothing running in it yet.
   Stop|StopFailure|SessionStart)
     state=done
+    [ "$event" = SessionStart ] || end_turn=1
     # Once per session, off the hot path: record which conversation this is.
     # Parsed with parameter expansion rather than jq for the same reason `has`
     # uses `case` -- no subprocess, and a miss only costs the Move to... default.
     [ "$event" = SessionStart ] && [ "$agent" = claude ] && stamp_session ;;
   SessionEnd)
     tmux set-option -pu -t "$TMUX_PANE" @muxnexus_agent 2>/dev/null
+    tmux set-option -pu -t "$TMUX_PANE" @muxnexus_turn 2>/dev/null
+    tmux set-option -pu -t "$TMUX_PANE" @muxnexus_wait 2>/dev/null
     exit 0 ;;
   *)
     exit 0 ;;
 esac
+
+# A wait begins when the pane enters input from anything else. A permission
+# prompt fires PermissionRequest and then Notification for the same wait, so
+# the state already written decides. Read only on input events, which are rare.
+if [ "$state" = input ]; then
+  case "$(tmux show-options -pqv -t "$TMUX_PANE" @muxnexus_agent 2>/dev/null)" in
+    input\ *) ;;
+    *) tmux set-option -p -t "$TMUX_PANE" @muxnexus_wait "$now" 2>/dev/null ;;
+  esac
+fi
+if [ "$mark_turn" = 1 ]; then
+  tmux set-option -p -t "$TMUX_PANE" @muxnexus_turn "$now" 2>/dev/null
+fi
+# A turn's end is appended once: a second Stop (or an idle_prompt's done) must
+# not move it. An interrupted turn fires no hook and never gets one.
+if [ "$end_turn" = 1 ]; then
+  turn=$(tmux show-options -pqv -t "$TMUX_PANE" @muxnexus_turn 2>/dev/null)
+  case "$turn" in
+    ""|*" "*) ;;
+    *) tmux set-option -p -t "$TMUX_PANE" @muxnexus_turn "$turn $now" 2>/dev/null ;;
+  esac
+fi
 
 # $PPID is recorded so the server can drop a stamp whose process has gone:
 # SessionEnd covers a clean exit, but a killed agent never fires it. The config
@@ -131,5 +175,5 @@ if [ "$agent" = codex ]; then
 else
   account=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 fi
-tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $(date +%s) $PPID $account" 2>/dev/null
+tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $now $PPID $account" 2>/dev/null
 exit 0
