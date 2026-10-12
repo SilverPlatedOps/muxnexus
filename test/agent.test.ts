@@ -8,6 +8,7 @@ import {
   windowStates,
   worstState,
 } from "../src/server/tmux";
+import { FirstSeen } from "../src/server/timing";
 import {
   formatElapsed,
   needsYouCount,
@@ -139,7 +140,7 @@ describe("windowStates", () => {
       [{ id: "@1", raw: "done 50 7" }, { id: "@1", raw: "input 60 8" }],
       activity, 100, alive,
     );
-    expect(got.get("@1")).toEqual({ state: "input", since: 60 });
+    expect(got.get("@1")).toEqual({ state: "input", since: 60, source: "hook" });
   });
 
   test("the profile is the speaking pane's", () => {
@@ -147,7 +148,7 @@ describe("windowStates", () => {
       [{ id: "@1", raw: "done 50 7 /h/.claude" }, { id: "@1", raw: "input 60 8 /h/.claude-work" }],
       activity, 100, alive,
     );
-    expect(got.get("@1")).toEqual({ state: "input", since: 60, configDir: "/h/.claude-work" });
+    expect(got.get("@1")).toEqual({ state: "input", since: 60, source: "hook", configDir: "/h/.claude-work" });
   });
 
   test("reports the longest wait when two panes agree", () => {
@@ -173,6 +174,35 @@ describe("windowStates", () => {
     const got = windowStates(panes, new Map([["@1", 100], ["@2", 100]]), 100, alive);
     expect(got.get("@1")?.state).toBe("done");
     expect(got.get("@2")?.state).toBe("done");
+  });
+
+  test("a running stamp on a window that stopped redrawing is idle, inferred from the quiet", () => {
+    const got = windowStates([{ id: "@1", raw: "running 50 7" }], new Map([["@1", 10]]), 100, alive);
+    expect(got.get("@1")).toMatchObject({ state: "done", source: "quiet" });
+  });
+
+  test("an interruption read from the transcript says so", () => {
+    const got = windowStates([{ id: "@1", raw: "running 90 7", interrupted: true }], activity, 100, alive);
+    expect(got.get("@1")).toMatchObject({ state: "done", source: "transcript" });
+  });
+
+  test("timing comes from the hook's marks, through the pane's own memory", () => {
+    const got = windowStates(
+      [{ id: "@1", pane: "%1", raw: "running 90 7", turn: "80" }],
+      activity, 100, alive, new FirstSeen(),
+    );
+    expect(got.get("@1")).toMatchObject({ state: "running", source: "hook", turnStartedAt: 80, turnSource: "hook" });
+  });
+
+  test("the waiting pane of two speaks for the window's wait", () => {
+    const got = windowStates(
+      [
+        { id: "@1", pane: "%1", raw: "running 95 7", turn: "80" },
+        { id: "@1", pane: "%2", raw: "input 90 8", turn: "70", wait: "85" },
+      ],
+      activity, 100, alive, new FirstSeen(),
+    );
+    expect(got.get("@1")).toMatchObject({ state: "input", waitingSince: 85, waitSource: "hook", turnStartedAt: 70 });
   });
 });
 

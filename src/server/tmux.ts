@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
-import type { AgentState, ConversationInfo, SessionInfo } from "../shared/protocol";
+import type { AgentInfo, AgentSource, AgentState, ConversationInfo, SessionInfo } from "../shared/protocol";
+import { FirstSeen, parseTurn, parseWait, resolveTiming, type Timing } from "./timing";
 import { profileLabel } from "./usage";
 
 /**
@@ -223,32 +224,39 @@ export function unreadWindow(links: readonly { bell: boolean; attached: boolean;
  * The state of every window that has a live stamp, from the raw `list-panes`
  * rows. A window with two panes running two agents takes the more urgent of
  * them, since the row has one glyph and the question it answers is "does
- * anything in here want me".
+ * anything in here want me". Each state says where it came from, and `seen`,
+ * when given, dates turns and waits the hook marked no boundary for.
  */
 export function windowStates(
-  panes: readonly { id: string; raw: string; cwd?: string; interrupted?: boolean }[],
+  panes: readonly { id: string; raw: string; cwd?: string; interrupted?: boolean; pane?: string; turn?: string; wait?: string }[],
   activity: ReadonlyMap<string, number>,
   now: number,
   alive: (pid: number) => boolean,
+  seen?: FirstSeen,
 ): Map<string, WindowAgent> {
-  const seen = new Map<string, WindowAgent[]>();
+  const found = new Map<string, WindowAgent[]>();
   for (const pane of panes) {
     const stamp = parseStamp(pane.raw);
     if (!stamp) continue;
     const guarded = guardStamp(stamp, activity.get(pane.id) ?? 0, now, alive);
     if (guarded === null) continue;
     const state = pane.interrupted ? "done" : guarded;
-    const list = seen.get(pane.id) ?? [];
+    const source: AgentSource = pane.interrupted ? "transcript" : guarded !== stamp.state ? "quiet" : "hook";
+    const known = seen && pane.pane ? seen.observe(pane.pane, state, stamp.since) : {};
+    const timing = resolveTiming(state, stamp.since, parseTurn(pane.turn ?? ""), parseWait(pane.wait ?? ""), known);
+    const list = found.get(pane.id) ?? [];
     list.push({
       state,
       since: stamp.since,
+      source,
+      ...timing,
       ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
     });
-    seen.set(pane.id, list);
+    found.set(pane.id, list);
   }
   const out = new Map<string, WindowAgent>();
-  for (const [id, list] of seen) {
+  for (const [id, list] of found) {
     const state = worstState(list.map((x) => x.state));
     if (state === undefined) continue;
     // The oldest pane in that state: "waiting 12m" should be the longest wait,
@@ -260,12 +268,29 @@ export function windowStates(
 }
 
 /** What `windowStates` reports for one window: the pane speaking for it. */
-export interface WindowAgent {
+export interface WindowAgent extends Timing {
   state: AgentState;
   since: number;
+  source: AgentSource;
   configDir?: string;
   /** The agent's pane's working directory: the one the agent is editing in. */
   cwd?: string;
+}
+
+const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
+
+/** A window's agent as the wire carries it. `since` stays the stamp's own time, as older clients read it. */
+function agentInfo(state: WindowAgent, checkout: string | null): AgentInfo {
+  return {
+    state: state.state,
+    since: iso(state.since),
+    source: state.source,
+    ...(state.configDir ? { profile: profileLabel(state.configDir) } : {}),
+    ...(checkout ? { checkout } : {}),
+    ...(state.turnStartedAt !== undefined ? { turnStartedAt: iso(state.turnStartedAt), turnSource: state.turnSource } : {}),
+    ...(state.turnEndedAt !== undefined ? { turnEndedAt: iso(state.turnEndedAt) } : {}),
+    ...(state.waitingSince !== undefined ? { waitingSince: iso(state.waitingSince), waitSource: state.waitSource } : {}),
+  };
 }
 
 /**
@@ -344,6 +369,8 @@ interface SessionRow {
   customName: string;
   /** A split pane's private view of the group (`@muxnexus_view`), never a sidebar row or a client of its own. */
   view: boolean;
+  /** The tmux server, as `<pid>-<start time>`: the same on every row. */
+  server: string;
 }
 
 export class Tmux {
@@ -362,6 +389,9 @@ export class Tmux {
    * removed. Forgotten wholesale past a few hundred directories.
    */
   private checkouts = new Map<string, string | null>();
+
+  /** Turns and waits the hook marked no boundary for, as this server first saw them. */
+  private seen = new FirstSeen();
 
   private checkout(dir: string): string | null {
     let root = this.checkouts.get(dir);
@@ -395,17 +425,18 @@ export class Tmux {
     try {
       out = await this.run([
         "list-sessions", "-F",
-        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}\t#{@muxnexus_view}",
+        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}\t#{@muxnexus_view}\t#{pid}-#{start_time}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
-    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 9).map(([name, attached, grouped, group, id, workspaceId, order, customName, view]) => ({
+    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 10).map(([name, attached, grouped, group, id, workspaceId, order, customName, view, server]) => ({
       name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")), workspaceId,
       order: order === "" ? undefined : Number(order),
       customName,
       view: view === "1",
+      server,
     }));
   }
 
@@ -416,22 +447,22 @@ export class Tmux {
    */
   private async agentStates(
     rows: readonly { id: string; activity: number }[],
-  ): Promise<{ agents: Map<string, WindowAgent>; conversations: Map<string, ConversationInfo> }> {
+  ): Promise<{ agents: Map<string, WindowAgent>; conversations: Map<string, ConversationInfo>; forks: Map<string, string> }> {
     let out: string;
     try {
       out = await this.run(["list-panes", "-a", "-F",
-        "#{window_id}\t#{pane_current_path}\t#{@muxnexus_session}\t#{@muxnexus_agent}"]);
+        "#{window_id}\t#{pane_id}\t#{pane_current_path}\t#{@muxnexus_session}\t#{@muxnexus_from}\t#{@muxnexus_turn}\t#{@muxnexus_wait}\t#{@muxnexus_agent}"]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) {
-        return { agents: new Map(), conversations: new Map() };
+        return { agents: new Map(), conversations: new Map(), forks: new Map() };
       }
       throw e;
     }
     // The agent stamp goes last so it keeps the "rest of the line" treatment it
-    // had before the session stamp was added in front of it.
+    // had before the options in front of it were added.
     const panes = lines(out).map((l) => {
-      const [id, cwd, session, ...rest] = l.split("\t");
-      return { id, cwd, session, raw: rest.join("\t") };
+      const [id, pane, cwd, session, from, turn, wait, ...rest] = l.split("\t");
+      return { id, pane, cwd, session, from, turn, wait, raw: rest.join("\t") };
     });
     // Gathered per window rather than per pane: two panes in one window would
     // each hold their own conversation, and the tab offers one. First stamp wins,
@@ -441,6 +472,12 @@ export class Tmux {
       if (!pane.session || conversations.has(pane.id)) continue;
       const parsed = parseSession(pane.session);
       if (parsed) conversations.set(pane.id, parsed);
+    }
+    const forks = new Map<string, string>();
+    for (const pane of panes) {
+      if (!pane.from || forks.has(pane.id)) continue;
+      const parsed = parseSession(pane.from);
+      if (parsed) forks.set(pane.id, parsed.sessionId);
     }
     // Only a stamp claiming a turn is under way needs its transcript read; a
     // missing file (a fork before its first message) is no evidence either way.
@@ -457,8 +494,9 @@ export class Tmux {
       }
     }));
     const activity = new Map(rows.map((r) => [r.id, r.activity]));
-    const agents = windowStates(checked, activity, Math.floor(Date.now() / 1000), processAlive);
-    return { agents, conversations };
+    const agents = windowStates(checked, activity, Math.floor(Date.now() / 1000), processAlive, this.seen);
+    this.seen.keep(new Set(panes.map((p) => p.pane)));
+    return { agents, conversations, forks };
   }
 
   /** Members of the group `row` belongs to (just `row` when ungrouped), oldest first. */
@@ -473,10 +511,15 @@ export class Tmux {
     return members.find((m) => m.name === groupName) ?? members[0];
   }
 
-  /** One entry per session group (or per ungrouped session), named after its representative. */
-  async listSessions(): Promise<SessionInfo[]> {
+  /** One entry per session group (or per ungrouped session), and which tmux server they are on. */
+  async listState(): Promise<{ sessions: SessionInfo[]; tmuxServer: string | null }> {
     const all = await this.rows();
-    if (all.length === 0) return [];
+    if (all.length === 0) {
+      this.seen.forgetIfNew(null);
+      return { sessions: [], tmuxServer: null };
+    }
+    const tmuxServer = all[0].server;
+    this.seen.forgetIfNew(tmuxServer);
     let winOut: string;
     try {
       winOut = await this.run([
@@ -484,7 +527,7 @@ export class Tmux {
         "#{session_name}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_panes}\t#{pane_title}\t#{@muxnexus_surface}\t#{window_id}\t#{window_bell_flag}\t#{window_activity}\t#{@muxnexus_window_name}\t#{@muxnexus_note}\t#{@muxnexus_note_empty}",
       ]);
     } catch (e) {
-      if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
+      if (e instanceof TmuxError && NO_SERVER.test(e.message)) return { sessions: [], tmuxServer: null };
       throw e;
     }
 
@@ -531,7 +574,7 @@ export class Tmux {
         attached: (all.find((r) => r.name === session)?.attached ?? 0) > 0,
       }));
 
-    const { agents, conversations } = await this.agentStates(rows);
+    const { agents, conversations, forks } = await this.agentStates(rows);
 
     for (const row of rows) {
       const s = byRep.get(row.session);
@@ -547,17 +590,9 @@ export class Tmux {
         ...(row.customName ? { customName: row.customName } : {}),
         ...(row.surfaceId ? { surfaceId: row.surfaceId } : {}),
         ...(row.noteId ? { noteId: row.noteId, ...(row.noteEmpty === "0" ? {} : { noteEmpty: true }) } : {}),
-        ...(state
-          ? {
-              agent: {
-                state: state.state,
-                since: new Date(state.since * 1000).toISOString(),
-                ...(state.configDir ? { profile: profileLabel(state.configDir) } : {}),
-                ...(checkout ? { checkout } : {}),
-              },
-            }
-          : {}),
+        ...(state ? { agent: agentInfo(state, checkout) } : {}),
         ...(conversations.has(row.id) ? { conversation: conversations.get(row.id)! } : {}),
+        ...(forks.has(row.id) ? { forkedFrom: forks.get(row.id)! } : {}),
         ...(unreadWindow(rows.filter((o) => o.id === row.id)) ? { unread: true } : {}),
       });
     }
@@ -566,7 +601,12 @@ export class Tmux {
     // oldest-first, which is what orderSessions's name tiebreak would otherwise
     // disturb, so feed it the list already in id order.
     const byAge = [...groups.values()].sort((a, b) => a.rep.id - b.rep.id).map((g) => g.info);
-    return orderSessions(byAge);
+    return { sessions: orderSessions(byAge), tmuxServer };
+  }
+
+  /** One entry per session group (or per ungrouped session), named after its representative. */
+  async listSessions(): Promise<SessionInfo[]> {
+    return (await this.listState()).sessions;
   }
 
   /** The session a sidebar name refers to, by exact name. */

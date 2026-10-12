@@ -252,9 +252,14 @@ export function createServer(opts: ServerOptions): RunningServer {
 
   /** Re-read tmux state and send it to each socket that has not seen it yet. */
   async function readState(): Promise<void> {
-    const sessions = await label(await tmux.listSessions().catch(() => []));
+    const read = await tmux.listState().catch(() => ({ sessions: [] as SessionInfo[], tmuxServer: null }));
+    const sessions = await label(read.sessions);
     followRenames(sessions);
-    const json = JSON.stringify({ t: "state", sessions } satisfies ServerMessage);
+    const json = JSON.stringify({
+      t: "state",
+      sessions,
+      ...(read.tmuxServer ? { tmuxServer: read.tmuxServer } : {}),
+    } satisfies ServerMessage);
     for (const ws of clients) {
       if (ws.data.sentState === json || ws.readyState !== WebSocket.OPEN) continue;
       ws.data.sentState = json;

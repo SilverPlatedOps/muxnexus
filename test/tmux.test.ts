@@ -54,6 +54,54 @@ describe("Tmux.listSessions", () => {
     }
   });
 
+  test("reports a turn and a wait the hook marked, and leaves the stamp's own time alone", async () => {
+    await tmux.newSession("work");
+    const pane = (await tmux.run(["display-message", "-p", "-t", "=work:", "#{pane_id}"])).trim();
+    const now = Math.floor(Date.now() / 1000);
+    await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_agent", `input ${now} ${process.pid} /Users/me/.claude`]);
+    await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_turn", String(now - 300)]);
+    await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_wait", String(now - 60)]);
+    const [s] = await tmux.listSessions();
+    const iso = (t: number) => new Date(t * 1000).toISOString();
+    // toMatchObject: the session starts in the test's cwd, a git checkout, so `checkout` is also there.
+    // `since` must still be the stamp's own time -- what a browser on the old client reads.
+    expect(s.windows[0].agent).toMatchObject({
+      state: "input",
+      since: iso(now),
+      source: "hook",
+      profile: "personal",
+      turnStartedAt: iso(now - 300),
+      turnSource: "hook",
+      waitingSince: iso(now - 60),
+      waitSource: "hook",
+    });
+  });
+
+  test("a turn with no mark is dated from the server's first sight of it", async () => {
+    await tmux.newSession("work");
+    const pane = (await tmux.run(["display-message", "-p", "-t", "=work:", "#{pane_id}"])).trim();
+    const now = Math.floor(Date.now() / 1000);
+    await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_agent", `running ${now} ${process.pid}`]);
+    const [s] = await tmux.listSessions();
+    expect(s.windows[0].agent).toMatchObject({ state: "running", turnStartedAt: new Date(now * 1000).toISOString(), turnSource: "first-seen" });
+  });
+
+  test("reports the conversation a window's fork was made from", async () => {
+    await tmux.newSession("work");
+    const pane = (await tmux.run(["display-message", "-p", "-t", "=work:", "#{pane_id}"])).trim();
+    await tmux.run(["set-option", "-p", "-t", pane, "@muxnexus_from", "abc-123 /Users/me/.claude/projects/x/abc-123.jsonl"]);
+    const [s] = await tmux.listSessions();
+    expect(s.windows[0].forkedFrom).toBe("abc-123");
+  });
+
+  test("names the tmux server the state came from", async () => {
+    expect((await tmux.listState()).tmuxServer).toBeNull();
+    await tmux.newSession("work");
+    const first = (await tmux.listState()).tmuxServer;
+    expect(first).toMatch(/^\d+-\d+$/);
+    expect((await tmux.listState()).tmuxServer).toBe(first);
+  });
+
   test("handles names with spaces and groups windows by session", async () => {
     await tmux.newSession("a b");
     await tmux.newSession("c");

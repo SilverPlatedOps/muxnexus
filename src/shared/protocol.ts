@@ -30,6 +30,11 @@ export interface WindowInfo {
    */
   conversation?: ConversationInfo;
   /**
+   * The conversation this window's was forked from by a move (`@muxnexus_from`),
+   * so a view can tell the tab it continues. Absent for a window never moved.
+   */
+  forkedFrom?: string;
+  /**
    * The window rang the bell and nobody has looked since. tmux's own flag, so
    * it survives cmux being closed and costs nothing to read.
    */
@@ -80,6 +85,16 @@ export interface AgentInfo {
    * switch branches under each other.
    */
   checkout?: string;
+  /** How the state was known; absent from servers older than the field. */
+  source?: AgentSource;
+  /** When the current turn began -- or, while idle, the last one. */
+  turnStartedAt?: string;
+  /** Only while idle, when the hook saw the turn end: with the start, how long it took. */
+  turnEndedAt?: string;
+  turnSource?: BoundarySource;
+  /** Only while waiting: when this wait began, which tool calls never move. */
+  waitingSince?: string;
+  waitSource?: BoundarySource;
 }
 
 export interface SessionInfo {
@@ -197,7 +212,12 @@ export type NewWindowAgent = "codex";
 export type DetachReason = "session-killed" | "exited";
 
 export type ServerMessage =
-  | { t: "state"; sessions: SessionInfo[] }
+  /**
+   * `tmuxServer` is `<pid>-<start time>` of the tmux server read: tmux hands its
+   * `$N` and `@N` ids out again after a restart, and this is how a client knows
+   * the ids it holds mean nothing any more.
+   */
+  | { t: "state"; sessions: SessionInfo[]; tmuxServer?: string }
   /** Quota, on its own cadence: folding it into `state` would tie it to the session poll. */
   | { t: "usage"; sources: UsageSource[] }
   | { t: "attached"; session: string }

@@ -76,6 +76,13 @@ describe("restore hint", () => {
   });
 });
 
+test("the state names the tmux server it came from", async () => {
+  await tmux.newSession("one");
+  const client = await connect(server.port);
+  const state = await waitFor(() => client.last("state"), 3000, "a state");
+  expect(state).toMatchObject({ t: "state", tmuxServer: expect.stringMatching(/^\d+-\d+$/) });
+});
+
 test("rejects a WebSocket upgrade with no Origin", async () => {
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
   let opened = false;
