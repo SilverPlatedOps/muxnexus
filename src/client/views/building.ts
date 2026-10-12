@@ -2,7 +2,7 @@ import type { View, ViewHost } from "../view-host";
 import type { WindowRef, World } from "../world";
 import {
   deriveBuilding, NEUTRAL, PALETTE, ROOM_CHOICES, ROOM_LABEL, span,
-  type Building, type Floor, type Fuel, type Person, type QueueEntry, type RoomType, type Sheet,
+  type Building, type Floor, type Fuel, type Person, type Pose, type QueueEntry, type RoomType, type Sheet,
 } from "../building/derive";
 import { DESK_ART, LIFT_ART, PET_ART, POSE_ART, ROOM_ART, SKY_ART } from "../building/art";
 import { formatReset } from "../usage";
@@ -42,6 +42,27 @@ function setSrc(i: HTMLImageElement, src: string) {
 
 function setVar(e: HTMLElement, name: string, value: string) {
   if (e.style.getPropertyValue(name) !== value) e.style.setProperty(name, value);
+}
+
+/** A steady offset per person, so a room of breathing people never breathes in step. */
+function phase(id: string, periodMs: number): string {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return `${-(Math.abs(h) % periodMs)}ms`;
+}
+
+/** Show `pose` on a person's two stacked pictures: the new one fades in as the old fades out, never a pop. */
+function setPose(holder: Element, pose: Pose) {
+  const [a, b] = holder.children as unknown as [HTMLImageElement, HTMLImageElement];
+  const on = b.classList.contains("on") ? b : a;
+  if (on.dataset.pose === pose && on.classList.contains("on")) return;
+  const off = on === a ? b : a;
+  if (off.dataset.pose !== pose) {
+    off.src = POSE_ART[pose];
+    off.dataset.pose = pose;
+  }
+  off.classList.add("on");
+  on.classList.remove("on");
 }
 
 /** A ♥ that rises and fades: what touching a pet gets you. */
@@ -91,7 +112,6 @@ export function createBuildingView(): View {
   const desks = new Map<string, HTMLElement>();
   const pills = new Map<string, HTMLElement>();
   const fuels = new Map<string, HTMLElement>();
-  card.hidden = true;
   tower.style.backgroundImage = `url("${SKY_ART}")`;
   tower.append(shell);
 
@@ -169,7 +189,13 @@ export function createBuildingView(): View {
     const where = row?.parentElement ?? (top ? floors.get(`${top.kind}:${top.key}`)?.querySelector(".bld-room") ?? null : null);
     dogBox.classList.toggle("by-desk", !!wait);
     const left = wait && row ? `${row.offsetLeft + wait.offsetLeft - 20}px` : "";
-    if (dogBox.style.left !== left) dogBox.style.left = left;
+    if (dogBox.style.left !== left) {
+      // Along its own floor it trots over; to another floor it simply turns up there.
+      const trots = dogBox.parentElement === where && dogBox.style.left !== "" && left !== "";
+      dogBox.classList.toggle("trot", trots);
+      if (trots) setTimeout(() => dogBox.classList.remove("trot"), 1400);
+      dogBox.style.left = left;
+    }
     dogBox.title = wait ? "the dog sits with whoever has waited longest" : "the dog";
     if (where && dogBox.parentElement !== where) where.append(dogBox);
     if (!where) dogBox.remove();
@@ -211,15 +237,23 @@ export function createBuildingView(): View {
     d.tabIndex = -1;
     const tag = el("div", "bld-tag");
     tag.append(el("b"), el("span", "bld-status"), el("span", "bld-jobs"));
-    d.append(el("div", "bld-light"), el("span", "bld-here", "you're here"), img("bld-person"), img("bld-desk-art"),
+    const person = el("span", "bld-person");
+    person.append(img("bld-pose on"), img("bld-pose"));
+    d.append(el("div", "bld-light"), el("span", "bld-here", "you're here"), person, img("bld-desk-art"),
       el("div", "bld-laptop"), el("div", "bld-sheets"), tag);
     d.onclick = () => {
       selected = d.dataset.session ?? null;
       open(people().find((p) => p.id === selected)?.target ?? null);
     };
     d.onfocus = () => { selected = d.dataset.session ?? null; paintSelection(); };
-    d.onmouseenter = () => showCard(d.dataset.session ?? null);
-    d.onmouseleave = () => showCard(cardFromKeys ? selected : null);
+    d.onmouseenter = () => {
+      showCard(d.dataset.session ?? null);
+      lookAt(d, true);
+    };
+    d.onmouseleave = () => {
+      showCard(cardFromKeys ? selected : null);
+      lookAt(d, false);
+    };
     return d;
   }
 
@@ -238,13 +272,32 @@ export function createBuildingView(): View {
     box.dataset.more = sheets.length > SHEETS_SHOWN ? `+${sheets.length - SHEETS_SHOWN}` : "";
   }
 
+  /**
+   * Touched, a seated person looks up at you for a moment, then goes back to
+   * what they were doing. Someone away, asleep or a ghost is left be.
+   */
+  const looking = new Map<HTMLElement, ReturnType<typeof setTimeout> | null>();
+  const LOOKS = new Set<Pose>(["typing", "hand-up", "calm"]);
+  function lookAt(d: HTMLElement, on: boolean) {
+    const t = looking.get(d);
+    if (t) clearTimeout(t);
+    if (on) looking.set(d, null);
+    else looking.set(d, setTimeout(() => { looking.delete(d); posePerson(d); }, 1000));
+    posePerson(d);
+  }
+  function posePerson(d: HTMLElement) {
+    const pose = (d.dataset.pose ?? "calm") as Pose;
+    setPose(d.querySelector(".bld-person")!, looking.has(d) && LOOKS.has(pose) ? "calm" : pose);
+  }
+
   function patchDesk(d: HTMLElement, p: Person, room: RoomType) {
     d.dataset.session = p.id;
+    if (!d.style.getPropertyValue("--phase")) d.style.setProperty("--phase", phase(p.id, 2800));
     d.dataset.state = p.state;
     d.dataset.pose = p.pose;
     d.classList.toggle("current", p.current);
     if (d.getAttribute("aria-label") !== p.alt) d.setAttribute("aria-label", p.alt);
-    setSrc(d.querySelector<HTMLImageElement>(".bld-person")!, POSE_ART[p.pose]);
+    posePerson(d);
     setSrc(d.querySelector<HTMLImageElement>(".bld-desk-art")!, DESK_ART[room]);
     patchSheets(d.querySelector<HTMLElement>(".bld-sheets")!, p.sheets);
     const [name, status, jobs] = d.querySelector(".bld-tag")!.children;
@@ -277,6 +330,9 @@ export function createBuildingView(): View {
     setText(plate.querySelector(".bld-plate-meta")!, `${count}${here ? " · you're here" : ""}`);
     place(f.querySelector<HTMLElement>(".bld-row")!, fl.people, (p) => p.id, desks, seenD, makeDesk,
       (d, p) => patchDesk(d, p, fl.room));
+    // Only idle people wander, and only one per floor at a time; the rest stand by their desks.
+    const stroller = fl.kind === "basement" ? undefined : fl.people.find((p) => p.pose === "away");
+    for (const p of fl.people) desks.get(p.id)?.classList.toggle("stroll", p === stroller);
   }
 
   // ---- the card: who this is, what each job is doing, how it is known ----
@@ -285,40 +341,69 @@ export function createBuildingView(): View {
     paintCard();
   }
 
+  // Built once, patched in place: a card rebuilt every second flickers and jumps.
+  const cardName = el("b");
+  const cardWhere = el("span");
+  const cardHead = el("div", "bld-card-head");
+  cardHead.append(cardName, cardWhere);
+  const cardLine = el("span");
+  const cardJobs = el("span", "bld-card-jobs");
+  const cardState = el("div", "bld-card-state");
+  cardState.append(cardLine, cardJobs);
+  const cardList = el("ol", "bld-card-list");
+  const cardActs = el("div", "bld-card-acts");
+  cardActs.append(el("kbd", undefined, "↵"), " sit with them");
+  card.append(cardHead, cardState, cardList, cardActs);
+  /** Who the card was last placed beside, so it moves only when that changes. */
+  let cardAt = "";
+
+  function makeJob(): HTMLElement {
+    const li = el("li");
+    li.append(el("kbd"), el("i", "bld-chip"), el("span", "bld-card-acct"), el("span", "bld-card-name"), el("span", "bld-card-what"));
+    return li;
+  }
+
   function paintCard() {
     const p = carded ? people().find((x) => x.id === carded) : null;
     const d = carded ? desks.get(carded) : null;
     const fl = carded ? floorOf(carded) : null;
     if (!p || !d || !fl || !host) {
-      card.hidden = true;
+      card.classList.remove("show");
+      cardAt = "";
       return;
     }
     const now = host.now();
-    const head = el("div", "bld-card-head");
-    head.append(el("b", undefined, p.label), el("span", undefined, `${fl.name} · ${ROOM_LABEL[fl.room]}`));
-    const state = el("div", `bld-card-state ${p.state}`);
-    state.append(el("span", undefined, stateLine(p, now)), el("span", "bld-card-jobs", p.jobs));
-    const jobs = el("ol", "bld-card-list");
-    for (const s of p.sheets) {
-      const li = el("li", s.flag ? "flag" : undefined);
-      const chip = el("i", `bld-chip${s.dashed ? " dashed" : ""}`);
-      chip.style.setProperty("--c", colour(s.slot));
-      li.append(el("kbd", undefined, s.n <= 9 ? `⌘${s.n}` : ""), chip, el("span", "bld-card-acct", s.account ?? "—"),
-        el("span", "bld-card-name", s.name), el("span", "bld-card-what", sheetLine(s, now)));
-      jobs.append(li);
+    setText(cardName, p.label);
+    setText(cardWhere, `${fl.name} · ${ROOM_LABEL[fl.room]}`);
+    cardState.className = `bld-card-state ${p.state}`;
+    setText(cardLine, stateLine(p, now));
+    setText(cardJobs, p.jobs);
+    while (cardList.children.length > p.sheets.length) cardList.lastElementChild!.remove();
+    while (cardList.children.length < p.sheets.length) cardList.append(makeJob());
+    p.sheets.forEach((s, i) => {
+      const li = cardList.children[i] as HTMLElement;
+      li.classList.toggle("flag", s.flag);
+      const [key, chip, acct, name, what] = li.children as unknown as HTMLElement[];
+      setText(key, s.n <= 9 ? `⌘${s.n}` : "");
+      chip.classList.toggle("dashed", s.dashed);
+      setVar(chip, "--c", colour(s.slot));
+      setText(acct, s.account ?? "—");
+      setText(name, s.name);
+      setText(what, sheetLine(s, now));
+    });
+    const at = `${p.id}:${p.sheets.length}`;
+    if (at !== cardAt || !card.classList.contains("show")) {
+      cardAt = at;
+      // Beside the desk, flipped to its left when the right edge is near.
+      const r = d.getBoundingClientRect();
+      const box = root.getBoundingClientRect();
+      const w = card.offsetWidth;
+      const right = r.right - box.left + 8;
+      const x = right + w > box.width - 8 ? r.left - box.left - w - 8 : right;
+      card.style.left = `${Math.max(8, x)}px`;
+      card.style.top = `${Math.max(8, Math.min(r.top - box.top, box.height - card.offsetHeight - 8))}px`;
     }
-    const acts = el("div", "bld-card-acts");
-    acts.append(el("kbd", undefined, "↵"), " sit with them");
-    card.replaceChildren(head, state, jobs, acts);
-    card.hidden = false;
-    // Beside the desk, flipped to its left when the right edge is near.
-    const r = d.getBoundingClientRect();
-    const box = root.getBoundingClientRect();
-    const w = card.offsetWidth;
-    const right = r.right - box.left + 8;
-    const x = right + w > box.width - 8 ? r.left - box.left - w - 8 : right;
-    card.style.left = `${Math.max(8, x)}px`;
-    card.style.top = `${Math.max(8, Math.min(r.top - box.top, box.height - card.offsetHeight - 8))}px`;
+    card.classList.add("show");
   }
 
   // ---- generator ----
@@ -368,7 +453,7 @@ export function createBuildingView(): View {
     paintSelection();
     const d = desks.get(selected);
     d?.focus({ preventScroll: true });
-    d?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    d?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: host?.reducedMotion() ? "auto" : "smooth" });
     cardFromKeys = true;
     showCard(selected);
   }
@@ -476,7 +561,10 @@ export function createBuildingView(): View {
       focusTaken = false;
       carded = null;
       cardFromKeys = false;
-      card.hidden = true;
+      card.classList.remove("show");
+      cardAt = "";
+      for (const t of looking.values()) if (t) clearTimeout(t);
+      looking.clear();
       floors.clear();
       desks.clear();
       pills.clear();
