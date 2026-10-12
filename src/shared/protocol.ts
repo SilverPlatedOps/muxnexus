@@ -54,6 +54,17 @@ export interface ConversationInfo {
 /** The three things a window can say about the agent running in it. */
 export type AgentState = "input" | "running" | "done";
 
+/**
+ * Where a window's state came from. `hook` is the stamp itself; the other two
+ * are the server overriding it: `transcript` found an Esc interruption the hook
+ * never hears about, `quiet` read a `running` stamp on a window that stopped
+ * redrawing as idle.
+ */
+export type AgentSource = "hook" | "transcript" | "quiet";
+
+/** Where a turn's or a wait's start came from: the hook's own mark, or the server's first sight of it. */
+export type BoundarySource = "hook" | "first-seen";
+
 export interface AgentInfo {
   state: AgentState;
   /** When the window entered this state, so a row can say how long it has waited. */
