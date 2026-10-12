@@ -121,10 +121,11 @@ function paintMain() {
 /** The view came or went: back on the terminal, it gets the room and the keys again. */
 function viewChanged() {
   paintMain();
-  if (!views.showing() && terminalOn) {
-    term.fit();
-    term.focus();
-  }
+  if (views.showing() || !terminalOn) return;
+  term.fit();
+  // Not from behind a modal: the Display modal is one way a view goes away,
+  // and the Esc that closes it would reach the agent and interrupt its turn.
+  if (!document.querySelector(".modal-back")) term.focus();
 }
 
 /** The attached session, as one chip. Its windows are the tab strip. */
