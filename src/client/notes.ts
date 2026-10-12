@@ -207,7 +207,8 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   els.close.onclick = () => hide();
   els.button.onclick = () => (open ? hide() : show(tab));
   layout();
-  if (open && tab === "all") explorer.activate(false);
+  // A panel reopened on "All notes" asks for the list in reconnected(): there
+  // is no socket to ask on yet.
 
   return {
     get open() { return open; },
