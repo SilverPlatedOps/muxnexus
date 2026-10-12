@@ -137,3 +137,29 @@ describe("queue and fuel", () => {
     ]);
   });
 });
+
+describe("rooms", () => {
+  const groups = () => [
+    grp("work", [ses("$1", "A", [win("@1")])]),
+    grp("personal", [ses("$2", "B", [win("@2")])]),
+    grp(null, [ses("$3", "C", [win("@3")])]),
+    grp("archived", [ses("$4", "D", [win("@4")])]),
+  ];
+
+  test("defaults: open office, personal is a study, the lobby a lounge, the basement storage", () => {
+    expect(deriveBuilding(world(groups()), NOW).floors.map((f) => f.room)).toEqual(["office", "study", "lounge", "storage"]);
+  });
+
+  test("a chosen room wins, except in the basement", () => {
+    const b = deriveBuilding(world(groups()), NOW, { work: "war", lobby: "study", archived: "office" });
+    expect(b.floors.map((f) => f.room)).toEqual(["war", "study", "study", "storage"]);
+  });
+});
+
+describe("the dog", () => {
+  test("sits with whoever has waited longest; nobody waiting, nobody", () => {
+    const g = grp("g", [ses("$1", "A", [win("@1", agent("waiting", 50))]), ses("$2", "B", [win("@2", agent("waiting", 30))])]);
+    expect(deriveBuilding(world([g], { queue: [{ session: "$2", window: "@2" }, { session: "$1", window: "@1" }] }), NOW).longestWait).toBe("$2");
+    expect(deriveBuilding(world([g]), NOW).longestWait).toBeNull();
+  });
+});

@@ -135,3 +135,18 @@ describe("createViewHost", () => {
     expect(rec.calls).toEqual(["mount", "update:1", "reveal:@1"]);
   });
 });
+
+describe("full window", () => {
+  test("a view that asks for the whole window has it only while it shows", () => {
+    const { view } = recordingView();
+    const host = createViewHost({
+      slot: slot(), actions, views: { building: () => ({ ...view, fullWindow: true }) }, changed() {},
+      store: memoryStore({ "muxnexus.view": "building" }), env: fakeEnv(),
+    });
+    expect(host.fullWindow()).toBe(false);
+    host.show(true);
+    expect(host.fullWindow()).toBe(true);
+    host.show(false);
+    expect(host.fullWindow()).toBe(false);
+  });
+});

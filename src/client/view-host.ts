@@ -62,6 +62,8 @@ export interface View {
   /** ⌘J while the view shows. Opening the window is the plain answer. */
   reveal(ref: WindowRef): void;
   unmount(): void;
+  /** Takes the whole window while it shows: the page folds its sidebar and top bar away. */
+  fullWindow?: boolean;
 }
 
 export interface ViewHost {
@@ -97,6 +99,8 @@ export interface ViewController {
   /** From the Display modal: remembered, and shown at once unless it is the terminal. */
   choose(name: ViewName): void;
   showing(): boolean;
+  /** Whether what shows wants the whole window. */
+  fullWindow(): boolean;
   /** The top bar's toggle between the terminal and the chosen view. */
   show(on: boolean): void;
   update(world: World, events: readonly WorldEvent[]): void;
@@ -163,6 +167,7 @@ export function createViewHost(opts: {
       opts.changed();
     },
     showing: () => mounted !== null,
+    fullWindow: () => mounted?.view.fullWindow === true,
     show(on) {
       if (on ? mount() : unmount()) opts.changed();
     },

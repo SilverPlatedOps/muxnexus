@@ -46,7 +46,13 @@ export interface Person {
   jobs: string;
   alt: string;
 }
-export interface Floor { key: string; name: string; kind: "group" | "lobby" | "basement"; people: Person[] }
+/** A floor's room: its walls and props, and the desks its people spawn with. Decor, chosen per floor. */
+export type RoomType = "office" | "war" | "study" | "lounge" | "storage";
+/** What the plate's picker offers; storage is the basement's alone. */
+export const ROOM_CHOICES: readonly RoomType[] = ["office", "war", "study", "lounge"];
+export const ROOM_LABEL: Record<RoomType, string> = { office: "open office", war: "war room", study: "study", lounge: "lounge", storage: "storage" };
+
+export interface Floor { key: string; name: string; kind: "group" | "lobby" | "basement"; room: RoomType; people: Person[] }
 export interface QueueEntry { ref: WindowRef; label: string; wait: string }
 export interface Fuel {
   label: string;
@@ -58,7 +64,13 @@ export interface Fuel {
   level: "ok" | "amber" | "empty" | "none";
   signedOut: boolean;
 }
-export interface Building { floors: Floor[]; queue: QueueEntry[]; fuel: Fuel[] }
+export interface Building {
+  floors: Floor[];
+  queue: QueueEntry[];
+  fuel: Fuel[];
+  /** The session that has waited longest, where the dog sits; null when nobody waits. */
+  longestWait: string | null;
+}
 
 /** Elapsed time as the tags say it. Never drawn as a length. */
 export function span(ms: number): string {
@@ -140,7 +152,15 @@ function personOf(s: WorldSession, now: number, labels: readonly string[], amber
   };
 }
 
-export function deriveBuilding(world: World, now: number): Building {
+function roomOf(key: string, kind: Floor["kind"], chosen: Readonly<Record<string, RoomType>>): RoomType {
+  if (kind === "basement") return "storage";
+  const pick = chosen[key];
+  if (pick && ROOM_CHOICES.includes(pick)) return pick;
+  return kind === "lobby" ? "lounge" : key === "personal" ? "study" : "office";
+}
+
+/** `rooms`: the room picked for each floor, by floor key; a floor nobody furnished gets its default. */
+export function deriveBuilding(world: World, now: number, rooms: Readonly<Record<string, RoomType>> = {}): Building {
   const labels = badgedLabels(world.accounts);
   const fuel: Fuel[] = world.accounts.map((a) => {
     const w = summaryWindow(a.windows);
@@ -162,11 +182,11 @@ export function deriveBuilding(world: World, now: number): Building {
 
   const floors: Floor[] = world.groups
     .filter((g) => g.key !== null && g.key !== ARCHIVE)
-    .map((g) => ({ key: g.key!, name: g.name ?? g.key!, kind: "group", people: people(g.sessions) }));
+    .map((g) => ({ key: g.key!, name: g.name ?? g.key!, kind: "group", room: roomOf(g.key!, "group", rooms), people: people(g.sessions) }));
   const solo = world.groups.filter((g) => g.key === null).flatMap((g) => g.sessions);
-  if (solo.length) floors.push({ key: "lobby", name: "Lobby", kind: "lobby", people: people(solo) });
+  if (solo.length) floors.push({ key: "lobby", name: "Lobby", kind: "lobby", room: roomOf("lobby", "lobby", rooms), people: people(solo) });
   const archive = world.groups.find((g) => g.key === ARCHIVE);
-  if (archive) floors.push({ key: ARCHIVE, name: archive.name ?? "Archived", kind: "basement", people: people(archive.sessions) });
+  if (archive) floors.push({ key: ARCHIVE, name: archive.name ?? "Archived", kind: "basement", room: "storage", people: people(archive.sessions) });
 
   const sheetsById = new Map(floors.flatMap((f) => f.people.flatMap((p) => p.sheets.map((x) => [x.ref.window, { p, x }] as const))));
   const queue = world.queue.flatMap((ref): QueueEntry[] => {
@@ -174,5 +194,5 @@ export function deriveBuilding(world: World, now: number): Building {
     if (!hit) return [];
     return [{ ref, label: hit.p.label, wait: hit.x.since ? span(now - at(hit.x.since)) : "" }];
   });
-  return { floors, queue, fuel };
+  return { floors, queue, fuel, longestWait: queue[0]?.ref.session ?? null };
 }

@@ -130,14 +130,26 @@ function showTerminal(on: boolean) {
   }
 }
 
+/** Whether the sidebar was folded before a full-window view folded it; null while none shows. */
+let sidebarBefore: boolean | null = null;
+
 /** What the main area shows: a chat while one is open, a view while one is up, else the terminal or the empty prompt. */
 function paintMain() {
   const chatting = chatUI?.isShowing() ?? false;
   const viewing = !chatting && views.showing();
+  const full = viewing && views.fullWindow();
   chatEl.hidden = !chatting;
   wrapEl.hidden = chatting || viewing || !terminalOn;
   emptyEl.hidden = chatting || viewing || terminalOn;
-  topbar.hidden = chatting || !(viewing || terminalOn);
+  topbar.hidden = chatting || full || !(viewing || terminalOn);
+  // A full-window view brings its own top bar and folds the sidebar away; ⌘B still opens it.
+  if (full && sidebarBefore === null) {
+    sidebarBefore = layout.classList.contains("collapsed");
+    layout.classList.add("collapsed");
+  } else if (!full && sidebarBefore !== null) {
+    layout.classList.toggle("collapsed", sidebarBefore);
+    sidebarBefore = null;
+  }
   viewToggle.hidden = views.chosen() === "terminal";
   viewToggle.setAttribute("aria-pressed", String(viewing));
   // Nothing typed may reach tmux while a view is up: xterm takes keys only while focused.
