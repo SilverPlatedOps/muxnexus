@@ -99,6 +99,10 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     scrollback: 1000,
     theme: THEME,
     allowProposedApi: true, // the search addon's match marks are decorations, still a proposed API
+    // A link a program printed with its own text (OSC 8) opens in a new tab,
+    // as a bare URL does, instead of behind xterm's confirm() dialog. xterm
+    // only offers http(s) ones.
+    linkHandler: { activate: (_ev, uri) => { window.open(uri, "_blank", "noopener"); } },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);

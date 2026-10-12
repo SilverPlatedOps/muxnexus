@@ -56,3 +56,18 @@ test("onExit fires once when the session is killed underneath the client", async
   await Bun.sleep(100);
   expect(exits).toHaveLength(1);
 });
+
+test("a link a program prints reaches the browser as a link, not just its text", async () => {
+  let out = "";
+  const pty = attachSession({
+    target: "=s", socketName: SOCKET, cols: 100, rows: 30,
+    onData: (d) => { out += d; },
+    onExit: () => {},
+  });
+  await waitFor(() => out.length > 0, 3000, "initial redraw");
+  // An OSC 8 hyperlink, the way Claude Code prints a link whose text is not its URL.
+  pty.write("printf '\\033]8;;https://example.com/page\\033\\\\LINK\\033]8;;\\033\\\\\\n'\r");
+  await waitFor(() => out.includes("\x1b]8;"), 3000, "OSC 8 passed through tmux");
+  expect(out).toContain("https://example.com/page\x1b\\LINK");
+  pty.kill();
+});

@@ -21,8 +21,13 @@ export interface PtyHandle {
 
 /** Spawn `tmux attach-session` in a PTY. One call per browser client. */
 export function attachSession(opts: AttachOptions): PtyHandle {
+  // `-T hyperlinks`: xterm.js reads OSC 8 links, but tmux only passes them on
+  // to a client that says it can. Without it a link whose text is not its URL
+  // reaches the browser as plain text and cannot be clicked.
   const args = [
     ...socketArgs(opts.socketName, opts.socketPath),
+    "-T",
+    "hyperlinks",
     "attach-session",
     "-t",
     opts.target,
