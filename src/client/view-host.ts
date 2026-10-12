@@ -151,11 +151,12 @@ export function createViewHost(opts: {
     chosen: () => chosen,
     choose(name) {
       if (name === chosen) return;
-      const was = unmount();
+      unmount();
       chosen = name;
       saveChosen(name, opts.store);
-      const now = name !== "terminal" && mount();
-      if (was || now) opts.changed();
+      if (name !== "terminal") mount();
+      // Always: the top bar's toggle follows the choice even when nothing was showing.
+      opts.changed();
     },
     showing: () => mounted !== null,
     show(on) {

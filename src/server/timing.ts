@@ -44,6 +44,14 @@ export interface Seen {
  */
 export class FirstSeen {
   private panes = new Map<string, Seen>();
+  /**
+   * What a pane knew before a `done` on stamp `at`. The quiet guard reads a
+   * `running` stamp as done after a pause in redraws -- a laptop waking, a
+   * stopped terminal -- and nothing fires when the agent carries on, so the
+   * stamp is the same one. Running again on that same stamp was a flap, not an
+   * end, and gets this back.
+   */
+  private held = new Map<string, { seen: Seen; at: number }>();
   private server: string | null = null;
 
   /** tmux restarted: it hands pane ids out again, so nothing remembered applies. */
@@ -51,16 +59,23 @@ export class FirstSeen {
     if (server === this.server) return;
     this.server = server;
     this.panes.clear();
+    this.held.clear();
   }
 
   /** This poll's believed state for a pane, at its stamp's time; what is now known of it. */
   observe(pane: string, state: AgentState, at: number): Seen {
-    const s: Seen = { ...(this.panes.get(pane) ?? {}) };
+    const before = this.panes.get(pane) ?? {};
+    const held = this.held.get(pane);
+    this.held.delete(pane);
+    let s: Seen = { ...before };
     if (state === "done") {
+      if (before.turn !== undefined) this.held.set(pane, { seen: { ...before }, at });
+      else if (held?.at === at) this.held.set(pane, held); // the same pause, several polls long
       delete s.turn;
       delete s.wait;
       s.lastDone = at;
     } else {
+      if (held?.at === at) s = { ...held.seen };
       s.turn ??= at;
       if (state === "input") s.wait ??= at;
       else delete s.wait;
@@ -72,6 +87,7 @@ export class FirstSeen {
   /** Forget panes that are gone. */
   keep(live: ReadonlySet<string>): void {
     for (const id of [...this.panes.keys()]) if (!live.has(id)) this.panes.delete(id);
+    for (const id of [...this.held.keys()]) if (!live.has(id)) this.held.delete(id);
   }
 }
 

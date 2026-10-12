@@ -41,6 +41,37 @@ describe("FirstSeen", () => {
     expect(seen.observe("%1", "running", 130)).toEqual({ turn: 130 });
   });
 
+  test("a quiet flap -- done then running on the very same stamp -- keeps the turn it had", () => {
+    const seen = new FirstSeen();
+    seen.observe("%1", "running", 5);
+    seen.observe("%1", "done", 5); // no redraw for STALE_SECONDS: read as idle, no hook fired
+    expect(seen.observe("%1", "running", 5)).toEqual({ turn: 5 });
+  });
+
+  test("a flap that lasts several polls still keeps the turn, and the done before it", () => {
+    const seen = new FirstSeen();
+    seen.observe("%1", "done", 1);
+    seen.observe("%1", "running", 5);
+    seen.observe("%1", "done", 5);
+    seen.observe("%1", "done", 5);
+    expect(seen.observe("%1", "running", 5)).toEqual({ turn: 5, lastDone: 1 });
+  });
+
+  test("a hook-marked turn survives a quiet flap", () => {
+    const seen = new FirstSeen();
+    seen.observe("%1", "running", 5);
+    seen.observe("%1", "done", 5);
+    const known = seen.observe("%1", "running", 5);
+    expect(resolveTiming("running", 5, { start: 0 }, null, known)).toEqual({ turnStartedAt: 0, turnSource: "hook" });
+  });
+
+  test("waking on a new stamp after a done is a new turn", () => {
+    const seen = new FirstSeen();
+    seen.observe("%1", "running", 5);
+    seen.observe("%1", "done", 5);
+    expect(seen.observe("%1", "running", 50)).toEqual({ turn: 50, lastDone: 5 });
+  });
+
   test("panes no longer live are dropped", () => {
     const seen = new FirstSeen();
     seen.observe("%1", "running", 100);

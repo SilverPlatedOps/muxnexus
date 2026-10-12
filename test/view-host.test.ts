@@ -101,6 +101,18 @@ describe("createViewHost", () => {
     expect(host.showing()).toBe(false);
   });
 
+  test("choosing the terminal while the view is toggled off still repaints the page", () => {
+    let changed = 0;
+    const rec = recordingView();
+    const host = createViewHost({ slot: slot(), actions, views: { debug: () => rec.view }, changed: () => changed++, store: memoryStore(), env: fakeEnv() });
+    host.choose("debug");
+    host.show(false);
+    changed = 0;
+    host.choose("terminal");
+    expect(host.chosen()).toBe("terminal");
+    expect(changed).toBe(1);
+  });
+
   test("the clock pauses while the page is hidden", () => {
     const env = fakeEnv();
     const rec = recordingView();
