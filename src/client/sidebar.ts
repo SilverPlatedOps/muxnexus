@@ -7,6 +7,7 @@ import { marksShown } from "./display";
 import { sessionLabel, tabLabel, windowPlace } from "./labels";
 import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
 import { categoryKey, splitCategory } from "../shared/category";
+import { createFolded, type Folded } from "./folded";
 
 export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
@@ -60,22 +61,6 @@ const ICON = {
   chevron: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg>',
 };
 
-const COLLAPSED_KEY = "muxnexus.collapsed";
-
-/** Which groups this browser keeps folded. A convenience, so a failed read is just "none". */
-function loadCollapsed(): Set<string> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]");
-    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveCollapsed(keys: Set<string>) {
-  try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...keys])); } catch { /* not remembered, still folded */ }
-}
-
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -101,9 +86,10 @@ export function createSidebar(
   actions: SidebarActions,
   foot?: HTMLElement | null,
   search?: HTMLInputElement | null,
+  folded?: Folded,
 ): Sidebar {
   const ui: UiState = { menu: null, confirm: null, editing: null };
-  const collapsed = loadCollapsed();
+  const collapsed = folded ?? createFolded();
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
@@ -111,6 +97,8 @@ export function createSidebar(
   let found: Map<string, WindowInfo[]> | null = null;
 
   const rerender = () => draw(lastSessions, lastCurrent);
+  // A group folded from a view folds here too.
+  collapsed.subscribe(rerender);
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   function menuButton(name: string): HTMLElement {
@@ -440,10 +428,7 @@ export function createSidebar(
       head.append(mark, el("span", "cat-count", String(block.sessions.length)));
     }
     head.onclick = () => {
-      if (collapsed.has(key)) collapsed.delete(key);
-      else collapsed.add(key);
-      saveCollapsed(collapsed);
-      rerender();
+      collapsed.toggle(key); // redraws through the subscription
     };
     section.append(head);
     if (!folded) block.sessions.forEach((row, i) => section.append(renderRow(row, i)));
