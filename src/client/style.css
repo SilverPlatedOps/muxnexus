@@ -2254,3 +2254,90 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-reply-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-left: 2px solid var(--accent); background: var(--group); color: var(--muted); font: 11.5px var(--mono); }
 .chat-reply-bar[hidden] { display: none; }
 .chat-reply-bar .chat-reply-text { flex: 1; }
+
+/* ---------- the building view ---------- */
+#view:has(> .bld) { padding: 0; overflow: hidden; }
+.bld { --flag: #ff6b4a; --light: #ffcf8a; --plate: #f6dfae; --ink: #e8e2d2; --night: #0d1020;
+  display: flex; flex-direction: column; height: 100%; background: var(--night); color: var(--ink);
+  font: 11px/1.35 "JetBrains Mono", ui-monospace, monospace; outline: none; }
+.bld img { image-rendering: pixelated; }
+.bld-note { margin: 16px; color: #8a93a6; }
+
+.bld-hud { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-bottom: 2px solid #2a3350; }
+.bld-hud-title { font-family: "Pixelify Sans", monospace; font-size: 16px; color: var(--light); }
+.bld-hud.calm .bld-hud-title { color: #8a93a6; }
+.bld-pills { display: flex; gap: 6px; min-width: 0; overflow: hidden; }
+.bld-pill { all: unset; display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 4px; border: 1px solid #4a3f66; border-radius: 4px; background: #2a2340; cursor: pointer; white-space: nowrap; }
+.bld-pill:focus-visible, .bld-desk:focus-visible { outline: 2px solid var(--light); outline-offset: 2px; }
+.bld-pill-face { height: 26px; }
+.bld-pill-wait { color: var(--light); font-weight: 600; }
+.bld-more { color: #8a93a6; }
+.bld-hint { margin-left: auto; color: #8a93a6; white-space: nowrap; }
+
+.bld-tower { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; background: #12162a; }
+.bld-floor { position: relative; flex: none; height: 196px; zoom: var(--z, 1); display: grid; grid-template-columns: 56px minmax(0, 1fr);
+  border: 6px solid #3a4050; border-bottom-width: 10px; margin-top: -6px; background: #1b1f2e; }
+.bld-lift { margin: 22px 8px 22px; border: 3px solid #4a5370; background: linear-gradient(90deg, #2b2e36 49%, #1d2027 50%, #2b2e36 51%); }
+.bld-floor.here .bld-lift { border-color: var(--light); box-shadow: 0 0 10px rgba(255,207,138,.45); }
+.bld-plate { position: absolute; left: 68px; top: 8px; z-index: 3; padding: 4px 10px; background: rgba(13,16,32,.88); border: 2px solid #4a5370; }
+.bld-floor.here .bld-plate { border-color: var(--light); }
+.bld-plate b { display: block; font-family: "Pixelify Sans", monospace; font-size: calc(15px / var(--z, 1)); color: var(--plate); text-transform: uppercase; letter-spacing: .04em; }
+.bld-plate span { color: #cdd3df; font-size: calc(10.5px / var(--z, 1)); }
+/* The shell is a 16:9 room; a floor shows its middle band (first guess, tune on screen). */
+.bld-room { position: relative; overflow-x: auto; overflow-y: hidden; background: #2a2018 0 46% / auto 205% repeat-x; image-rendering: pixelated; scrollbar-width: thin; }
+.bld-row { position: absolute; left: 150px; bottom: 0; top: 0; display: flex; gap: 22px; padding-right: 24px; }
+.bld-floor[data-kind="basement"] .bld-room { filter: saturate(.35) brightness(.6); }
+
+.bld-desk { all: unset; position: relative; flex: none; width: 128px; height: 100%; cursor: pointer; }
+/* Geometry, in floor pixels: the desk stands 34px up (room for the tag); its top surface is 96px up.
+   Poses are drawn at a third of their source size so every pose shares one scale. */
+.bld-desk-art { position: absolute; left: 11px; bottom: 34px; height: 92px; z-index: 1; }
+/* Seated: in front of the desk picture (so the chair is behind them), cut off at the desktop line. */
+.bld-person { position: absolute; left: 50%; bottom: 80px; height: 86px; transform: translateX(-50%); z-index: 2; clip-path: inset(0 0 16px 0); }
+.bld-desk[data-pose="asleep"] .bld-person { height: 90px; }
+.bld-desk[data-pose="ghost"] .bld-person { height: 106px; opacity: .55; }
+/* Idle: standing beside the desk, cup in hand -- uncut. */
+.bld-desk[data-pose="away"] .bld-person { left: auto; right: -12px; bottom: 34px; height: 100px; transform: none; clip-path: none; z-index: 3; }
+.bld-floor[data-kind="basement"] .bld-person, .bld-floor[data-kind="basement"] .bld-sheets,
+.bld-floor[data-kind="basement"] .bld-laptop, .bld-floor[data-kind="basement"] .bld-light { display: none; }
+.bld-floor[data-kind="basement"] .bld-desk::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 34px; height: 76px; z-index: 3;
+  border-radius: 30px 30px 4px 4px; background: linear-gradient(#d9d4c6, #a9a395); opacity: .92; }
+/* The lid faces you, low, in front of the chest: the face stays visible above it. */
+.bld-laptop { position: absolute; left: 50%; bottom: 96px; width: 30px; height: 15px; transform: translateX(-50%); z-index: 3;
+  background: #3a3f4a; border: 2px solid #1d2027; border-bottom: 0; border-radius: 3px 3px 0 0; box-sizing: border-box; box-shadow: 0 -2px 10px rgba(160,200,255,.3); }
+.bld-laptop::after { content: ""; position: absolute; left: 10px; top: 4px; width: 6px; height: 3px; background: #8a93a6; }
+.bld-desk[data-pose="away"] .bld-laptop { display: none; }
+.bld-desk[data-pose="asleep"] .bld-laptop, .bld-desk[data-pose="ghost"] .bld-laptop { box-shadow: none; opacity: .75; }
+.bld-light { display: none; position: absolute; left: -14px; right: -14px; bottom: 26px; height: 40px; border-radius: 50%; z-index: 0;
+  background: radial-gradient(ellipse, rgba(255,207,138,.85), rgba(255,196,110,0) 70%); }
+.bld-desk[data-state="waiting"] .bld-light { display: block; }
+.bld-sheets { position: absolute; left: 86px; bottom: 96px; width: 18px; z-index: 4; display: flex; flex-direction: column-reverse; }
+.bld-sheets::after { content: attr(data-more); position: absolute; left: 20px; top: -4px; color: var(--ink); font-size: 9px; }
+.bld-sheet { display: block; height: 5px; margin-top: 0; border: 1.5px solid #2b241c; background: var(--c); box-sizing: border-box; }
+.bld-sheet.dashed { background: transparent; border: 1.5px dashed var(--c); }
+.bld-sheet.amber { background: #e3b73a; }
+.bld-sheet.flag { border-color: var(--flag); box-shadow: 0 0 8px 2px rgba(255,107,74,.55); position: relative; }
+.bld-sheet.flag::after { content: ""; position: absolute; right: -6px; top: -9px; width: 5px; height: 8px; background: var(--flag); }
+/* Text keeps its size when the floors zoom out to fit: a tag is read, not looked at. */
+.bld-tag { position: absolute; left: -6px; right: -6px; bottom: 2px; z-index: 5; padding: 2px 4px; text-align: center; font-size: calc(10.5px / var(--z, 1));
+  background: rgba(13,16,32,.9); border: 1px solid #2a3350; }
+.bld-tag b { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bld-status { display: block; color: #8fdcb0; }
+.bld-desk[data-state="waiting"] .bld-status { color: var(--light); font-weight: 600; }
+.bld-desk[data-state="idle"] .bld-status, .bld-desk[data-state="ghost"] .bld-status { color: #8a93a6; }
+.bld-jobs { display: none; }
+.bld-desk.selected .bld-tag, .bld-desk.current .bld-tag { border-color: var(--light); }
+.bld-desk.selected .bld-jobs { display: block; color: #8a93a6; }
+
+.bld-gen { flex: none; display: flex; align-items: center; gap: 18px; height: 34px; padding: 0 14px; border-top: 2px solid #2a3350; overflow-x: auto; }
+.bld-gen-title { font-family: "Pixelify Sans", monospace; font-size: 14px; color: var(--plate); }
+.bld-fuels { display: flex; gap: 18px; }
+.bld-fuel { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.bld-fuel-name { color: var(--c); font-weight: 600; }
+.bld-blocks { display: flex; gap: 1px; padding: 1px; width: 90px; height: 10px; border: 2px solid #4a5370; background: #1b2234; }
+.bld-blocks i { flex: 1; }
+.bld-blocks i.on { background: var(--c); }
+.bld-blocks i.amber { background: #e3b73a; }
+.bld-fuel[data-level="empty"] .bld-blocks { border-color: #ff6b4a; }
+.bld-fuel[data-level="out"] { opacity: .5; }
+.bld-fuel-text { color: #8a93a6; }

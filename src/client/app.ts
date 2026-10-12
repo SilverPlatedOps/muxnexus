@@ -26,6 +26,7 @@ import { buildWorld, nextWaiting, type World } from "./world";
 import { diffWorlds } from "./transitions";
 import { sessionName, type WorldActions } from "./world-actions";
 import { createViewHost } from "./view-host";
+import { createBuildingView } from "./views/building";
 import { createDebugView } from "./views/debug";
 import { createChatUI, type ChatUI } from "./chat/ui";
 import { createGlobalSearch } from "./global-search";
@@ -632,7 +633,7 @@ const worldActions: WorldActions = {
 const views = createViewHost({
   slot: viewEl,
   actions: worldActions,
-  views: { debug: createDebugView },
+  views: { building: createBuildingView, debug: createDebugView },
   changed: viewChanged,
 });
 
