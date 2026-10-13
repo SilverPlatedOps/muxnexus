@@ -2255,7 +2255,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-reply-bar[hidden] { display: none; }
 .chat-reply-bar .chat-reply-text { flex: 1; }
 
-/* ---------- the building view ---------- */
+/* ---------- the vault's page parts: top bar, card, generator ---------- */
 #view:has(> .bld) { padding: 0; overflow: hidden; }
 .bld { --flag: #ff6b4a; --light: #ffcf8a; --plate: #f6dfae; --ink: #e8e2d2; --night: #0d1020; --edge: #2a3350;
   position: relative; display: grid; grid-template-rows: 52px minmax(0, 1fr) 36px; height: 100%; background: var(--night); color: var(--ink);
@@ -2278,8 +2278,6 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .bld-pill { all: unset; display: flex; align-items: center; gap: 5px; padding: 1px 7px 1px 2px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
 .bld-pill:hover { background: #2a2340; }
 .bld-pill:focus-visible, .bld-btn:focus-visible { outline: 2px solid var(--light); outline-offset: 2px; }
-.bld-desk:focus-visible { outline: none; }
-.bld-desk:focus-visible .bld-tag { outline: 2px solid var(--light); outline-offset: 1px; }
 .bld-pill-face { height: 24px; }
 .bld-pill-wait { color: var(--light); font-weight: 600; }
 .bld-more { color: #8a93a6; }
@@ -2288,131 +2286,6 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .bld-btn { all: unset; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid #4a5370; border-radius: 4px; color: var(--ink); cursor: pointer; white-space: nowrap; }
 .bld-btn:hover { border-color: var(--light); }
 
-/* The night outside, and the building standing in it. */
-.bld-tower { overflow: auto; padding: 18px 44px 0; background: #0d1838 0 100% / auto 70% repeat-x; image-rendering: pixelated; }
-.bld-shell { display: flex; flex-direction: column; border: 8px solid #3a4050; border-top-width: 14px; border-bottom: 0;
-  background: #3a4050; box-shadow: 0 0 0 2px #232835, 0 20px 40px rgba(0,0,0,.45); }
-.bld-floor { position: relative; flex: none; height: 196px; zoom: var(--z, 1); display: grid; grid-template-columns: 84px minmax(0, 1fr);
-  border-bottom: 10px solid #3a4050; }
-.bld-lift { position: relative; border-right: 8px solid #3a4050; background: linear-gradient(90deg, #14171f 0 10px, #1d212b 10px calc(100% - 10px), #14171f calc(100% - 10px)); }
-.bld-lift-car { position: absolute; left: 50%; bottom: 0; height: 128px; transform: translateX(-50%); }
-.bld-floor.here .bld-lift-car { filter: drop-shadow(0 0 6px rgba(255,207,138,.8)); }
-.bld-floor.here .bld-lift::after { content: "lift"; position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; color: var(--light); font-size: calc(10px / var(--z, 1)); }
-/* One line along the ceiling, clear of the heads below it. */
-.bld-plate { position: absolute; left: 92px; top: 0; z-index: 6; display: flex; align-items: baseline; gap: 8px; padding: 1px 10px 2px;
-  background: rgba(13,16,32,.9); border: 2px solid #4a5370; border-top: 0; }
-.bld-floor.here .bld-plate { border-color: var(--light); }
-.bld-plate b { font-family: "Pixelify Sans", monospace; font-size: calc(16px / var(--z, 1)); color: var(--plate); text-transform: uppercase; letter-spacing: .04em; }
-.bld-plate-line { display: flex; align-items: center; gap: 6px; color: #cdd3df; font-size: calc(10.5px / var(--z, 1)); }
-.bld-roompick { appearance: none; border: 0; padding: 0 12px 0 0; background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23ffcf8a'/%3E%3C/svg%3E") right center no-repeat;
-  color: var(--light); font: inherit; cursor: pointer; }
-.bld-roompick:focus-visible { outline: 1px solid var(--light); }
-.bld-roompick option { background: #141a2b; color: var(--ink); }
-
-/* A room in four pieces: ends and centrepiece anchored, plain wall between, all scrolling with the desks. */
-.bld-room { position: relative; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
-  background: var(--r) right bottom / auto 100% no-repeat local, var(--l) left bottom / auto 100% no-repeat local,
-    var(--c) 58% 100% / auto 100% no-repeat local, var(--f) left bottom / auto 100% repeat-x local, #20242e; image-rendering: pixelated; }
-.bld-row { position: absolute; left: 112px; bottom: 0; top: 0; display: flex; gap: 22px; padding-right: 90px; }
-.bld-floor[data-kind="basement"] .bld-room { filter: brightness(.85); }
-
-.bld-desk { all: unset; position: relative; flex: none; width: 128px; height: 100%; cursor: pointer; }
-/* Geometry, in floor pixels: the desk stands 30px up (room for the tag); its top surface is 92px up.
-   Poses are drawn at a third of their source size so every pose shares one scale. */
-.bld-desk-art { position: absolute; left: 11px; bottom: 30px; height: 92px; z-index: 1; }
-/* A person is a point on the floor with two pictures stacked on it: a new pose fades in over the old.
-   Seated: in front of the desk picture (so the chair is behind them), cut off at the desktop line. */
-.bld-person { position: absolute; left: 50%; bottom: 76px; z-index: 2; width: 0; height: 0; transform-origin: 0 0; }
-.bld-pose { position: absolute; left: 0; bottom: 0; height: 86px; translate: -50% 0; clip-path: inset(0 0 16px 0);
-  opacity: 0; transition: opacity .22s ease-out; }
-.bld-pose.on { opacity: 1; }
-.bld-pose[data-pose="asleep"] { height: 90px; }
-.bld-pose[data-pose="ghost"] { height: 106px; }
-.bld-pose.on[data-pose="ghost"] { opacity: .55; animation: bld-ghost 3s ease-in-out infinite; }
-/* Idle: standing beside the desk, cup in hand -- uncut, in front of the desks. */
-.bld-desk[data-pose="away"] .bld-person { left: auto; right: -6px; bottom: 30px; z-index: 3; }
-.bld-pose[data-pose="away"] { height: 100px; clip-path: none; }
-
-/* Alive, never frozen: everyone breathes, out of step with each other (--phase).
-   Typing bobs, a raised hand sways, a sleeper breathes slow. Only idle people walk. */
-.bld-person { animation: bld-breathe 2.8s ease-in-out var(--phase, 0s) infinite; }
-.bld-desk[data-pose="typing"] .bld-person { animation: bld-type .46s ease-in-out var(--phase, 0s) infinite alternate; }
-.bld-desk[data-pose="hand-up"] .bld-person { animation: bld-sway 1.7s ease-in-out var(--phase, 0s) infinite; }
-.bld-desk[data-pose="asleep"] .bld-person { animation: bld-breathe 4.2s ease-in-out var(--phase, 0s) infinite; }
-.bld-desk.stroll .bld-person { animation: bld-stroll 14s ease-in-out var(--phase, 0s) infinite, bld-step .34s ease-in-out infinite alternate; }
-@keyframes bld-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
-@keyframes bld-type { from { transform: translateY(0); } to { transform: translateY(-1.5px); } }
-@keyframes bld-sway { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }
-@keyframes bld-ghost { 0%, 100% { opacity: .55; } 50% { opacity: .38; } }
-/* A stroll: a pause by the desk, across the front of their own empty desk, a sip, and back --
-   facing the way they walk (the picture faces left). They never cross a neighbour. */
-@keyframes bld-stroll {
-  0%, 14% { translate: 0 0; scale: 1 1; }
-  44% { translate: -88px 0; scale: 1 1; }
-  45%, 62% { translate: -88px 0; scale: -1 1; }
-  90% { translate: 0 0; scale: -1 1; }
-  91%, 100% { translate: 0 0; scale: 1 1; }
-}
-@keyframes bld-step { from { transform: translateY(0); } to { transform: translateY(-2px); } }
-.bld-floor[data-kind="basement"] .bld-person, .bld-floor[data-kind="basement"] .bld-sheets,
-.bld-floor[data-kind="basement"] .bld-laptop, .bld-floor[data-kind="basement"] .bld-light { display: none; }
-.bld-floor[data-kind="basement"] .bld-desk::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 30px; height: 74px; z-index: 3;
-  border-radius: 34px 34px 6px 6px; background: linear-gradient(#e2dccb, #b3ac9b 70%, #9b9483); box-shadow: inset 0 -6px 0 rgba(0,0,0,.12); }
-/* The lid faces you, low, in front of the chest: the face stays visible above it. */
-.bld-laptop { position: absolute; left: 50%; bottom: 92px; width: 30px; height: 15px; transform: translateX(-50%); z-index: 3;
-  background: #3a3f4a; border: 2px solid #1d2027; border-bottom: 0; border-radius: 3px 3px 0 0; box-sizing: border-box; box-shadow: 0 -2px 10px rgba(160,200,255,.3); }
-.bld-laptop::after { content: ""; position: absolute; left: 10px; top: 4px; width: 6px; height: 3px; background: #8a93a6; }
-.bld-desk[data-pose="away"] .bld-laptop { display: none; }
-.bld-desk[data-pose="typing"] .bld-laptop { animation: bld-glow 2.4s ease-in-out var(--phase, 0s) infinite; }
-@keyframes bld-glow { 0%, 100% { box-shadow: 0 -2px 8px rgba(160,200,255,.22); } 50% { box-shadow: 0 -2px 12px rgba(160,200,255,.45); } }
-.bld-desk[data-pose="asleep"] .bld-laptop, .bld-desk[data-pose="ghost"] .bld-laptop { box-shadow: none; opacity: .75; }
-.bld-light { display: none; position: absolute; left: -14px; right: -14px; bottom: 22px; height: 40px; border-radius: 50%; z-index: 0;
-  background: radial-gradient(ellipse, rgba(255,207,138,.85), rgba(255,196,110,0) 70%); }
-.bld-desk[data-state="waiting"] .bld-light { display: block; animation: bld-pool 2s ease-in-out infinite; }
-@keyframes bld-pool { 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
-.bld-sheets { position: absolute; left: 86px; bottom: 92px; width: 18px; z-index: 4; display: flex; flex-direction: column-reverse; }
-.bld-sheets::after { content: attr(data-more); position: absolute; left: 20px; top: -4px; color: var(--ink); font-size: 9px; }
-.bld-sheet { display: block; height: 5px; border: 1.5px solid #2b241c; background: var(--c); box-sizing: border-box; }
-.bld-sheet.dashed { background: transparent; border: 1.5px dashed var(--c); }
-.bld-sheet.amber { background: #e3b73a; }
-.bld-sheet.flag { border-color: var(--flag); box-shadow: 0 0 8px 2px rgba(255,107,74,.55); position: relative; }
-.bld-sheet.flag::after { content: ""; position: absolute; right: -6px; top: -9px; width: 5px; height: 8px; background: var(--flag); }
-.bld-here { display: none; position: absolute; left: 50%; top: 2px; z-index: 5; transform: translateX(-50%); white-space: nowrap;
-  font-family: "Pixelify Sans", monospace; font-size: calc(11px / var(--z, 1)); color: var(--light); text-shadow: 0 1px 0 #000; }
-.bld-here::after { content: "▼"; display: block; text-align: center; font-size: 8px; line-height: 1; }
-.bld-desk.current .bld-here { display: block; }
-/* Text keeps its size when the floors zoom out to fit: a tag is read, not looked at. */
-.bld-tag { position: absolute; left: -6px; right: -6px; bottom: 2px; z-index: 5; padding: 2px 4px; text-align: center; font-size: calc(10.5px / var(--z, 1));
-  background: rgba(13,16,32,.9); border: 1px solid var(--edge); }
-.bld-tag b { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bld-status { display: block; color: #8fdcb0; }
-.bld-desk[data-state="waiting"] .bld-status { color: var(--light); font-weight: 600; }
-.bld-desk[data-state="idle"] .bld-status, .bld-desk[data-state="ghost"] .bld-status { color: #8a93a6; }
-.bld-jobs { display: none; }
-.bld-desk.selected .bld-tag, .bld-desk.current .bld-tag { border-color: var(--light); }
-.bld-desk.selected .bld-jobs { display: block; color: #8a93a6; }
-
-/* Pets: decor that answers a touch. The dog marks whoever has waited longest. */
-.bld-pet-box { position: absolute; z-index: 4; cursor: pointer; }
-.bld-cat-box { right: 24px; bottom: 30px; }
-.bld-cat { display: block; height: 30px; }
-.bld-dog-box { left: 24px; bottom: 26px; }
-.bld-dog-box.by-desk { bottom: 26px; z-index: 6; }
-.bld-dog { display: block; height: 42px; }
-.bld-dog { transform-origin: 50% 100%; }
-.bld-dog-box:hover .bld-dog { animation: bld-wag .16s ease-in-out 4 alternate; }
-@keyframes bld-wag { from { transform: rotate(-5deg); } to { transform: rotate(5deg); } }
-.bld-dog-box.trot { transition: left 1.3s ease-in-out; }
-.bld-dog-box.trot .bld-dog { animation: bld-step .2s ease-in-out infinite alternate; }
-.bld-cat { transform-origin: 50% 100%; animation: bld-breathe 3.6s ease-in-out infinite; }
-.bld-heart { position: absolute; left: 50%; top: -6px; color: #ff6b8a; font-size: 14px; pointer-events: none; animation: bld-heart .7s ease-out forwards; }
-@keyframes bld-heart { to { transform: translate(-50%, -18px); opacity: 0; } }
-/* Reduced motion: nothing loops or walks; a pose change is a short crossfade, and everything still reads. */
-@media (prefers-reduced-motion: reduce) {
-  .bld *, .bld *::before, .bld *::after { animation: none !important; }
-  .bld-pose { transition-duration: .15s; }
-  .bld .bld-dog-box.trot, .bld .bld-card, .bld .bld-card.show { transition: none; }
-}
 
 /* The card: beside a hovered or arrowed-to person. */
 .bld-card { position: absolute; z-index: 30; width: 330px; padding: 10px 12px; background: #141a2b; border: 2px solid #4a5370; border-radius: 4px;
@@ -2436,6 +2309,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .bld-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bld-card-what { color: #8a93a6; white-space: nowrap; }
 .bld-card-acts { padding-top: 6px; border-top: 1px solid var(--edge); color: #8a93a6; }
+@media (prefers-reduced-motion: reduce) { .bld .bld-card, .bld .bld-card.show { transition: none; } }
 
 .bld-gen { display: flex; align-items: center; gap: 18px; padding: 0 14px; background: #12152a; border-top: 2px solid var(--edge); overflow-x: auto; }
 .bld-gen-title { font-family: "Pixelify Sans", monospace; font-size: 15px; color: var(--plate); }

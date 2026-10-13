@@ -13,13 +13,12 @@ import type { WorldActions } from "./world-actions";
  * that stops while the page is hidden. What it draws is its own business.
  */
 
-export type ViewName = "terminal" | "building" | "vault" | "debug";
+export type ViewName = "terminal" | "vault" | "debug";
 
 /** What the Display modal offers, in order. */
 export const VIEW_CHOICES: readonly { name: ViewName; title: string }[] = [
   { name: "terminal", title: "Terminal" },
-  { name: "building", title: "Building" },
-  { name: "vault", title: "Vault (WebGL)" },
+  { name: "vault", title: "Vault" },
   { name: "debug", title: "Debug" },
 ];
 

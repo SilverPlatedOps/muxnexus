@@ -140,8 +140,8 @@ describe("full window", () => {
   test("a view that asks for the whole window has it only while it shows", () => {
     const { view } = recordingView();
     const host = createViewHost({
-      slot: slot(), actions, views: { building: () => ({ ...view, fullWindow: true }) }, changed() {},
-      store: memoryStore({ "muxnexus.view": "building" }), env: fakeEnv(),
+      slot: slot(), actions, views: { vault: () => ({ ...view, fullWindow: true }) }, changed() {},
+      store: memoryStore({ "muxnexus.view": "vault" }), env: fakeEnv(),
     });
     expect(host.fullWindow()).toBe(false);
     host.show(true);

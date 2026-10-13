@@ -26,7 +26,6 @@ import { buildWorld, nextWaiting, type World } from "./world";
 import { diffWorlds } from "./transitions";
 import { sessionName, type WorldActions } from "./world-actions";
 import { createViewHost } from "./view-host";
-import { createBuildingView } from "./views/building";
 import { createVaultView } from "./views/vault";
 import { createDebugView } from "./views/debug";
 import { createChatUI, type ChatUI } from "./chat/ui";
@@ -647,7 +646,7 @@ const worldActions: WorldActions = {
 const views = createViewHost({
   slot: viewEl,
   actions: worldActions,
-  views: { building: createBuildingView, vault: createVaultView, debug: createDebugView },
+  views: { vault: createVaultView, debug: createDebugView },
   changed: viewChanged,
 });
 
