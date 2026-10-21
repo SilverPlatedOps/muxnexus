@@ -53,6 +53,8 @@ export interface NotesHost {
   focusTerminal(): void;
   toast(message: string): void;
   goTo(live: NonNullable<NoteSummary["live"]>): void;
+  /** The panel opened or closed: what lives in it besides the notes follows. */
+  opened(open: boolean): void;
 }
 
 export interface Notes {
@@ -180,6 +182,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     tab = next;
     remember();
     layout();
+    host.opened(true);
     sync();
     if (tab === "all") explorer.activate(focus);
     else if (focus) editor.focus();
@@ -194,6 +197,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     noteId = null;
     remember();
     layout();
+    host.opened(false);
     host.focusTerminal();
   }
 

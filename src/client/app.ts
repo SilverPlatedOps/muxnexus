@@ -11,7 +11,8 @@ import { makeResizable } from "./resize";
 import { windowPlace } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { marksShown, openDisplay } from "./display";
+import { marksShown, openDisplay, setSystemShown, systemShown } from "./display";
+import { createSystemPanel } from "./system";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, UsageSource, WindowInfo } from "../shared/protocol";
 import { createFolded } from "./folded";
@@ -380,7 +381,26 @@ const notes = createNotes({
     openWindow(session, windowId);
     notes.show("window");
   },
+  opened: () => syncSystem(),
 });
+
+const systemEl = document.getElementById("system")!;
+const system = createSystemPanel(document.getElementById("system-body")!);
+/** What this socket was last told about the overview: the server reads the machine only while it is on. */
+let systemSent = false;
+systemEl.hidden = !(notes.open && systemShown());
+
+function syncSystem() {
+  const on = notes.open && systemShown();
+  systemEl.hidden = !on;
+  if (on === systemSent) return;
+  if (on) system.reset();
+  if (conn.send({ t: "system", on })) systemSent = on;
+}
+document.getElementById("system-close")!.onclick = () => {
+  setSystemShown(false);
+  syncSystem();
+};
 
 function notesOwner(): WindowInfo | undefined {
   const ws = currentWindows();
@@ -486,6 +506,9 @@ const conn = new Connection(wsUrl, {
   onOpen() {
     hideReconnect();
     notes.reconnected();
+    // A new socket starts with the overview off on the server's side.
+    systemSent = false;
+    syncSystem();
     if (desired) attach(desired);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
@@ -554,6 +577,9 @@ const conn = new Connection(wsUrl, {
       case "note":
         notes.receive(m);
         break;
+      case "system":
+        if (systemSent) system.receive(m.stats);
+        break;
       case "notes":
         notes.list(m.notes);
         break;
@@ -584,6 +610,7 @@ drawerClose.onclick = () => setDrawer(false);
 displayBtn.onclick = () => openDisplay(document.body, () => {
   paintAll();
   renderUsage(usageEl, usageSources);
+  syncSystem();
 }, { chosen: views.chosen(), choose: (name) => views.choose(name) });
 viewToggle.onclick = () => views.show(!views.showing());
 overlay.onclick = () => setDrawer(false);

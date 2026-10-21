@@ -10,6 +10,7 @@ import { VIEW_CHOICES, type ViewName } from "./view-host";
 
 const BADGES_KEY = "muxnexus.badges";
 const MARKS_KEY = "muxnexus.checkout-marks";
+const SYSTEM_KEY = "muxnexus.system";
 
 /** What the preference is kept in: `localStorage`, or a stand-in under test. */
 export interface Store {
@@ -41,6 +42,10 @@ export const setBadgesShown = (on: boolean, store?: Store) => setShown(BADGES_KE
 export const marksShown = (store?: Store) => shown(MARKS_KEY, store);
 export const setMarksShown = (on: boolean, store?: Store) => setShown(MARKS_KEY, on, store);
 
+/** Whether the notes panel ends in the system overview; its own ✕ switches this off too. */
+export const systemShown = (store?: Store) => shown(SYSTEM_KEY, store);
+export const setSystemShown = (on: boolean, store?: Store) => setShown(SYSTEM_KEY, on, store);
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -70,6 +75,7 @@ export function openDisplay(
   const rows: [string, string, () => boolean, (on: boolean) => void][] = [
     ["Profile badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
     ["Shared checkout", "Two live agents working in one git checkout, marked on both", marksShown, setMarksShown],
+    ["System overview", "CPU, memory and the busiest apps, under the notes", systemShown, setSystemShown],
   ];
   for (const [name, note, get, set] of rows) {
     const row = el("label", "display-row");

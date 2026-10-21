@@ -192,6 +192,8 @@ export type ClientMessage =
   /** Every note with anything in it, for the explorer; answered with `notes`. */
   | { t: "notes-list" }
   | { t: "note-delete"; noteId: string }
+  /** Whether this browser shows the system overview: answered with `system` every couple of seconds while on. */
+  | { t: "system"; on: boolean }
   | { t: "ping" };
 
 /** A note as the explorer lists it. */
@@ -204,6 +206,34 @@ export interface NoteSummary {
   updated: string;
   /** The window wearing it, while there is one. */
   live?: { session: string; windowId: string };
+}
+
+/** One app in the system overview: every process inside its `.app`, summed. */
+export interface SystemApp {
+  name: string;
+  /** Share of the whole machine, 0-100, like `SystemStats.cpu`. */
+  cpu: number;
+  /** Resident memory, bytes. */
+  mem: number;
+  procs: number;
+  /** The executable of its busiest process. */
+  top: string;
+}
+
+/** The machine at a glance. A reading that could not be taken is left out. */
+export interface SystemStats {
+  /** Busy share of every core, 0-100; absent on the first reading, which has nothing to compare against. */
+  cpu?: number;
+  load: [number, number, number];
+  /** Bytes, and the kernel's memory pressure when it could be read. */
+  mem?: { used: number; total: number; pressure?: "normal" | "warning" | "critical" };
+  swap?: { used: number; total: number };
+  /** `state` as `pmset` words it: "charging", "discharging", "charged", "on AC". */
+  battery?: { percent: number; state: string };
+  /** The busiest few by CPU and the largest few by memory, in no order. */
+  apps: SystemApp[];
+  /** Every process's CPU summed, on `cpu`'s scale: the rest of `cpu` is the kernel's. */
+  appsCpu?: number;
 }
 
 /** Agents a new window can start with. */
@@ -220,6 +250,8 @@ export type ServerMessage =
   | { t: "state"; sessions: SessionInfo[]; tmuxServer?: string }
   /** Quota, on its own cadence: folding it into `state` would tie it to the session poll. */
   | { t: "usage"; sources: UsageSource[] }
+  /** Only to a client that asked with `system`, and only while it keeps asking. */
+  | { t: "system"; stats: SystemStats }
   | { t: "attached"; session: string }
   /**
    * The attached session now has this name -- renamed here, in cmux, or with

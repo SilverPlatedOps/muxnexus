@@ -9,6 +9,7 @@ import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
+import type { SystemReader } from "./system";
 
 /**
  * What a new window runs for each agent the client may ask for. The client only
@@ -41,6 +42,12 @@ export interface ServerOptions {
    */
   usage?: UsageReader;
   usageMs?: number;
+  /**
+   * Optional system overview, read only while some client has it open. Absent,
+   * a client asking for it is ignored, so the tests never spawn `ps`.
+   */
+  system?: SystemReader;
+  systemMs?: number;
   /**
    * The Claude config dirs on this machine. A session created here whose tag
    * names one (`[Work] ...`) starts with `CLAUDE_CONFIG_DIR` set to it, so
@@ -79,6 +86,8 @@ interface ConnData {
   scrolled: boolean;
   /** Keystrokes held while that closes, so they still arrive in order. */
   typing: Promise<void> | null;
+  /** This client has the system overview open. */
+  system: boolean;
 }
 
 type Socket = ServerWebSocket<ConnData>;
@@ -408,6 +417,21 @@ export function createServer(opts: ServerOptions): RunningServer {
       switch (m.t) {
         case "ping":
           return;
+        case "system":
+          if (typeof m.on !== "boolean") return send(ws, { t: "error", message: "invalid system" });
+          ws.data.system = m.on;
+          if (!m.on) return;
+          // Someone was already watching: the timer's last reading is at most an
+          // interval old. A fresh read now would hand every watcher a CPU figure
+          // over a fraction of an interval, and an extra point on their history.
+          // Only while it is that fresh: the others may have just opened the box
+          // too, after an hour of nobody looking.
+          if (lastSystem && Date.now() - lastSystem.at <= systemMs && watchingSystem().length > 1) return void ws.sendText(lastSystem.json);
+          // The first: straight away rather than at the next tick, so the box is
+          // not empty and the CPU line has a sample to compare the next against.
+          void pollSystem();
+          // Not a change to tmux: no session poll.
+          return;
         case "attach":
           await attach(ws, m.session);
           return;
@@ -624,6 +648,28 @@ export function createServer(opts: ServerOptions): RunningServer {
     for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.sendText(json);
   }
 
+  const systemMs = opts.systemMs ?? 2000;
+  let systemReading: Promise<void> | null = null;
+  /** The last reading sent, for a client that opens the box while others have it open. */
+  let lastSystem: { json: string; at: number } | null = null;
+  const watchingSystem = () => [...clients].filter((ws) => ws.data.system && ws.readyState === WebSocket.OPEN);
+
+  /** Never two at once: a slow `ps` and a client opening the box can both find one due. */
+  function pollSystem(): Promise<void> {
+    systemReading ??= readSystem().finally(() => { systemReading = null; });
+    return systemReading;
+  }
+
+  async function readSystem(): Promise<void> {
+    if (!opts.system || watchingSystem().length === 0) return;
+    const stats = await opts.system.read().catch(() => null);
+    if (!stats) return;
+    const json = JSON.stringify({ t: "system", stats } satisfies ServerMessage);
+    lastSystem = { json, at: Date.now() };
+    // Asked again: a client may have closed the box while `ps` ran.
+    for (const ws of watchingSystem()) ws.sendText(json);
+  }
+
   // Nobody connected, nothing read: a server left running in the background
   // would otherwise shell out to tmux and cmux every couple of seconds, and ask
   // the Keychain and the usage API every minute, for no one. A socket that
@@ -634,6 +680,11 @@ export function createServer(opts: ServerOptions): RunningServer {
   // timer's own.
   const usageTimer = opts.usage
     ? setInterval(() => { if (clients.size > 0 && usageDue()) void pollUsage(); }, usageMs / 4)
+    : undefined;
+  // Unlike the quota, only for the clients looking: four processes every two
+  // seconds is too much to spend on a box nobody has open.
+  const systemTimer = opts.system
+    ? setInterval(() => { if (watchingSystem().length > 0) void pollSystem(); }, systemMs)
     : undefined;
   // setInterval does not fire at zero, and a cold load would show an empty
   // footer until it did.
@@ -679,7 +730,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -742,6 +793,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     stop() {
       clearInterval(timer);
       clearInterval(usageTimer);
+      clearInterval(systemTimer);
       for (const ws of clients) {
         ws.data.attachSeq++; // invalidate any in-flight attach
         detach(ws);
