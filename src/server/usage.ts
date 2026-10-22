@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { UsageSource, UsageWindow } from "../shared/protocol";
 
 /**
- * Quota for every Claude account on this machine, plus Codex and opencode, read straight
+ * Quota for every Claude account on this machine, plus Codex, read straight
  * from the providers rather than inferred from a running session.
  *
  * Nothing here is ever written back. In particular an expired token is reported
@@ -14,7 +14,6 @@ import type { UsageSource, UsageWindow } from "../shared/protocol";
  */
 
 const CLAUDE_USAGE = "https://api.anthropic.com/api/oauth/usage";
-const OPENCODE_USAGE = "https://opencode.ai/zen/go/v1/usage";
 const CODEX_USAGE = "https://chatgpt.com/backend-api/wham/usage";
 
 export interface HttpResult {
@@ -87,28 +86,6 @@ export function categoryProfile(category: string, dirs: readonly string[], home:
 /** The Claude config dirs on this machine, read from disk. */
 export function localProfiles(home: string = homedir()): string[] {
   return findProfiles(home, (dir) => { try { return readdirSync(dir); } catch { return []; } }, existsSync);
-}
-
-/**
- * `KEY=value` pairs from a shell env file. The lines are `export KEY=value`, so
- * the prefix has to be stripped; quotes and comments are handled because the
- * file is written by hand.
- */
-export function parseEnv(text: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const raw of text.split("\n")) {
-    const line = raw.trim().replace(/^export\s+/, "");
-    if (line === "" || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    out.set(key, value);
-  }
-  return out;
 }
 
 /** The access token out of a Keychain item's JSON, or null if it is not shaped as expected. */
@@ -195,29 +172,6 @@ export function parseCodexUsage(body: string): UsageWindow[] {
       percent: w.used_percent,
       ...(typeof w.reset_at === "number" ? { resetsAt: new Date(w.reset_at * 1000).toISOString() } : {}),
       ...(limit.limit_reached === true && w.used_percent >= 100 ? { severity: "exceeded" } : {}),
-    });
-  }
-  return out;
-}
-
-/** opencode reports `usage.{rolling,weekly,monthly}` as named objects rather than a list. */
-export function parseOpencodeUsage(body: string): UsageWindow[] {
-  let usage: unknown;
-  try {
-    const d = JSON.parse(body);
-    usage = d?.usage ?? d;
-  } catch {
-    return [];
-  }
-  if (typeof usage !== "object" || usage === null) return [];
-  const out: UsageWindow[] = [];
-  for (const [kind, v] of Object.entries(usage as Record<string, unknown>)) {
-    const w = v as { percent?: unknown; resetsAt?: unknown };
-    if (typeof w?.percent !== "number") continue;
-    out.push({
-      kind,
-      percent: w.percent,
-      ...(typeof w.resetsAt === "string" ? { resetsAt: w.resetsAt } : {}),
     });
   }
   return out;
@@ -376,32 +330,6 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     return merge(last.get(id), { id, label, provider: "claude", windows, state: "ok", now });
   }
 
-  async function opencode(): Promise<UsageSource | null> {
-    const id = "opencode";
-    const stamp = new Date().toISOString();
-    const previous = last.get(id);
-    if (waiting(id) && previous) return previous;
-    const now = stamp;
-    const env = await readFile(join(home, ".claude", "opencode-go", ".env"));
-    if (env === null) return null; // not installed: no row at all, rather than an empty one
-    const token = parseEnv(env).get("OPENCODE_GO_API_KEY");
-    if (!token) return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "signed-out", now });
-    const res = await get(OPENCODE_USAGE, { Authorization: `Bearer ${token}` });
-    if (res.status === 401 || res.status === 403) {
-      return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "signed-out", now });
-    }
-    if (res.status !== 200) {
-      failed(id, res);
-      return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "error", now });
-    }
-    const windows = parseOpencodeUsage(res.body);
-    if (windows.length === 0) {
-      failed(id, res, "HTTP 200 but no usage windows in the reply");
-      return merge(last.get(id), { id, label: id, provider: "opencode", windows: [], state: "error", now });
-    }
-    return merge(last.get(id), { id, label: id, provider: "opencode", windows, state: "ok", now });
-  }
-
   async function codex(): Promise<UsageSource | null> {
     const id = "codex";
     const dir = join(home, ".codex");
@@ -436,7 +364,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
   return {
     async read() {
       const dirs = findProfiles(home, list, has);
-      const settled = await Promise.all([...dirs.map(claude), codex(), opencode()]);
+      const settled = await Promise.all([...dirs.map(claude), codex()]);
       // A source returned unchanged was skipped for backoff, not attempted, so
       // it must not count as another failure -- that would let a source extend
       // its own backoff indefinitely without ever being asked again.

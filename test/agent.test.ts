@@ -410,15 +410,15 @@ describe("needsYouCount and nextAttention", () => {
 
 describe("summaryWindow", () => {
   test("every account shows its 5h window, so the rows can be compared", () => {
-    // Claude calls it `session`, opencode calls it `rolling`.
+    // Claude calls it `session`, Codex calls it `5h`.
     expect(summaryWindow([
       { kind: "weekly_all", percent: 90 },
       { kind: "session", percent: 12 },
     ])?.kind).toBe("session");
     expect(summaryWindow([
-      { kind: "weekly", percent: 49 },
-      { kind: "rolling", percent: 4 },
-    ])?.kind).toBe("rolling");
+      { kind: "7d", percent: 49 },
+      { kind: "5h", percent: 4 },
+    ])?.kind).toBe("5h");
   });
 
   test("the 5h window wins even when a longer one is the severe one", () => {

@@ -1,6 +1,7 @@
 import type { UsageSource, UsageWindow } from "../shared/protocol";
 import { profileBadge } from "./agent";
 import { badgesShown } from "./display";
+import { ICONS } from "./icons";
 
 /**
  * The quota panel in the sidebar footer: one row per window per account.
@@ -15,9 +16,6 @@ const KIND: Record<string, string> = {
   session: "5h",
   weekly_all: "7d",
   weekly_scoped: "7d+",
-  rolling: "5h",
-  weekly: "7d",
-  monthly: "30d",
 };
 
 const BARS = 8;
@@ -86,7 +84,7 @@ export function kindLabel(kind: string): string {
  * somebody else's rules.
  */
 function tone(w: UsageWindow): string {
-  if (w.severity && w.severity !== "normal") return ` ${w.severity}`;
+  if (w.severity && w.severity !== "normal") return w.severity;
   return "";
 }
 
@@ -108,7 +106,7 @@ const EXPANDED_KEY = "muxnexus.usage.expanded";
  * three different things stacked in a column. The question the collapsed panel
  * answers is "which account can I work in right now", and that is the short
  * window, the same one for everybody. Providers name it differently
- * (`session`, `rolling`), so it is found through the label rather than by key.
+ * (`session`, `5h`), so it is found through the label rather than by key.
  *
  * An account with no short window falls back to its most severe, else fullest.
  */
@@ -139,96 +137,91 @@ function setExpanded(on: boolean): void {
 }
 
 /**
+ * A bar drawn to whatever width its column gives it, so the panel can narrow
+ * without the bars running off its edge. Any usage at all gets a sliver: an
+ * empty bar next to a non-zero number reads as "untouched" when it is not.
+ * `tone` is a severity class (`warning`, `critical`, `exceeded`) or empty.
+ */
+export function meter(percent: number, tone: string = ""): HTMLElement {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const m = el("span", "usage-meter");
+  const fill = el("span", tone ? `usage-fill ${tone}` : "usage-fill");
+  fill.style.width = clamped > 0 ? `max(2px, ${clamped}%)` : "0";
+  m.append(fill);
+  return m;
+}
+
+/**
  * Draw the panel. An empty list empties the element, so a machine with no
- * Claude and no opencode gets the sidebar it had before this existed.
+ * Claude and no Codex gets the sidebar it had before this existed.
+ *
+ * One grid for every account, so the columns line up down the panel. Each
+ * account is its badge and name followed by a row per window; the rows are
+ * `display: contents`, so their cells sit in the shared columns. When the
+ * sidebar is too narrow for a name column, the stylesheet moves the name onto
+ * its own line above its bars -- or, collapsed with badges on, leaves only the
+ * badge, which is the legend the tabs already wear.
  */
 export function renderUsage(root: HTMLElement, sources: UsageSource[], now: number = Date.now()): void {
   root.replaceChildren();
   if (sources.length === 0) return;
   const open = expanded();
   root.classList.toggle("expanded", open);
-  if (!open) return renderCollapsed(root, sources, now);
-  for (const s of sources) {
-    const block = el("div", "usage-src");
-    if (s.state !== "ok" && s.windows.length === 0) {
-      const row = el("div", "usage-row");
-      row.append(
-        ...accountBadge(s, sources),
-        el("span", "usage-name", s.label),
-        el("span", "usage-note", s.state === "signed-out" ? "signed out" : "unavailable"),
-      );
-      if (s.state === "signed-out") row.title = `${s.label}: no valid token — sign in to this account`;
-      block.append(row);
-      root.append(block);
-      continue;
+  const grid = el("div", `usage-grid${badgesShown() ? " badged" : ""}`);
+  sources.forEach((s, i) => {
+    if (i > 0) grid.append(el("div", "usage-gap"));
+    const windows = open ? s.windows : s.windows.length > 0 ? [summaryWindow(s.windows)!] : [];
+    const stale = s.state !== "ok" ? " stale" : "";
+    const head = el("div", `usage-row usage-head${windows.length > 0 ? stale : ""}`);
+    // The badge stands in for the name only beside a bar: "signed out" needs both.
+    const byBadge = windows.length > 0;
+    head.append(...accountBadge(s, sources), el("span", `usage-name${byBadge ? " by-badge" : ""}`, s.label));
+    head.title = s.label;
+    grid.append(head);
+    if (windows.length === 0) {
+      // "signed out" keeps its row: an account that vanished looks like a bug.
+      head.append(el("span", "usage-note", s.state === "signed-out" ? "signed out" : "unavailable"));
+      if (s.state === "signed-out") head.title = `${s.label}: no valid token — sign in to this account`;
+      return;
     }
-    s.windows.forEach((w, i) => {
-      const row = el("div", `usage-row${s.state !== "ok" ? " stale" : ""}`);
-      // The account is named once, against its first window, and the rest indent
-      // under it -- the name is not a property of the window.
-      row.append(...(i === 0 ? accountBadge(s, sources) : badgesShown() ? [el("span", "pbadge blank")] : []), el("span", "usage-name", i === 0 ? s.label : ""));
-      row.append(el("span", "usage-kind", kindLabel(w.kind)));
-      const b = bar(w.percent);
-      const meter = el("span", "usage-meter");
-      meter.append(el("span", `usage-fill${tone(w)}`, b.fill), el("span", "usage-track", b.track));
-      row.append(meter);
-      row.append(el("span", "usage-pct", `${Math.round(w.percent)}%`));
-      row.append(el("span", "usage-reset", formatReset(w.resetsAt, now)));
-      if (s.state !== "ok") row.title = `last read ${new Date(s.checkedAt).toLocaleTimeString()}`;
-      block.append(row);
-    });
-    root.append(block);
-  }
-  root.firstElementChild?.firstElementChild?.append(toggle(root, sources, now, true));
+    for (const w of windows) {
+      const row = el("div", `usage-row${stale}`);
+      row.append(
+        el("span", "usage-kind", kindLabel(w.kind)),
+        meter(w.percent, tone(w)),
+        el("span", "usage-pct", `${Math.round(w.percent)}%`),
+        el("span", "usage-reset", formatReset(w.resetsAt, now)),
+      );
+      row.title = s.state !== "ok" ? `${s.label}: last read ${new Date(s.checkedAt).toLocaleTimeString()}` : s.label;
+      grid.append(row);
+    }
+  });
+  root.append(toggle(root, sources, now, open), grid);
 }
 
 /** The accounts a tab's agent can be spending: every Claude profile, and Codex. */
 export function badgedLabels(sources: readonly UsageSource[]): string[] {
-  return sources.filter((s) => s.provider !== "opencode").map((s) => s.label);
+  return sources.map((s) => s.label);
 }
 
 /**
  * The account's badge, the same letter and colour its agent's tab wears: this
- * panel is the legend for the tabs, so it goes when they go. opencode's agents
- * carry no profile, so it gets an empty slot that keeps the columns aligned.
+ * panel is the legend for the tabs, so it goes when they go.
  */
 function accountBadge(s: UsageSource, sources: UsageSource[]): HTMLElement[] {
   if (!badgesShown()) return [];
-  if (s.provider === "opencode") return [el("span", "pbadge blank")];
   const b = profileBadge(s.label, badgedLabels(sources));
   return [el("span", `pbadge${b.slot === null ? "" : ` p${b.slot}`}`, b.initial)];
-}
-
-/** One row per account: the account, its worst window, and the toggle. */
-function renderCollapsed(root: HTMLElement, sources: UsageSource[], now: number): void {
-  const block = el("div", "usage-src");
-  for (const s of sources) {
-    const row = el("div", `usage-row${s.state !== "ok" ? " stale" : ""}`);
-    row.append(...accountBadge(s, sources), el("span", "usage-name", s.label));
-    const w = summaryWindow(s.windows);
-    if (!w) {
-      // "signed out" keeps its row: an account that vanished looks like a bug.
-      row.append(el("span", "usage-note", s.state === "signed-out" ? "signed out" : "unavailable"));
-    } else {
-      row.append(el("span", "usage-kind", kindLabel(w.kind)));
-      const b = bar(w.percent);
-      const meter = el("span", "usage-meter");
-      meter.append(el("span", `usage-fill${tone(w)}`, b.fill), el("span", "usage-track", b.track));
-      row.append(meter, el("span", "usage-pct", `${Math.round(w.percent)}%`), el("span", "usage-reset", formatReset(w.resetsAt, now)));
-      if (s.state !== "ok") row.title = `last read ${new Date(s.checkedAt).toLocaleTimeString()}`;
-    }
-    block.append(row);
-  }
-  block.firstElementChild?.append(toggle(root, sources, now, false));
-  root.append(block);
 }
 
 function toggle(root: HTMLElement, sources: UsageSource[], now: number, open: boolean): HTMLElement {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "usage-toggle";
-  b.textContent = open ? "\u25be" : "\u25b8";
-  b.setAttribute("aria-label", open ? "Collapse quota" : "Expand quota");
+  const chevron = el("span", "chevron");
+  chevron.innerHTML = ICONS.chevron;
+  b.append(chevron, el("span", "", "Quota"));
+  b.title = open ? "Show only each account's 5h window" : "Show every window and when it resets";
   b.setAttribute("aria-expanded", String(open));
   b.onclick = (e) => {
     e.stopPropagation();

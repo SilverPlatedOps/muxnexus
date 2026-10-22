@@ -71,7 +71,7 @@ async function cmdList(tmux: Tmux, dir: string): Promise<number> {
   return 0;
 }
 
-async function cmdRestore(tmux: Tmux, dir: string, dryRun: boolean, path?: string): Promise<number> {
+async function cmdRestore(tmux: Tmux, dir: string, dryRun: boolean, start: boolean, path?: string): Promise<number> {
   // Once this tmux server has been restored into, the old snapshot describes
   // sessions that have since been closed on purpose. An explicit path overrides,
   // for the reboot that happened twice without a restore.
@@ -88,9 +88,12 @@ async function cmdRestore(tmux: Tmux, dir: string, dryRun: boolean, path?: strin
     return 0;
   }
   console.log(`snapshot from ${snap.taken}${dryRun ? "  (dry run: nothing is changed)" : ""}`);
-  const steps = dryRun ? await planRestore(tmux, snap) : await applyRestore(tmux, snap);
+  const steps = dryRun ? await planRestore(tmux, snap) : await applyRestore(tmux, snap, { start });
   printPlan(steps);
   if (!dryRun && steps.length) console.log(`\nrestored ${steps.length} windows`);
+  if (!start && steps.some((s) => s.resume)) {
+    console.log(`${dryRun ? "each resume would be" : "each resume is"} typed but not run: press Enter in the tabs you want back`);
+  }
   return 0;
 }
 
@@ -110,5 +113,5 @@ process.exit(
     ? await cmdSnapshot(tmux, dir)
     : args.command === "snapshots"
       ? await cmdList(tmux, dir)
-      : await cmdRestore(tmux, dir, args.dryRun, args.path),
+      : await cmdRestore(tmux, dir, args.dryRun, args.start, args.path),
 );

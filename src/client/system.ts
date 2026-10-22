@@ -1,5 +1,5 @@
 import type { SystemApp, SystemStats } from "../shared/protocol";
-import { bar } from "./usage";
+import { meter } from "./usage";
 
 /**
  * The system overview at the foot of the notes panel: CPU over the last minute,
@@ -117,12 +117,9 @@ function row(label: string, ...rest: (Element | string)[]): HTMLElement {
 }
 
 /** A bar and its figures, in the colour of the trouble it is in. */
-function gauge(label: string, used: number, total: number, p: Pressure): HTMLElement {
+export function gauge(label: string, used: number, total: number, p: Pressure): HTMLElement {
   const percent = (used / total) * 100;
-  const b = bar(percent);
-  const m = el("span", "usage-meter");
-  m.append(el("span", withTone("usage-fill", p), b.fill), el("span", "usage-track", b.track));
-  const r = row(label, m, el("span", withTone("sys-value", p), `${formatBytes(used)}/${formatBytes(total)}`));
+  const r = row(label, meter(percent, p), el("span", withTone("sys-value", p), `${formatBytes(used)}/${formatBytes(total)}`));
   r.title = `${Math.round(percent)}% used`;
   return r;
 }

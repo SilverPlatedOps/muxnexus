@@ -164,13 +164,17 @@
       <section id="notes-all" class="notes-body" role="tabpanel" hidden></section>
       <section id="system" aria-label="System overview" hidden>
         <header class="sys-head">
-          <span class="sys-title">System</span>
+          <span class="sys-tabs" role="tablist" aria-label="Overview">
+            <button id="system-tab-system" class="sys-title sys-tab" type="button" role="tab">System</button>
+            <button id="system-tab-docker" class="sys-title sys-tab" type="button" role="tab">Docker</button>
+          </span>
           <span class="spacer"></span>
           <button id="system-close" class="icon-btn" type="button" aria-label="Close system overview" title="Close system overview (Display brings it back)">
             <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>
           </button>
         </header>
-        <div id="system-body"></div>
+        <div id="system-body" role="tabpanel"></div>
+        <div id="docker-body" role="tabpanel" hidden></div>
       </section>
     </aside>
   </div>

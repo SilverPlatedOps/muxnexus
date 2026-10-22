@@ -41,7 +41,7 @@ export function targets(sources: readonly UsageSource[], profiles: readonly stri
   return profiles.map((label) => {
     const src = sources.find((s) => s.label === label);
     // Found through the short-window label rather than a key: providers name it
-    // differently (`session`, `rolling`), as the quota panel already handles.
+    // differently (`session`, `5h`), as the quota panel already handles.
     const w = src?.windows.find((x) => kindLabel(x.kind) === SHORT) ?? src?.windows[0];
     return {
       label,

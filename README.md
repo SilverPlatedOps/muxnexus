@@ -135,6 +135,7 @@ two minutes, so shutting the laptop down costs nothing to remember:
 
 ```sh
 muxnexus restore          # put the windows back; --dry-run to see the plan first
+muxnexus restore --no-start  # the same, with each resume typed but not run
 muxnexus snapshot         # record now, rather than waiting for the timer
 muxnexus snapshots        # what is on disk, newest first
 ```
@@ -142,6 +143,13 @@ muxnexus snapshots        # what is on disk, newest first
 Each window comes back in its old directory and order, under its old session and
 tab names, wearing its note, with `claude --resume` typed for the conversation it
 held on the account it was on.
+
+Plain `restore` runs every resume, so every agent comes back at once -- each
+one a few hundred megabytes, before you have looked at any of them. With
+`--no-start` each resume waits on its prompt instead, and only the tabs you
+press Enter in start an agent. A tab left waiting still counts as the
+conversation it was brought back for, so a second reboot before you got to it
+loses nothing.
 
 Snapshots live in `~/.local/state/muxnexus/snapshots/`, one file per tmux server
 named for it, newest five kept: the empty tmux that comes up after a reboot
@@ -256,8 +264,7 @@ now.
 If Codex is signed in with ChatGPT, it gets a row too, with its 5-hour and weekly
 windows, read from ChatGPT's usage endpoint with the token in
 `~/.codex/auth.json` — read, never refreshed; Codex keeps that one current
-itself. Codex tabs wear its badge like any other account. If you use opencode
-Go, its quota gets a row as well.
+itself. Codex tabs wear its badge like any other account.
 
 ## Starting Codex in a new tab
 

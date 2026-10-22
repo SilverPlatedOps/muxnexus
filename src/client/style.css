@@ -103,7 +103,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   background: var(--chrome);
   border-bottom: 1px solid var(--line-soft);
 }
-#brand .word { font-weight: 700; letter-spacing: 0.04em; color: var(--fg); }
+/* A narrow sidebar shortens the name, never the mark beside it. */
+#brand > svg { flex: none; }
+#brand .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; letter-spacing: 0.04em; color: var(--fg); }
 #brand .spacer { flex: 1; }
 
 .icon-btn {
@@ -260,7 +262,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .pbadge.p0 { color: var(--profile-0); }
 .pbadge.p1 { color: var(--profile-1); }
 .pbadge.p2 { color: var(--profile-2); }
-.pbadge.blank { box-shadow: none; }
 #usage .pbadge { height: 14px; font-size: 9px; align-self: center; }
 
 
@@ -306,10 +307,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* Above "New session" and below the sessions, in the space the sidebar has
    always had spare. It collapses to nothing when nothing reports, so a machine
-   with neither Claude nor opencode sees the sidebar it had before. */
+   with neither Claude nor Codex sees the sidebar it had before. */
 #usage {
   container-type: inline-size;
-  padding: 8px 12px 2px;
+  padding: 4px 12px 2px;
   background: var(--chrome);
   border-top: 1px solid var(--line-soft);
   color: var(--dim);
@@ -318,49 +319,87 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 #usage:empty { display: none; }
 
-.usage-src + .usage-src { margin-top: 5px; }
-
-.usage-row {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
+/* One grid for every account (usage.ts), so the columns line up down the
+   panel whatever each account is called. The name column is fixed; the reset
+   time is sized to its words, never cut to "S…"; the bar takes the rest. */
+.usage-grid {
+  display: grid;
+  grid-template-columns: [badge] auto [name] 54px [kind] 22px [meter] minmax(16px, 1fr) [pct] 30px [reset] auto;
+  column-gap: 5px;
+  align-items: center;
   line-height: 1.55;
   white-space: nowrap;
 }
-
-/* Fixed columns so the bars line up down the panel rather than stepping in and
-   out with the length of each account's name. They must not shrink either: in
-   a narrow sidebar each row would give up a different amount, and the bars
-   would step in and out all the same. The reset time is what gives. */
-.usage-row > * { flex: none; }
-.usage-name { width: 54px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
-.usage-kind { width: 22px; color: var(--faint); }
-.usage-meter { letter-spacing: -0.5px; }
-.usage-fill { color: var(--accent); }
+/* Rows are a reading order and a hover title, not boxes: their cells are the grid's. */
+.usage-row { display: contents; }
+.usage-grid .pbadge { grid-column: badge; justify-self: start; }
+.usage-name { grid-column: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.usage-kind { grid-column: kind; color: var(--faint); }
+.usage-meter { display: block; height: 7px; overflow: hidden; border-radius: 2px; background: var(--line); }
+.usage-grid .usage-meter { grid-column: meter; }
+.usage-fill { display: block; height: 100%; background: var(--accent); }
 /* The provider's own judgement of its own limits, not a threshold of ours. */
-.usage-fill.warning { color: var(--yellow); }
-.usage-fill.critical, .usage-fill.exceeded { color: var(--red); }
-.usage-track { color: var(--line); }
-.usage-pct { width: 30px; text-align: right; color: var(--fg); }
-.usage-row > .usage-reset { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
-/* Too narrow for a reset time to say anything: drop it rather than show "1…". */
-@container (max-width: 250px) { .usage-reset { display: none; } }
-.usage-note { color: var(--faint); font-style: italic; }
-
-.usage-toggle {
-  margin-left: auto;
-  padding: 0 2px;
-  border: 0;
-  background: none;
-  color: var(--faint);
-  font-size: 10px;
-  cursor: pointer;
+.usage-fill.warning { background: var(--yellow); }
+.usage-fill.critical, .usage-fill.exceeded { background: var(--red); }
+.usage-pct { grid-column: pct; text-align: right; color: var(--fg); }
+.usage-reset { grid-column: reset; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
+.usage-note { grid-column: kind / -1; color: var(--faint); font-style: italic; }
+.usage-gap { grid-column: 1 / -1; height: 5px; }
+/* Collapsed is the glance: its reset times are the first thing to go when
+   they would leave the bars too short to read. Expanded is where you go for
+   them, so there they stay at every width (below). */
+@container (max-width: 264px) { #usage:not(.expanded) .usage-reset { display: none; } }
+/* Too narrow for a name column as well, collapsed: the name takes a line of
+   its own above its bar rather than being cut to "pers…" -- or, with badges
+   on, goes, and the badge alone says whose bar it is, keeping the glance one
+   line an account. */
+@container (max-width: 205px) {
+  #usage:not(.expanded) .usage-grid { grid-template-columns: [badge] auto [kind] 22px [meter] minmax(20px, 1fr) [pct] 30px; }
+  #usage:not(.expanded) .usage-name { grid-column: kind / -1; }
+  #usage:not(.expanded) .usage-grid.badged .usage-name.by-badge { display: none; }
+}
+/* Badges off: no badge column, so no empty gap indenting every row. */
+.usage-grid:not(.badged) { grid-template-columns: [name] 54px [kind] 22px [meter] minmax(16px, 1fr) [pct] 30px [reset] auto; }
+@container (max-width: 205px) {
+  #usage:not(.expanded) .usage-grid:not(.badged) { grid-template-columns: [kind] 22px [meter] minmax(20px, 1fr) [pct] 30px; }
+}
+/* Expanded and narrow: each name heads its own bars, and the window's label
+   moves under the badge to give the reset time the room. */
+@container (max-width: 249px) {
+  #usage.expanded .usage-grid { grid-template-columns: [badge kind] 22px [meter] minmax(16px, 1fr) [pct] 30px [reset] auto; }
+  #usage.expanded .usage-name, #usage.expanded .usage-note { grid-column: meter / -1; }
+  #usage.expanded .usage-grid:not(.badged) .usage-name, #usage.expanded .usage-grid:not(.badged) .usage-note { grid-column: badge / -1; }
 }
 
-.usage-toggle:hover { color: var(--fg); }
+/* The panel's header, the whole width of it, in the look of the session
+   groups' headers above: a column of its own was as wide on every row as on
+   the one it used, and a corner glyph was too small to hit. */
+.usage-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 12px);
+  height: 22px;
+  margin: 0 -6px 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.usage-toggle:hover { color: var(--fg); background: var(--hover); }
+.usage-toggle .chevron { flex: none; display: inline-flex; justify-content: center; width: 13px; transition: transform 120ms ease-out; }
+#usage:not(.expanded) .usage-toggle .chevron { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .usage-toggle .chevron { transition: none; } }
 
-/* A stale row still shows its last good numbers -- dimmed, not blanked. */
-.usage-row.stale { opacity: 0.5; }
+/* A stale row still shows its last good numbers -- dimmed, not blanked. A
+   row is `display: contents`, which opacity ignores, so its cells dim. */
+.usage-row.stale > * { opacity: 0.5; }
 
 #side-foot {
   padding: 10px 12px 12px;
@@ -1275,6 +1314,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .sys-title { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; }
 .sys-row, .sys-app { display: flex; align-items: center; gap: 6px; line-height: 1.6; white-space: nowrap; }
 .sys-row > *, .sys-app > * { flex: none; }
+.sys-row > .usage-meter { width: 56px; }
 .sys-label { width: 34px; color: var(--muted); }
 .sys-value { color: var(--fg); }
 .sys-num { width: 46px; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
@@ -1295,6 +1335,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .sys-app-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
 .sys-app-head > * { color: var(--dim); }
 .sys-wait { color: var(--dim); font-style: italic; line-height: 1.6; }
+/* The overview's tabs, worded as its title was: the one showing is the bright one. */
+.sys-tab { margin-right: 10px; padding: 0; background: none; border: 0; font-family: inherit; color: var(--dim); cursor: pointer; }
+.sys-tab:hover, .sys-tab.on { color: var(--fg-strong); }
+/* The Docker tab (docker.ts): containers under the compose project that started them. */
+.dock-list { max-height: 210px; overflow-y: auto; }
+.dock-group > .sys-app-name { color: var(--muted); }
+.dock-group > .sys-num { color: var(--dim); }
+.dock-loose > .sys-app-name { font-style: italic; }
+.dock-name { padding-left: 8px; }
+.dock-off > * { color: var(--dim); }
+/* Spans the CPU and Mem columns: 46px each and the 6px between. */
+.sys-num.dock-state { width: 98px; color: var(--dim); }
 
 /* Markdown as it is typed (live-markdown.ts): the marks fold away off the
    caret's line, and these are what is left. */

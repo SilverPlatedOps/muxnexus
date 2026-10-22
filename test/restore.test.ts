@@ -157,6 +157,26 @@ describe("restorePlan", () => {
 
     expect(steps[0].resume).toBeUndefined();
   });
+
+  test("resumes a window whose typed resume never ran", () => {
+    const pending = { sessionId: "abc", transcriptPath: `${HOME}/.claude/projects/p/abc.jsonl` };
+
+    const steps = plan([SNAP({ pending })]);
+
+    expect(steps[0].resume).toEqual({ configDir: null, transcript: pending.transcriptPath });
+  });
+
+  test("leaves an agent that was started and then quit as a plain shell, typed resume or not", () => {
+    const window = SNAP({ ...AGENT("abc"), command: "zsh", pending: AGENT("abc").conversation });
+
+    expect(plan([window])[0].resume).toBeUndefined();
+  });
+
+  test("skips a window whose typed resume is already running elsewhere", () => {
+    const pending = { sessionId: "abc", transcriptPath: `${HOME}/.claude/projects/p/abc.jsonl` };
+
+    expect(plan([SNAP({ pending })], { conversations: ["abc"] })).toEqual([]);
+  });
 });
 
 const SNAPSHOT = (stamp: string, taken: string): Snapshot => ({ stamp, taken, windows: [] });
@@ -208,6 +228,12 @@ describe("liveFrom", () => {
 
     expect([...live.sessions]).toEqual(["work", "other"]);
     expect([...live.conversations]).toEqual(["abc"]);
+  });
+
+  test("counts a typed resume that has not run as held", () => {
+    const pending = { sessionId: "def", transcriptPath: `${HOME}/.claude/projects/p/def.jsonl` };
+
+    expect([...liveFrom([SNAP({ pending })]).conversations]).toEqual(["def"]);
   });
 });
 
@@ -311,6 +337,31 @@ describe("applyRestore", () => {
     const steps = await applyRestore(tmux, snap);
 
     expect(steps.map((s) => s.window.session)).toEqual(["other"]);
+  });
+
+  test("with start: false, types the resume and leaves it for Enter -- and the next snapshot still knows it", async () => {
+    const transcript = join(dir, "projects", "p", "abc.jsonl");
+    await Bun.write(transcript, "");
+    const snap: Snapshot = {
+      stamp: "100-1", taken: "2026-10-01T00:00:00Z",
+      windows: [SNAP({ cwd: dir, command: "2.1.287", conversation: { sessionId: "abc", transcriptPath: transcript } })],
+    };
+
+    await applyRestore(tmux, snap, { start: false });
+
+    const screen = await waitFor(async () => {
+      // -J: the typed line is longer than the pane is wide.
+      const s = await tmux.run(["capture-pane", "-p", "-J", "-t", "=work:0"]);
+      return s.includes("claude --resume") ? s : null;
+    }, 3000, "the typed resume");
+    expect(screen).toContain(transcript);
+    // Long enough for an Enter to have started something, had one been sent.
+    await sleep(300);
+    expect((await tmux.run(["display", "-p", "-t", "=work:0", "#{pane_current_command}"])).trim()).toMatch(/^(zsh|bash|sh|fish)$/);
+    const again = (await takeSnapshot(tmux, dir))!;
+    expect(again.windows[0].pending).toEqual({ sessionId: "abc", transcriptPath: transcript });
+    const replanned = restorePlan(again.windows, { sessions: new Set(), conversations: new Set() }, { home: HOME, exists: () => true });
+    expect(replanned[0].resume?.transcript).toBe(transcript);
   });
 });
 
@@ -440,7 +491,11 @@ describe("createSnapshotter", () => {
 
 describe("parseRestoreArgs", () => {
   test("reads the command", () => {
-    expect(parseRestoreArgs(["snapshot"])).toEqual({ command: "snapshot", dryRun: false, path: undefined });
+    expect(parseRestoreArgs(["snapshot"])).toEqual({ command: "snapshot", dryRun: false, start: true, path: undefined });
+  });
+
+  test("reads a restore that types each resume without running it", () => {
+    expect(parseRestoreArgs(["restore", "--no-start"])).toMatchObject({ command: "restore", start: false });
   });
 
   test("reads the snapshots listing", () => {

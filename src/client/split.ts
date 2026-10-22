@@ -168,6 +168,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
   let sideTerm: TerminalView | null = null;
   const term = (): TerminalView =>
     (sideTerm ??= createTerminal(els.sideTerm, {
+      windowId: () => split?.windowId,
       onInput: (d) => conn?.sendInput(d),
       onResize: (cols, rows) => conn?.send({ t: "resize", cols, rows }),
       onScroll: (lines) => conn?.send({ t: "scroll", lines }),

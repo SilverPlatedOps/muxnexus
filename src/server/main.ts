@@ -8,6 +8,7 @@ import { createServer } from "./server";
 import { Tmux } from "./tmux";
 import { createUsageReader, localProfiles } from "./usage";
 import { createSystemReader } from "./system";
+import { createDockerReader } from "./docker";
 
 /** How often the live windows are recorded. One `list-panes` call, so it is cheap. */
 const SNAPSHOT_MS = 2 * 60 * 1000;
@@ -136,6 +137,7 @@ if (import.meta.main) {
   const running = createServer({
     hosts, port: args.port, socketPath, index, mirror, allowHosts, usage, hint, profiles: () => localProfiles(),
     system: createSystemReader(),
+    docker: createDockerReader(),
   });
   for (const h of hosts) console.log(`muxnexus listening on http://${h}:${running.port}`);
   if (hosts.some((h) => h === "0.0.0.0" || h === "::")) {

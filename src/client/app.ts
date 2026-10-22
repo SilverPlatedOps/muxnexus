@@ -13,6 +13,7 @@ import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { marksShown, openDisplay, setSystemShown, systemShown } from "./display";
 import { createSystemPanel } from "./system";
+import { createDockerPanel, loadTab, type OverviewTab, saveTab } from "./docker";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, UsageSource, WindowInfo } from "../shared/protocol";
 import { createFolded } from "./folded";
@@ -81,6 +82,7 @@ const folded = createFolded();
 const winKey = (w: { id: string }) => w.id;
 
 const term = createTerminal(termEl, {
+  windowId: () => sessions.find((s) => s.name === current)?.windows.find((w) => w.active)?.id,
   onInput: (d) => conn.sendInput(d),
   onResize: (cols, rows) => conn.send({ t: "resize", cols, rows }),
   onScroll: (lines) => conn.send({ t: "scroll", lines }),
@@ -385,14 +387,46 @@ const notes = createNotes({
 });
 
 const systemEl = document.getElementById("system")!;
-const system = createSystemPanel(document.getElementById("system-body")!);
+const systemBody = document.getElementById("system-body")!;
+const system = createSystemPanel(systemBody);
 /** What this socket was last told about the overview: the server reads the machine only while it is on. */
 let systemSent = false;
 systemEl.hidden = !(notes.open && systemShown());
+const dockerBody = document.getElementById("docker-body")!;
+const docker = createDockerPanel(dockerBody);
+const overviewTabs = { system: document.getElementById("system-tab-system")!, docker: document.getElementById("system-tab-docker")! };
+let overviewTab = loadTab();
+/** Likewise for the Docker tab, which the server reads only while it is the tab showing. */
+let dockerSent = false;
 
+function showOverviewTab() {
+  systemBody.hidden = overviewTab !== "system";
+  dockerBody.hidden = overviewTab !== "docker";
+  for (const [tab, b] of Object.entries(overviewTabs)) {
+    b.classList.toggle("on", tab === overviewTab);
+    b.setAttribute("aria-selected", String(tab === overviewTab));
+  }
+}
+showOverviewTab();
+for (const [tab, b] of Object.entries(overviewTabs)) {
+  b.onclick = () => {
+    overviewTab = tab as OverviewTab;
+    saveTab(overviewTab);
+    showOverviewTab();
+    syncSystem();
+  };
+}
+
+// The System tab keeps reading behind the Docker one, so its CPU line still
+// has its last minute when you come back to it.
 function syncSystem() {
   const on = notes.open && systemShown();
   systemEl.hidden = !on;
+  const dockerOn = on && overviewTab === "docker";
+  if (dockerOn !== dockerSent) {
+    if (dockerOn) docker.reset();
+    if (conn.send({ t: "docker", on: dockerOn })) dockerSent = dockerOn;
+  }
   if (on === systemSent) return;
   if (on) system.reset();
   if (conn.send({ t: "system", on })) systemSent = on;
@@ -411,7 +445,7 @@ function notesOwner(): WindowInfo | undefined {
 
 makeResizable({
   grip: document.getElementById("sidebar-grip")!, panel: document.getElementById("sidebar")!, host: layout,
-  cssVar: "--sidebar", storageKey: "muxnexus.sidebar-width", min: 240, max: 480, fallback: 280, edge: "right",
+  cssVar: "--sidebar", storageKey: "muxnexus.sidebar-width", min: 180, max: 480, fallback: 280, edge: "right",
 });
 makeResizable({
   grip: document.getElementById("notes-grip")!, panel: notesPanel, host: layout,
@@ -508,6 +542,7 @@ const conn = new Connection(wsUrl, {
     notes.reconnected();
     // A new socket starts with the overview off on the server's side.
     systemSent = false;
+    dockerSent = false;
     syncSystem();
     if (desired) attach(desired);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
@@ -579,6 +614,9 @@ const conn = new Connection(wsUrl, {
         break;
       case "system":
         if (systemSent) system.receive(m.stats);
+        break;
+      case "docker":
+        if (dockerSent) docker.receive(m.stats);
         break;
       case "notes":
         notes.list(m.notes);

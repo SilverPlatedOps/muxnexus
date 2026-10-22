@@ -4,12 +4,13 @@ import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
 import type { SystemReader } from "./system";
+import type { DockerReader } from "./docker";
 
 /**
  * What a new window runs for each agent the client may ask for. The client only
@@ -48,6 +49,9 @@ export interface ServerOptions {
    */
   system?: SystemReader;
   systemMs?: number;
+  /** The overview's Docker tab, on the same terms: read only while some client has the tab open. */
+  docker?: DockerReader;
+  dockerMs?: number;
   /**
    * The Claude config dirs on this machine. A session created here whose tag
    * names one (`[Work] ...`) starts with `CLAUDE_CONFIG_DIR` set to it, so
@@ -88,6 +92,8 @@ interface ConnData {
   typing: Promise<void> | null;
   /** This client has the system overview open. */
   system: boolean;
+  /** This client has the overview's Docker tab open. */
+  docker: boolean;
 }
 
 type Socket = ServerWebSocket<ConnData>;
@@ -160,6 +166,21 @@ async function serveFile(path: string | null): Promise<Response> {
 
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
+
+  async function linkedFile(url: URL): Promise<Response> {
+    let path = url.searchParams.get("path");
+    if (path?.startsWith("~/")) path = resolve(homedir(), path.slice(2));
+    if (path && !isAbsolute(path)) {
+      const id = url.searchParams.get("window");
+      if (!id || !/^@\d+$/.test(id)) return new Response("Not found", { status: 404 });
+      // Resolve on the execution host, against this terminal's active pane.
+      // An absent/deleted window must never fall back to the server's own cwd.
+      const cwd = (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_path}"]).catch(() => "")).replace(/\r?\n$/, "");
+      if (!isAbsolute(cwd)) return new Response("Not found", { status: 404 });
+      path = resolve(cwd, path);
+    }
+    return serveFile(path);
+  }
   const notes = createNoteStore(opts.notesDir);
   /**
    * Note requests run one at a time, in the order they arrived: a save sent a
@@ -432,6 +453,15 @@ export function createServer(opts: ServerOptions): RunningServer {
           void pollSystem();
           // Not a change to tmux: no session poll.
           return;
+        case "docker":
+          if (typeof m.on !== "boolean") return send(ws, { t: "error", message: "invalid docker" });
+          ws.data.docker = m.on;
+          if (!m.on) return;
+          // A reading still fresh is shown as it is: unlike the overview's CPU,
+          // nothing here is a delta that a second read so soon would spoil.
+          if (lastDocker && Date.now() - lastDocker.at <= dockerMs) return void ws.sendText(lastDocker.json);
+          void pollDocker();
+          return;
         case "attach":
           await attach(ws, m.session);
           return;
@@ -670,6 +700,26 @@ export function createServer(opts: ServerOptions): RunningServer {
     for (const ws of watchingSystem()) ws.sendText(json);
   }
 
+  const dockerMs = opts.dockerMs ?? 5000;
+  let dockerReading: Promise<void> | null = null;
+  let lastDocker: { json: string; at: number } | null = null;
+  const watchingDocker = () => [...clients].filter((ws) => ws.data.docker && ws.readyState === WebSocket.OPEN);
+
+  /** One at a time, as for the overview: `docker stats` alone takes two seconds. */
+  function pollDocker(): Promise<void> {
+    dockerReading ??= readDocker().finally(() => { dockerReading = null; });
+    return dockerReading;
+  }
+
+  async function readDocker(): Promise<void> {
+    if (!opts.docker || watchingDocker().length === 0) return;
+    const stats = await opts.docker.read().catch(() => null);
+    if (!stats) return;
+    const json = JSON.stringify({ t: "docker", stats } satisfies ServerMessage);
+    lastDocker = { json, at: Date.now() };
+    for (const ws of watchingDocker()) ws.sendText(json);
+  }
+
   // Nobody connected, nothing read: a server left running in the background
   // would otherwise shell out to tmux and cmux every couple of seconds, and ask
   // the Keychain and the usage API every minute, for no one. A socket that
@@ -685,6 +735,9 @@ export function createServer(opts: ServerOptions): RunningServer {
   // seconds is too much to spend on a box nobody has open.
   const systemTimer = opts.system
     ? setInterval(() => { if (watchingSystem().length > 0) void pollSystem(); }, systemMs)
+    : undefined;
+  const dockerTimer = opts.docker
+    ? setInterval(() => { if (watchingDocker().length > 0) void pollDocker(); }, dockerMs)
     : undefined;
   // setInterval does not fire at zero, and a cold load would show an empty
   // footer until it did.
@@ -709,7 +762,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         // which could otherwise learn whether a file exists and its size.
         const site = req.headers.get("sec-fetch-site");
         if (site !== null && site !== "same-origin" && site !== "none") return new Response("Forbidden: cross-site", { status: 403 });
-        return serveFile(url.searchParams.get("path"));
+        return linkedFile(url);
       }
       if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
@@ -730,7 +783,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, docker: false } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -794,6 +847,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       clearInterval(timer);
       clearInterval(usageTimer);
       clearInterval(systemTimer);
+      clearInterval(dockerTimer);
       for (const ws of clients) {
         ws.data.attachSeq++; // invalidate any in-flight attach
         detach(ws);

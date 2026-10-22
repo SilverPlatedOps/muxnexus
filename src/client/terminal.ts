@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { FileLinkProvider } from "./file-links";
 import "@xterm/xterm/css/xterm.css";
 
 export function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void {
@@ -14,6 +15,8 @@ export function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number)
 }
 
 export interface TerminalHandlers {
+  /** Stable tmux window id for resolving relative file references in this terminal. */
+  windowId?(): string | null | undefined;
   onInput(data: string): void;
   onResize(cols: number, rows: number): void;
   /** The wheel, over a program that did not ask for the mouse: rows of history to scroll, negative up. */
@@ -129,6 +132,7 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
+  term.registerLinkProvider(new FileLinkProvider(term, () => h.windowId?.(), (target) => window.open(target, "_blank", "noopener")));
   term.open(container);
 
   try {

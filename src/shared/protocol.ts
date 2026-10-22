@@ -141,10 +141,9 @@ export interface UsageSource {
   label: string;
   /**
    * Whose quota this is. Only a `claude` row is somewhere a conversation can be
-   * moved to; `codex` is an account agents spend too, so its tabs wear a badge;
-   * `opencode` reports usage and nothing in a tab spends it.
+   * moved to; `codex` is an account agents spend too, so its tabs wear a badge.
    */
-  provider: "claude" | "codex" | "opencode";
+  provider: "claude" | "codex";
   windows: UsageWindow[];
   state: "ok" | "signed-out" | "error";
   /** When the numbers were last read, not when they were last requested. */
@@ -194,6 +193,8 @@ export type ClientMessage =
   | { t: "note-delete"; noteId: string }
   /** Whether this browser shows the system overview: answered with `system` every couple of seconds while on. */
   | { t: "system"; on: boolean }
+  /** Whether this browser shows the overview's Docker tab: answered with `docker` every few seconds while on. */
+  | { t: "docker"; on: boolean }
   | { t: "ping" };
 
 /** A note as the explorer lists it. */
@@ -236,6 +237,34 @@ export interface SystemStats {
   appsCpu?: number;
 }
 
+/** One container, running or not. */
+export interface DockerContainer {
+  id: string;
+  name: string;
+  image: string;
+  /** As `docker ps` words them: `state` "running", "exited", "paused"...; `status` "Up 34 hours". */
+  state: string;
+  status: string;
+  /** The compose project and service that started it; absent for a container started by hand. */
+  project?: string;
+  service?: string;
+  /** Running containers only: CPU on `SystemStats.cpu`'s scale (a share of the whole Mac), and bytes in use. */
+  cpu?: number;
+  mem?: number;
+}
+
+/**
+ * The Docker tab's reading. `engine` says why the list is empty when it is:
+ * "down" is a CLI with no engine answering it, "slow" an engine that did not
+ * answer in time, "missing" no `docker` on the PATH at all.
+ */
+export interface DockerStats {
+  engine: "up" | "down" | "slow" | "missing";
+  containers: DockerContainer[];
+  /** The memory the engine's VM has, in bytes, as `docker info` gives it. */
+  vmMem?: number;
+}
+
 /** Agents a new window can start with. */
 export type NewWindowAgent = "codex";
 
@@ -252,6 +281,8 @@ export type ServerMessage =
   | { t: "usage"; sources: UsageSource[] }
   /** Only to a client that asked with `system`, and only while it keeps asking. */
   | { t: "system"; stats: SystemStats }
+  /** Likewise, to a client that asked with `docker`. */
+  | { t: "docker"; stats: DockerStats }
   | { t: "attached"; session: string }
   /**
    * The attached session now has this name -- renamed here, in cmux, or with

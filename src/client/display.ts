@@ -75,7 +75,7 @@ export function openDisplay(
   const rows: [string, string, () => boolean, (on: boolean) => void][] = [
     ["Profile badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
     ["Shared checkout", "Two live agents working in one git checkout, marked on both", marksShown, setMarksShown],
-    ["System overview", "CPU, memory and the busiest apps, under the notes", systemShown, setSystemShown],
+    ["System overview", "CPU, memory, the busiest apps and Docker's containers, under the notes", systemShown, setSystemShown],
   ];
   for (const [name, note, get, set] of rows) {
     const row = el("label", "display-row");

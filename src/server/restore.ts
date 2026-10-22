@@ -16,8 +16,18 @@ import { NO_SERVER, resolveTranscript, SHELLS, shellQuote, type Tmux, TmuxError 
 export const PANE_FIELDS = [
   "session_name", "session_id", "@muxnexus_view", "@muxnexus_name", "@muxnexus_order", "window_id", "window_index",
   "window_name", "@muxnexus_window_name", "@muxnexus_note", "@muxnexus_note_empty", "pane_index", "pane_current_path",
-  "pane_current_command", "@muxnexus_session", "@muxnexus_from", "@muxnexus_agent",
+  "pane_current_command", "@muxnexus_session", "@muxnexus_from", "@muxnexus_agent", "@muxnexus_pending",
 ] as const;
+
+/**
+ * The resume `restore --no-start` typed into a window and left waiting for its
+ * Enter. Until the agent starts and stamps the window, this is the only record
+ * of the conversation the window was brought back for. It is never cleared:
+ * nothing in tmux says the typed line was wiped, so a tab used as a plain shell
+ * instead still comes back with the resume -- typed again under `--no-start`,
+ * run under plain `restore`, as every other conversation is.
+ */
+const PENDING_OPTION = "@muxnexus_pending";
 
 const SEP = "\x1f";
 
@@ -35,6 +45,8 @@ export interface SnapWindow {
   noteEmpty?: string;
   conversation?: ConversationInfo;
   from?: ConversationInfo;
+  /** A resume typed by `restore --no-start` and not yet run. */
+  pending?: ConversationInfo;
 }
 
 /** `<sessionId> <transcript path>`, the shape the tmux options hold. */
@@ -70,6 +82,7 @@ export function parsePanes(out: string): SnapWindow[] {
       noteEmpty: r["@muxnexus_note_empty"] || undefined,
       conversation: conversation(r["@muxnexus_session"]),
       from: conversation(r["@muxnexus_from"]),
+      pending: conversation(r[PENDING_OPTION]),
     });
   }
   return windows;
@@ -146,10 +159,15 @@ export function restorePlan(
     if (live.sessions.has(session)) continue;
     let opens = true;
     for (const w of [...group].sort((a, b) => a.index - b.index)) {
-      if (w.conversation && live.conversations.has(w.conversation.sessionId)) continue;
-      const transcript = w.conversation && !SHELLS.has(w.command)
-        ? resolveTranscript(w.conversation, w.from ?? null, opts.exists)
-        : null;
+      const held = w.conversation ?? w.pending;
+      if (held && live.conversations.has(held.sessionId)) continue;
+      // A stamped window back at its shell is an agent someone quit: it stays
+      // quit. One that was only ever typed into never started, so its typed
+      // resume is still the conversation it holds -- a second reboot before
+      // anyone pressed Enter must not lose it.
+      const transcript = w.conversation
+        ? (SHELLS.has(w.command) ? null : resolveTranscript(w.conversation, w.from ?? null, opts.exists))
+        : w.pending ? resolveTranscript(w.pending, null, opts.exists) : null;
       steps.push({
         window: w,
         cwd: opts.exists(w.cwd) ? w.cwd : opts.home,
@@ -179,7 +197,12 @@ function noServer(e: unknown): boolean {
 export function liveFrom(windows: readonly SnapWindow[]): Live {
   return {
     sessions: new Set(windows.map((w) => w.session)),
-    conversations: new Set(windows.flatMap((w) => (w.conversation ? [w.conversation.sessionId] : []))),
+    // A typed resume holds its conversation as surely as a running one: a
+    // second restore must not type it into another tab too.
+    conversations: new Set(windows.flatMap((w) => {
+      const held = w.conversation ?? w.pending;
+      return held ? [held.sessionId] : [];
+    })),
   };
 }
 
@@ -244,12 +267,14 @@ export async function loadSnapshots(dir: string): Promise<(Snapshot & { path: st
 /**
  * Rebuild whatever `snap` holds and the live tmux does not, and return the steps
  * actually taken. `resume: false` builds the windows without typing the resume,
- * so a test can exercise the rebuild without starting real agents.
+ * so a test can exercise the rebuild without starting real agents. `start:
+ * false` types each resume but leaves it waiting for Enter, so only the tabs
+ * someone opens and runs spend memory and quota on an agent.
  */
 export async function applyRestore(
   tmux: Tmux,
   snap: Snapshot,
-  opts: { resume?: boolean } = {},
+  opts: { resume?: boolean; start?: boolean } = {},
 ): Promise<RestoreStep[]> {
   const steps = await planRestore(tmux, snap);
   let session = "";
@@ -281,7 +306,12 @@ export async function applyRestore(
       // continues the conversation rather than branching it.
       const { configDir, transcript } = step.resume;
       const prefix = configDir ? `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ` : "env -u CLAUDE_CONFIG_DIR ";
-      await tmux.type(id, `${prefix}claude --resume ${shellQuote(transcript)}`);
+      const start = opts.start !== false;
+      await tmux.type(id, `${prefix}claude --resume ${shellQuote(transcript)}`, start);
+      if (!start) {
+        const { sessionId } = (w.conversation ?? w.pending)!;
+        await tmux.run(["set-option", "-w", "-t", id, PENDING_OPTION, `${sessionId} ${transcript}`]);
+      }
     }
   }
   // Mark the server, so the offer is made once. Without it, closing or renaming
@@ -352,11 +382,13 @@ export function createSnapshotter(opts: { tmux: Tmux; dir: string; intervalMs: n
 export interface RestoreArgs {
   command: "snapshot" | "restore" | "snapshots";
   dryRun: boolean;
+  /** False with `--no-start`: each resume is typed and waits for its Enter. */
+  start: boolean;
   /** An explicit snapshot file, for the reboot that happened twice without a restore. */
   path?: string;
 }
 
-const USAGE = "usage: muxnexus snapshot | restore [--dry-run] [<snapshot.json>] | snapshots";
+const USAGE = "usage: muxnexus snapshot | restore [--dry-run] [--no-start] [<snapshot.json>] | snapshots";
 
 export function parseRestoreArgs(argv: readonly string[]): RestoreArgs {
   const [command, ...rest] = argv;
@@ -364,9 +396,10 @@ export function parseRestoreArgs(argv: readonly string[]): RestoreArgs {
   if (command !== "snapshot" && command !== "restore" && command !== "snapshots") {
     throw new Error(`unknown command: ${command}\n${USAGE}`);
   }
-  const args: RestoreArgs = { command, dryRun: false, path: undefined };
+  const args: RestoreArgs = { command, dryRun: false, start: true, path: undefined };
   for (const a of rest) {
     if (a === "--dry-run") args.dryRun = true;
+    else if (a === "--no-start") args.start = false;
     else if (a.startsWith("--")) throw new Error(`unknown option: ${a}\n${USAGE}`);
     else args.path = a;
   }

@@ -58,7 +58,6 @@ export interface Sidebar {
 const ICON = {
   dots: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="8" r="1.1"></circle><circle cx="8" cy="8" r="1.1"></circle><circle cx="12" cy="8" r="1.1"></circle></svg>',
   plus: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="3.5" x2="8" y2="12.5"></line><line x1="3.5" y1="8" x2="12.5" y2="8"></line></svg>',
-  chevron: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg>',
 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -418,7 +417,7 @@ export function createSidebar(
     const head = button("cat-head");
     head.setAttribute("aria-expanded", String(!folded));
     const chevron = el("span", "chevron");
-    chevron.innerHTML = ICON.chevron;
+    chevron.innerHTML = ICONS.chevron;
     head.append(chevron, el("span", "cat-name", category));
     // The count only when folded: open, the rows below already are the count.
     if (folded) {

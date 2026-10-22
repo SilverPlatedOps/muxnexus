@@ -10,8 +10,6 @@ import {
   merge,
   parseClaudeUsage,
   parseCodexUsage,
-  parseEnv,
-  parseOpencodeUsage,
   profileLabel,
 } from "../src/server/usage";
 import { bar, formatReset, kindLabel } from "../src/client/usage";
@@ -86,29 +84,6 @@ describe("findProfiles", () => {
   });
 });
 
-describe("parseEnv", () => {
-  test("strips the export prefix", () => {
-    // Reading these files without this is how the first live check got a 401.
-    expect(parseEnv("export OPENCODE_GO_API_KEY=abc123").get("OPENCODE_GO_API_KEY")).toBe("abc123");
-  });
-
-  test("handles quotes, comments, blank lines and plain assignments", () => {
-    const env = parseEnv(`
-# a comment
-export A="quoted"
-B='single'
-C=plain
-`);
-    expect(env.get("A")).toBe("quoted");
-    expect(env.get("B")).toBe("single");
-    expect(env.get("C")).toBe("plain");
-  });
-
-  test("a value containing = survives", () => {
-    expect(parseEnv("export T=ab=cd==").get("T")).toBe("ab=cd==");
-  });
-});
-
 describe("accessToken", () => {
   test("reads the OAuth access token", () => {
     expect(accessToken(JSON.stringify({ claudeAiOauth: { accessToken: "tok" } }))).toBe("tok");
@@ -153,27 +128,6 @@ describe("parseClaudeUsage", () => {
     expect(parseClaudeUsage("<html>502</html>")).toEqual([]);
     expect(parseClaudeUsage(JSON.stringify({ limits: null }))).toEqual([]);
     expect(parseClaudeUsage(JSON.stringify({ limits: [{ kind: "x" }] }))).toEqual([]);
-  });
-});
-
-describe("parseOpencodeUsage", () => {
-  const body = JSON.stringify({
-    usage: {
-      rolling: { status: "ok", percent: 2, resetsAt: "2026-09-24T14:04:31.235Z" },
-      weekly: { status: "ok", percent: 40, resetsAt: "2026-09-28T00:00:00.000Z" },
-    },
-  });
-
-  test("reads the named windows", () => {
-    expect(parseOpencodeUsage(body)).toEqual([
-      { kind: "rolling", percent: 2, resetsAt: "2026-09-24T14:04:31.235Z" },
-      { kind: "weekly", percent: 40, resetsAt: "2026-09-28T00:00:00.000Z" },
-    ]);
-  });
-
-  test("garbage is empty rather than a throw", () => {
-    expect(parseOpencodeUsage("nope")).toEqual([]);
-    expect(parseOpencodeUsage(JSON.stringify({ usage: null }))).toEqual([]);
   });
 });
 
@@ -251,7 +205,7 @@ describe("the reader, with the network and Keychain injected", () => {
     home: HOME,
     list: () => [".claude", ".claude-work"],
     has: (p: string) => p.endsWith("/projects"),
-    readFile: async () => null, // opencode not installed
+    readFile: async () => null, // codex not installed
     warn: () => {},
   };
   const item = JSON.stringify({ claudeAiOauth: { accessToken: "tok" } });
@@ -325,18 +279,6 @@ describe("the reader, with the network and Keychain injected", () => {
     });
     await reader.read();
     expect(lines).toEqual([]);
-  });
-
-  test("opencode is a row only when it is installed", async () => {
-    const withIt = createUsageReader({
-      ...base,
-      secret: async () => null,
-      readFile: async () => "export OPENCODE_GO_API_KEY=k",
-      fetch: async () => ({ status: 200, body: JSON.stringify({ usage: { rolling: { percent: 5 } } }) }),
-    });
-    expect((await withIt.read()).map((s) => s.id)).toContain("opencode");
-    const without = createUsageReader({ ...base, secret: async () => null, fetch: async () => ({ status: 200, body: ok }) });
-    expect((await without.read()).map((s) => s.id)).not.toContain("opencode");
   });
 
   test("codex is a row only when it is installed, read with its own token and account", async () => {

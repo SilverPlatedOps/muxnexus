@@ -921,6 +921,19 @@ describe("/file", () => {
     for (const p of [join(dir, "gone.png"), dir, "shot.png"]) expect((await get(p)).status).toBe(404);
   });
 
+  test("relative Codex references open against the linked window, including a side window", async () => {
+    await tmux.run(["new-session", "-d", "-s", "files", "-c", dir, "sh"]);
+    const first = (await tmux.run(["display-message", "-p", "-t", "=files:", "#{window_id}"])).trim();
+    const second = (await tmux.run(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", "=files:", "-c", homedir(), "sh"])).trim();
+    const relative = (id: string, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${server.port}/file?path=shot.png&window=${encodeURIComponent(id)}`, { headers });
+    expect((await relative(first)).status).toBe(200);
+    expect((await relative(second)).status).toBe(404);
+    expect((await relative("@999999")).status).toBe(404);
+    expect((await relative("files:0")).status).toBe(404);
+    expect((await relative(first, { Host: "evil.example" })).status).toBe(403);
+    expect((await relative(first, { "Sec-Fetch-Site": "cross-site" })).status).toBe(403);
+  });
+
   test("refuses a Host that is not ours", async () => {
     expect((await get(join(dir, "shot.png"), { Host: "evil.example" })).status).toBe(403);
   });

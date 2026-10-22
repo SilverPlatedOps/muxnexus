@@ -724,11 +724,14 @@ export class Tmux {
    * is exactly what it did. `-l` sends the text literally, the Enter goes
    * separately as a key, and `C-u` first clears whatever half-typed line the
    * pane was left with, which would otherwise be submitted instead.
+   *
+   * `run: false` stops before the Enter: the line waits on the prompt for
+   * whoever opens the tab to run it, or not.
    */
-  async type(target: string, line: string): Promise<void> {
+  async type(target: string, line: string, run = true): Promise<void> {
     await this.run(["send-keys", "-t", target, "C-u"]);
     await this.run(["send-keys", "-t", target, "-l", "--", line]);
-    await this.run(["send-keys", "-t", target, "Enter"]);
+    if (run) await this.run(["send-keys", "-t", target, "Enter"]);
   }
 
   /**
