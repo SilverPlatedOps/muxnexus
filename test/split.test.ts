@@ -79,3 +79,47 @@ describe("splitAfter", () => {
     expect(splitAfter(split, [], "s")).toBeNull();
   });
 });
+
+describe("a file beside", () => {
+  const file = { target: "/file?path=%2Ftmp%2Fplan.md", from: "@1" };
+  const split = { session: "s", file, side: "right" as const };
+
+  test("a tab dropped on the file replaces it, the tab it came from too", () => {
+    expect(dropPlan(split, "@3", "@2", "right")).toEqual({ kind: "beside", windowId: "@2", side: "right" });
+    expect(dropPlan(split, "@3", "@1", "right")).toEqual({ kind: "beside", windowId: "@1", side: "right" });
+  });
+
+  test("a tab dropped on the terminal is shown there", () => {
+    expect(dropPlan(split, "@3", "@1", "left")).toEqual({ kind: "main", windowId: "@1" });
+  });
+
+  test("the terminal's own tab dropped on the file swaps the panes", () => {
+    expect(dropPlan(split, "@1", "@1", "right")).toEqual({ kind: "swap" });
+    expect(dropPlan(split, "@1", "@1", "left")).toEqual({ kind: "none" });
+  });
+
+  test("stays while the main pane shows the window it was opened from", () => {
+    expect(splitAfter(split, [session("s", [win("@1", true), win("@2")])], "s")).toEqual(split);
+  });
+
+  test("stays after the window it was opened from closes: the file is still there", () => {
+    expect(splitAfter(split, [session("s", [win("@2", true)])], "s")).toEqual(split);
+  });
+
+  test("closes when the main pane moves to another session, as a window beside does", () => {
+    expect(splitAfter(split, [session("s", [win("@1", true)]), session("t", [win("@9", true)])], "t")).toBeNull();
+    expect(splitAfter(split, [], "s")).toBeNull();
+  });
+});
+
+describe("a file covering the terminal, on a screen with room for one pane", () => {
+  const split = { session: "s", file: { target: "/file?path=%2Ftmp%2Fplan.md", from: "@1", over: "@1" }, side: "right" as const };
+
+  test("stays while the window it covers is still the one chosen", () => {
+    expect(splitAfter(split, [session("s", [win("@1", true), win("@2")])], "s")).toEqual(split);
+  });
+
+  test("goes once another window is chosen: that window's terminal is what was asked for", () => {
+    expect(splitAfter(split, [session("s", [win("@1"), win("@2", true)])], "s")).toBeNull();
+  });
+});

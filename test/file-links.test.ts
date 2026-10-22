@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Terminal, type ILink } from "@xterm/xterm";
-import { FileLinkProvider, fileTarget } from "../src/client/file-links";
+import { FileLinkProvider, fileTarget, markdownPath } from "../src/client/file-links";
 
 test("file references use the terminal window, while URLs and unsafe schemes stay out", () => {
   expect(fileTarget("docs/design-explorations/moving-crews/garden.png", "@26")).toBe("/file?path=docs%2Fdesign-explorations%2Fmoving-crews%2Fgarden.png&window=%4026");
@@ -63,4 +63,17 @@ test("quoted paths with spaces work, and web links are left to the web provider"
   try {
     expect(f.links(1).map((link) => link.text)).toEqual(["docs/my image.png", "src/main.ts:12"]);
   } finally { f.terminal.dispose(); }
+});
+
+test("a Markdown file's address gives its path, from a bare reference or a file:// link alike", () => {
+  expect(markdownPath(fileTarget("docs/plan.md", "@26")!)).toBe("docs/plan.md");
+  expect(markdownPath("/file?path=%2FUsers%2Fme%2Fhandoffs%2Fplan.md")).toBe("/Users/me/handoffs/plan.md");
+  expect(markdownPath(fileTarget("~/notes/PLAN.MD", "@4")!)).toBe("~/notes/PLAN.MD");
+  expect(markdownPath(fileTarget("/tmp/a.markdown")!)).toBe("/tmp/a.markdown");
+});
+
+test("anything that is not a Markdown file through /file has no Markdown path", () => {
+  for (const target of [fileTarget("src/main.ts", "@4")!, fileTarget("/tmp/plan.md.bak")!, "https://example.com/plan.md", "/elsewhere?path=plan.md"]) {
+    expect(markdownPath(target)).toBeNull();
+  }
 });

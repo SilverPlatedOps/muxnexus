@@ -6,6 +6,7 @@ import { openMove, targets } from "./move";
 import { Connection } from "./socket";
 import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
+import { markdownPath } from "./file-links";
 import { createNotes } from "./notes";
 import { makeResizable } from "./resize";
 import { windowPlace } from "./labels";
@@ -81,12 +82,20 @@ let terminalOn = false;
 const folded = createFolded();
 const winKey = (w: { id: string }) => w.id;
 
+const mainWindowId = () => sessions.find((s) => s.name === current)?.windows.find((w) => w.active)?.id;
 const term = createTerminal(termEl, {
-  windowId: () => sessions.find((s) => s.name === current)?.windows.find((w) => w.active)?.id,
+  windowId: mainWindowId,
   onInput: (d) => conn.sendInput(d),
   onResize: (cols, rows) => conn.send({ t: "resize", cols, rows }),
   onScroll: (lines) => conn.send({ t: "scroll", lines }),
   onSearch: (s) => { if (!findEl.hidden) paintFind(s); },
+  // A plan an agent linked to is read beside it, with its note alongside.
+  onLink: (target) => {
+    const from = mainWindowId();
+    if (!current || !from || !markdownPath(target)) return false;
+    split.openFile(current, { target, from }, split.state?.side ?? "right");
+    return true;
+  },
 });
 
 function onPhone(): boolean {
@@ -438,7 +447,8 @@ document.getElementById("system-close")!.onclick = () => {
 
 function notesOwner(): WindowInfo | undefined {
   const ws = currentWindows();
-  const side = split.state?.windowId;
+  // A file beside is read against the note of the window it was opened from.
+  const side = split.state?.windowId ?? split.state?.file.from;
   if (notePane === "side" && side) return ws.find((w) => w.id === side) ?? ws.find((w) => w.active);
   return ws.find((w) => w.active);
 }

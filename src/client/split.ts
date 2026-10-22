@@ -6,20 +6,37 @@
  * attached through a private view the server makes for it (`attach-view`), so
  * each pane has its own current window. Nothing about the split is stored in
  * tmux: it is this browser's arrangement, as a window's size on screen is.
+ *
+ * The beside pane can show a Markdown file instead (reader.ts): a plan an agent
+ * linked to, read next to the terminal it came from, with its note alongside.
  */
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
 import { agentTitle, GLYPH, windowGlyph } from "./agent";
+import { markdownPath } from "./file-links";
 import { tabLabel } from "./labels";
+import { createReader, type Reader } from "./reader";
 import { Connection } from "./socket";
 import { createTerminal, type TerminalView } from "./terminal";
 
 export type Side = "left" | "right";
 
-export interface SplitState {
-  /** The window the beside pane shows, by tmux id. */
-  windowId: string;
-  side: Side;
+/** A Markdown file the beside pane shows instead of a window: a plan an agent linked to. */
+export interface BesideFile {
+  /** Its `/file` address. */
+  target: string;
+  /** The window it was opened from, whose note it is read against. */
+  from: string;
+  /**
+   * Where there is room for one pane only, the window whose terminal it covers:
+   * choosing another asks for that one's terminal, so the file goes.
+   */
+  over?: string;
 }
+
+export type SplitState =
+  /** `windowId`: the window the beside pane shows, by tmux id. */
+  | { windowId: string; file?: undefined; side: Side }
+  | { windowId?: undefined; file: BesideFile; side: Side };
 
 export const otherSide = (s: Side): Side => (s === "left" ? "right" : "left");
 
@@ -54,7 +71,9 @@ export function dropPlan(split: SplitState | null, mainWindow: string | null, dr
 /**
  * The split after a `state` push, or null when it has to go: the main pane
  * moved to another session, the beside window closed, or the main pane now
- * shows that same window (tmux keys can walk it there).
+ * shows that same window (tmux keys can walk it there). A file goes with the
+ * session, or with the window it covers on a phone: it outlives the window it
+ * was opened from.
  */
 export function splitAfter<T extends SplitState & { session: string }>(
   split: T,
@@ -64,6 +83,7 @@ export function splitAfter<T extends SplitState & { session: string }>(
   if (current !== split.session) return null;
   const s = sessions.find((x) => x.name === current);
   if (!s) return null;
+  if (split.file) return split.file.over && !s.windows.find((w) => w.id === split.file!.over)?.active ? null : split;
   const beside = s.windows.find((w) => w.id === split.windowId);
   if (!beside || beside.active) return null;
   return split;
@@ -94,6 +114,8 @@ export interface SplitHost {
 export interface Split {
   readonly state: SplitState | null;
   open(session: string, windowId: string, side: Side): void;
+  /** Show a Markdown file in the beside pane, in place of whatever it showed. */
+  openFile(session: string, file: BesideFile, side: Side): void;
   close(): void;
   render(sessions: SessionInfo[], current: string | null): void;
   focusSide(): void;
@@ -124,26 +146,46 @@ function header(onZoom: () => void, onClose: () => void) {
   const head = el("div", "pane-head");
   const glyph = el("span", "glyph none");
   const label = el("span", "label");
-  const zoom = el("button", "row-btn");
+  // A file's own text, in a tab of its own: what a link opened before the pane.
+  const raw = el("a", "raw", "raw");
+  raw.target = "_blank";
+  raw.rel = "noopener";
+  raw.title = "The file as it is, in a new tab";
+  raw.hidden = true;
+  const zoom = el("button", "row-btn zoom");
   zoom.type = "button";
   zoom.onclick = (e) => { e.stopPropagation(); onZoom(); };
   const close = el("button", "row-btn");
   close.type = "button";
   close.innerHTML = ICON.close;
   close.onclick = (e) => { e.stopPropagation(); onClose(); };
-  head.append(glyph, label, el("span", "spacer"), zoom, close);
+  head.append(glyph, label, el("span", "spacer"), raw, zoom, close);
+  /** Which icon the zoom button wears: redrawn only when that changes. */
+  let zoomIcon: string | null = null;
   return {
     head,
-    paint(w: WindowInfo | undefined, zoomed: boolean) {
+    /** `closable`: false for the terminal beside a file, which has no window to hand the main pane. */
+    paint(shown: WindowInfo | BesideFile | undefined, zoomed: boolean, closable = true) {
+      const file = shown && "target" in shown ? shown : undefined;
+      const w = file ? undefined : (shown as WindowInfo | undefined);
+      const path = file ? markdownPath(file.target) : null;
       const g = w ? windowGlyph(w) : "none";
       glyph.className = `glyph ${g}`;
       glyph.textContent = GLYPH[g];
       glyph.title = w ? agentTitle(w) : "";
-      label.textContent = w ? tabLabel(w) : "";
-      zoom.innerHTML = zoomed ? ICON.unzoom : ICON.zoom;
-      const name = w ? tabLabel(w) : "this side";
+      label.textContent = w ? tabLabel(w) : path ? path.slice(path.lastIndexOf("/") + 1) : "";
+      label.title = path ?? "";
+      raw.hidden = !file;
+      if (file) raw.href = file.target;
+      // A click on the other pane's button focuses that pane, which repaints
+      // both heads between mousedown and mouseup: an icon swapped in then
+      // takes the click with it.
+      const icon = zoomed ? ICON.unzoom : ICON.zoom;
+      if (icon !== zoomIcon) zoom.innerHTML = zoomIcon = icon;
+      const name = label.textContent || "this side";
       zoom.setAttribute("aria-label", zoomed ? "Show both sides" : `Zoom ${name}`);
       zoom.title = zoomed ? "Show both sides" : "Zoom";
+      close.hidden = !closable;
       close.setAttribute("aria-label", `Close ${name}`);
       close.title = "Close this side";
     },
@@ -172,7 +214,33 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
       onInput: (d) => conn?.sendInput(d),
       onResize: (cols, rows) => conn?.send({ t: "resize", cols, rows }),
       onScroll: (lines) => conn?.send({ t: "scroll", lines }),
+      // A plan linked from this pane opens in it, and the window that linked
+      // it moves to the main pane: the plan stays beside its agent.
+      onLink: (target) => {
+        const from = split?.windowId;
+        if (!split || !from || !markdownPath(target)) return false;
+        openFile(split.session, { target, from }, split.side);
+        host.selectMain(from);
+        return true;
+      },
     }));
+
+  /** Made on the first file shown, next to the beside terminal's element. */
+  let sideReader: Reader | null = null;
+  const reader = (): Reader => {
+    if (!sideReader) {
+      sideReader = createReader();
+      els.sideTerm.after(sideReader.el);
+    }
+    return sideReader;
+  };
+  /** The beside pane shows its terminal or a file. The terminal is on screen before it is made or fitted. */
+  function showFile(on: boolean) {
+    els.sideTerm.hidden = on;
+    if (on) reader().el.hidden = false;
+    else if (sideReader) sideReader.el.hidden = true;
+  }
+  const focusBeside = () => (split?.file ? reader().focus() : term().focus());
 
   const mainHead = header(() => toggleZoom("main"), () => closeMain());
   const sideHead = header(() => toggleZoom("side"), () => close());
@@ -214,6 +282,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     const on = split !== null;
     els.shell.classList.toggle("split", on);
     els.shell.classList.toggle("beside-left", on && split!.side === "left");
+    els.shell.classList.toggle("beside-file", on && split!.file !== undefined);
     els.shell.classList.toggle("zoom-main", on && zoomed === "main");
     els.shell.classList.toggle("zoom-side", on && zoomed === "side");
     els.sidePane.hidden = !on;
@@ -230,8 +299,8 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
 
   function paintHeads() {
     if (!split) return;
-    mainHead.paint(mainWindow(), zoomed === "main");
-    sideHead.paint(windows().find((w) => w.id === split!.windowId), zoomed === "side");
+    mainHead.paint(mainWindow(), zoomed === "main", !split.file);
+    sideHead.paint(split.file ?? windows().find((w) => w.id === split!.windowId), zoomed === "side");
   }
 
   function setFocused(p: Pane) {
@@ -246,10 +315,31 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     split = { session, windowId, side };
     zoomed = null;
     focused = "side";
+    sideReader?.close();
+    showFile(false);
     layout(); // the pane is on screen before its terminal is made or fitted
     if (!same) connect(session, windowId);
     host.changed();
     term().focus();
+  }
+
+  function openFile(session: string, file: BesideFile, side: Side) {
+    const shown = split?.file?.target;
+    if (split && !split.file) {
+      conn?.close();
+      conn = null;
+      sideTerm?.reset();
+    }
+    // Without the room for two panes, the file takes the terminal's place.
+    const over = host.enabled() ? undefined : mainWindow()?.id;
+    split = { session, file: over ? { ...file, over } : file, side };
+    zoomed = host.enabled() ? null : "side";
+    focused = "side";
+    showFile(true);
+    layout();
+    if (shown !== file.target) reader().open(file.target);
+    host.changed();
+    reader().focus();
   }
 
   function close() {
@@ -259,6 +349,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     conn?.close();
     conn = null;
     sideTerm?.reset();
+    sideReader?.close();
     focused = "main";
     layout();
     host.changed();
@@ -267,7 +358,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
 
   /** Closing the main side keeps the other: the main pane takes over its window. */
   function closeMain() {
-    if (!split) return;
+    if (!split?.windowId) return;
     const keep = split.windowId;
     close();
     host.selectMain(keep);
@@ -276,7 +367,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
   function toggleZoom(p: Pane) {
     zoomed = zoomed === p ? null : p;
     layout();
-    if (p === "side") term().focus();
+    if (p === "side") focusBeside();
     else host.focusMain();
   }
 
@@ -349,13 +440,17 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
   }
 
   return {
-    get state() { return split ? { windowId: split.windowId, side: split.side } : null; },
+    get state() {
+      if (!split) return null;
+      return split.file ? { file: split.file, side: split.side } : { windowId: split.windowId, side: split.side };
+    },
     open,
+    openFile,
     close,
     focusSide() {
       if (!split) return;
       setFocused("side");
-      term().focus();
+      focusBeside();
     },
     render(next, cur) {
       sessions = next;

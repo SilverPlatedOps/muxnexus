@@ -160,6 +160,9 @@ async function serveFile(path: string | null): Promise<Response> {
       "Content-Type": SHOWN_AS_IS.has(type) ? type : "text/plain; charset=utf-8",
       "Content-Security-Policy": "sandbox",
       "X-Content-Type-Options": "nosniff",
+      // Where a relative reference led: a pane re-reading the file asks for
+      // this, not the reference, which moves with the window's directory.
+      "X-File-Path": encodeURIComponent(path),
     },
   });
 }

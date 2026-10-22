@@ -12,6 +12,13 @@ export function fileTarget(reference: string, windowId?: string | null): string 
   return `/file?${query}`;
 }
 
+/** The path a `/file` address shows, when it is Markdown: read beside the terminal rather than in a tab of its own. */
+export function markdownPath(target: string): string | null {
+  if (!target.startsWith("/file?")) return null;
+  const path = new URLSearchParams(target.slice("/file?".length)).get("path");
+  return path && /\.(?:md|markdown)$/i.test(path) ? path : null;
+}
+
 /** Finds references in existing buffer cells, so attaching to an old session works too. */
 export class FileLinkProvider implements ILinkProvider {
   constructor(

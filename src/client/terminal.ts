@@ -23,6 +23,8 @@ export interface TerminalHandlers {
   onScroll(lines: number): void;
   /** An open search's matches changed as the screen redrew. */
   onSearch?(s: SearchState): void;
+  /** A link was clicked, a web page or a `/file` address: true when it was shown here rather than in a new tab. */
+  onLink?(target: string): boolean;
 }
 
 /**
@@ -110,6 +112,7 @@ const FIND: ISearchOptions = {
 const FINDING = { ...THEME, selectionBackground: ACTIVE, selectionInactiveBackground: ACTIVE, selectionForeground: "#ffffff" };
 
 export function createTerminal(container: HTMLElement, h: TerminalHandlers): TerminalView {
+  const open = (target: string) => { if (!h.onLink?.(target)) window.open(target, "_blank", "noopener"); };
   const term = new Terminal({
     fontFamily: '"JetBrains Mono", Menlo, monospace',
     fontSize: 13,
@@ -125,14 +128,14 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
       allowNonHttpProtocols: true, // file:// too; linkTarget turns away the rest
       activate: (_ev, uri) => {
         const target = linkTarget(uri);
-        if (target) window.open(target, "_blank", "noopener");
+        if (target) open(target);
       },
     },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
-  term.registerLinkProvider(new FileLinkProvider(term, () => h.windowId?.(), (target) => window.open(target, "_blank", "noopener")));
+  term.registerLinkProvider(new FileLinkProvider(term, () => h.windowId?.(), open));
   term.open(container);
 
   try {

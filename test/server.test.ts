@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import type { ServerMessage } from "../src/shared/protocol";
 import { allowedHostList, createServer, hostAllowed, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCmuxMirror } from "../src/server/cmux";
@@ -932,6 +932,16 @@ describe("/file", () => {
     expect((await relative("files:0")).status).toBe(404);
     expect((await relative(first, { Host: "evil.example" })).status).toBe(403);
     expect((await relative(first, { "Sec-Fetch-Site": "cross-site" })).status).toBe(403);
+  });
+
+  test("names the file it resolved, so a pane keeps reading it after the window's directory changes", async () => {
+    await tmux.run(["new-session", "-d", "-s", "resolved", "-c", dir, "sh"]);
+    const id = (await tmux.run(["display-message", "-p", "-t", "=resolved:", "#{window_id}"])).trim();
+    const relative = await fetch(`http://127.0.0.1:${server.port}/file?path=main.ts&window=${encodeURIComponent(id)}`);
+    // tmux reports the real directory: /private/var for /var on macOS.
+    expect(decodeURIComponent(relative.headers.get("x-file-path")!)).toBe(realpathSync(join(dir, "main.ts")));
+    const absolute = await get(join(dir, "main.ts"));
+    expect(decodeURIComponent(absolute.headers.get("x-file-path")!)).toBe(join(dir, "main.ts"));
   });
 
   test("refuses a Host that is not ours", async () => {

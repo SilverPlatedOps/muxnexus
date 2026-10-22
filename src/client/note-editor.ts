@@ -38,6 +38,18 @@ export interface NoteEditor {
 /** Changes the code made, as opposed to the keyboard. */
 const fromCode = Annotation.define<true>();
 
+/** How a note's text looks, shared with a file read beside the terminal (reader.ts). */
+export const markdownLook = [
+  // A fenced block's language loads when one first appears; its tokens get
+  // `tok-*` classes, coloured only inside code blocks (style.css).
+  markdown({ base: markdownLanguage, codeLanguages }),
+  syntaxHighlighting(classHighlighter),
+  livePreview,
+  EditorView.lineWrapping,
+  // CodeMirror owns its root's class list: a class added by hand is dropped on the next update.
+  EditorView.editorAttributes.of({ class: "note-editor" }),
+];
+
 export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
   const readOnly = new Compartment();
   const hint = new Compartment();
@@ -47,14 +59,7 @@ export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
   const extensions = () => [
     history(),
     keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
-    // A fenced block's language loads when one first appears; its tokens get
-    // `tok-*` classes, coloured only inside code blocks (style.css).
-    markdown({ base: markdownLanguage, codeLanguages }),
-    syntaxHighlighting(classHighlighter),
-    livePreview,
-    EditorView.lineWrapping,
-    // CodeMirror owns its root's class list: a class added by hand is dropped on the next update.
-    EditorView.editorAttributes.of({ class: "note-editor" }),
+    markdownLook,
     EditorView.contentAttributes.of({ "aria-label": hooks.label, spellcheck: "false" }),
     readOnly.of(EditorState.readOnly.of(isReadOnly)),
     hint.of(placeholderText(hintText)),

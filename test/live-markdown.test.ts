@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
-import type { DecorationSet } from "@codemirror/view";
-import { focusState, linkAt, previewDecorations, setFocus, tableDecorations } from "../src/client/live-markdown";
+import type { DecorationSet, EditorView } from "@codemirror/view";
+import { focusState, linkAt, previewDecorations, setFocus, tableDecorations, toggleTask } from "../src/client/live-markdown";
 
 /** `doc`, with the caret at `caret` in a focused editor, or unfocused when it is left out. */
 function state(doc: string, caret?: number): EditorState {
@@ -120,5 +120,26 @@ describe("linkAt", () => {
     expect(linkAt(state("[m](mailto:a@x.y)"), 1)).toBe("mailto:a@x.y");
     expect(linkAt(state("[t](javascript:alert(1))"), 1)).toBeNull();
     expect(linkAt(state("plain text"), 2)).toBeNull();
+  });
+});
+
+describe("toggleTask", () => {
+  /** Just what toggleTask touches of a view: its state, and where its changes go. */
+  function view(doc: string, readOnly: boolean) {
+    const sent: unknown[] = [];
+    const state = EditorState.create({ doc, extensions: EditorState.readOnly.of(readOnly) });
+    return { sent, view: { state, dispatch: (t: unknown) => sent.push(t) } as unknown as EditorView };
+  }
+
+  test("flips a task box in a note", () => {
+    const v = view("- [ ] a", false);
+    expect(toggleTask(v.view, 2)).toBe(true);
+    expect(v.sent).toHaveLength(1);
+  });
+
+  test("leaves a read-only text alone: a plan read beside the terminal is not the note", () => {
+    const v = view("- [ ] a", true);
+    expect(toggleTask(v.view, 2)).toBe(false);
+    expect(v.sent).toHaveLength(0);
   });
 });

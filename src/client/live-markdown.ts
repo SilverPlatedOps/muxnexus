@@ -304,6 +304,7 @@ export function previewDecorations(
 
 /** `[ ]` to `[x]` and back, for the task box at `pos`. */
 export function toggleTask(view: EditorView, pos: number): boolean {
+  if (view.state.readOnly) return false;
   const text = view.state.doc.sliceString(pos, pos + 3);
   if (!/^\[[ xX]\]$/.test(text)) return false;
   view.dispatch({ changes: { from: pos + 1, to: pos + 2, insert: text[1] === " " ? "x" : " " } });
@@ -351,6 +352,14 @@ const inline = ViewPlugin.fromClass(
         if (!href) return false;
         e.preventDefault();
         window.open(href, "_blank", "noopener");
+        return true;
+      },
+      // A box flips on its own click, whatever mousedown did: in a text that
+      // cannot change, it must not show a tick the text does not have.
+      click(e, view) {
+        const t = e.target as HTMLElement;
+        if (!view.state.readOnly || !(t instanceof HTMLInputElement && t.classList.contains("cm-md-task"))) return false;
+        e.preventDefault();
         return true;
       },
     },
