@@ -148,7 +148,7 @@ function row(label: string, ...rest: (Element | string)[]): HTMLElement {
 /** A bar and its figures, in the colour of the trouble it is in. */
 export function gauge(label: string, used: number, total: number, p: Pressure): HTMLElement {
   const percent = (used / total) * 100;
-  const r = row(label, meter(percent, p), el("span", withTone("sys-value", p), `${formatBytes(used)}/${formatBytes(total)}`));
+  const r = row(label, meter(percent, p), el("span", withTone("sys-value sys-end", p), `${formatBytes(used)}/${formatBytes(total)}`));
   r.title = `${Math.round(percent)}% used`;
   return r;
 }
@@ -211,15 +211,25 @@ export function createSystemPanel(body: HTMLElement, summary: HTMLElement): Syst
   head.append(el("span", "sys-app-name", "App"), buttons.cpu, buttons.mem);
 
   function draw(s: SystemStats) {
-    const cpuRow = row("CPU", spark(history), el("span", withTone("sys-num", cpu === undefined ? "" : pressure(cpu)), cpu === undefined ? "–" : formatCpu(cpu)));
+    const cpuRow = row("CPU", spark(history), el("span", withTone("sys-num sys-end", cpu === undefined ? "" : pressure(cpu)), cpu === undefined ? "–" : formatCpu(cpu)));
     cpuRow.classList.add("sys-cpu");
-    const rows: HTMLElement[] = [cpuRow, row("Load", el("span", "sys-value", s.load.map((l) => l.toFixed(2)).join("  ")))];
+    cpuRow.title = "CPU over the last minute, newest at the right";
+    const rows: HTMLElement[] = [cpuRow];
     const memTight = s.mem ? memPressure(s.mem) : "";
     if (s.mem) rows.push(gauge("Mem", s.mem.used, s.mem.total, memTight));
     // Swap takes no colour of its own: macOS adds a file when the last fills,
     // so a full bar is heavy paging, which the memory pressure already says.
     if (s.swap) rows.push(gauge("Swap", s.swap.used, s.swap.total, ""));
-    if (s.battery) rows.push(row("Bat", el("span", withTone("sys-value", batteryPressure(s.battery)), `${s.battery.percent}% ${s.battery.state}`)));
+    // Load and the battery share a line: neither has a bar, and every line
+    // here is one the notes above do not get.
+    const load = row("Load", el("span", "sys-value", s.load.map((l) => l.toFixed(2)).join("  ")));
+    load.classList.add("sys-pair");
+    if (s.battery) {
+      const bat = el("span", "sys-aside");
+      bat.append(el("span", "sys-label", "Bat"), el("span", withTone("sys-value", batteryPressure(s.battery)), `${s.battery.percent}% ${s.battery.state}`));
+      load.append(bat);
+    }
+    rows.push(load);
 
     for (const by of ["cpu", "mem"] as const) {
       const b = buttons[by];

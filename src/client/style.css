@@ -1426,12 +1426,21 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .sys-title { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; }
 .sys-row, .sys-app { display: flex; align-items: center; gap: 6px; line-height: 1.6; white-space: nowrap; }
 .sys-row > *, .sys-app > * { flex: none; }
-.sys-row > .usage-meter { width: 56px; }
+/* The bars take the row, and every row's figure ends in one right-hand
+   column, so CPU, Mem and Swap read straight down. */
+.sys-row > .usage-meter { flex: 1 1 0; min-width: 0; }
+.sys-row > .sys-end { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Load, and the battery at the line's far end; it wraps under when the panel is narrow. */
+.sys-row.sys-pair { flex-wrap: wrap; }
+.sys-aside { display: inline-flex; gap: 6px; margin-left: auto; padding-left: 6px; }
+.sys-aside > .sys-label { width: auto; }
 .sys-label { width: 34px; color: var(--muted); }
 .sys-value { color: var(--fg); }
 .sys-num { width: 46px; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
 /* Drawn to the row's width, the newest reading at the right edge. */
 .sys-row > .sys-spark { flex: 1 1 0; min-width: 0; height: 16px; }
+/* The minute's whole box, faint: before it fills, the empty part reads as not yet measured. */
+.sys-spark { background: color-mix(in oklab, var(--line) 55%, transparent); border-radius: 2px; }
 .sys-spark-area { fill: color-mix(in oklab, var(--accent) 28%, transparent); }
 .sys-spark-line { fill: none; stroke: var(--accent); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 /* Past a threshold (system.ts `pressure`): the nudge is the colour. */
