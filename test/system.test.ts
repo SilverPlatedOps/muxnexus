@@ -274,6 +274,16 @@ describe("overview models", () => {
       expect(rows[7]).toEqual({ kind: "more", count: 4, bytes: (0.9 + 0.8 + 0.7 + 0.6) * GiB });
     });
 
+    test("opening the folded row lists those tabs, and smaller apps still are not", () => {
+      const apps = Array.from({ length: 9 }, (_, i) => app(`App${i}`, 10 - i));
+      const many: SessionInfo[] = [{ name: "w", id: "$1", attached: 0, windows: Array.from({ length: 3 }, (_, i) => ({ id: `@${i}`, index: i, name: `t${i}`, active: false, panes: 1 })) }];
+      const wins = Array.from({ length: 3 }, (_, i) => win(`@${i}`, 0.5 - i / 10));
+      const rows = panelRows(apps, wins, many, "mem", NOW, 8, true);
+      expect(rows.map((r) => (r.kind === "app" ? r.app.name : r.kind === "tab" ? r.windowId : "more"))).toEqual([
+        "App0", "App1", "App2", "App3", "App4", "App5", "App6", "@0", "@1", "@2",
+      ]);
+    });
+
     test("sorted by CPU when asked", () => {
       const rows = panelRows([app("Busy", 0.1, 30)], [win("@1", 1.5, 2)], sessions, "cpu", NOW);
       expect(rows[0].kind === "app" && rows[0].app.name).toBe("Busy");

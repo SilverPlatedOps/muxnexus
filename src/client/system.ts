@@ -154,6 +154,8 @@ export function panelRows(
   by: AppSort,
   now: number,
   limit = LIST_LIMIT,
+  /** The folded row opened: its tabs listed in its place, the smaller apps still left out. */
+  unfold = false,
 ): PanelRow[] {
   const tabs: PanelRow[] = [];
   for (const mem of windows) {
@@ -176,6 +178,7 @@ export function panelRows(
   const kept = ranked.slice(0, limit - 1);
   const folded = ranked.slice(limit - 1).filter((r) => r.kind === "tab");
   if (folded.length === 0) return ranked.slice(0, limit);
+  if (unfold) return [...kept, ...folded];
   return [...kept, { kind: "more", count: folded.length, bytes: folded.reduce((n, r) => n + bytes(r), 0) }];
 }
 
@@ -517,7 +520,7 @@ export function createSystemPanel(
       : "Counted the way Activity Monitor counts: compressed and swapped memory included, so the list can add up to more than the bar";
     // Window ids are tmux's, and mean nothing under another tmux server.
     const windows = s.windows && s.tmuxServer && s.tmuxServer === deps.tmuxServer() ? s.windows : [];
-    const ranked = panelRows(s.apps, windows, deps.sessions(), sort, Date.now(), moreOpen ? Infinity : undefined);
+    const ranked = panelRows(s.apps, windows, deps.sessions(), sort, Date.now(), undefined, moreOpen);
     const shown = ranked.flatMap((r) => (r.kind === "app" ? [appRow(r.app)] : r.kind === "tab" ? tabRow(r) : [moreRow(r)]));
     // What the CPU line has that no process owns: the kernel, and processes
     // that came and went between readings. Said, so the column not adding up
