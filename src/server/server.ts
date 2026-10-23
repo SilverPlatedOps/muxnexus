@@ -1,5 +1,5 @@
 import type { HTMLBundle, ServerWebSocket } from "bun";
-import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo } from "../shared/protocol";
+import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo, SwapHolder, SwapNotice, SystemStats } from "../shared/protocol";
 import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
 import { stat } from "node:fs/promises";
@@ -9,8 +9,9 @@ import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
-import type { SystemReader } from "./system";
 import type { DockerReader } from "./docker";
+import type { MemoryReader, MemoryReading } from "./memory";
+import type { VitalsSampler } from "./vitals";
 
 /**
  * What a new window runs for each agent the client may ask for. The client only
@@ -44,11 +45,22 @@ export interface ServerOptions {
   usage?: UsageReader;
   usageMs?: number;
   /**
-   * Optional system overview, read only while some client has it open. Absent,
-   * a client asking for it is ignored, so the tests never spawn `ps`.
+   * The cheap readings -- memory, swap, CPU, the alarm level -- taken whether or
+   * not anyone is looking, so the swap nudge can fire with every panel shut.
+   * Absent, nothing is sampled and no notice is sent: the tests create servers
+   * constantly and must not spawn `vm_stat`.
    */
-  system?: SystemReader;
+  vitals?: VitalsSampler;
+  /**
+   * The costly reading -- every process and its footprint, charged to tabs --
+   * made from this server's tmux. Read only on demand: while a client's app list
+   * is in view (every `systemMs`), while one shows memory on its tabs (every
+   * `memoryMs`), and while urgent (every `urgentMemoryMs`, to name the biggest).
+   */
+  memory?: (tmux: Tmux) => MemoryReader;
   systemMs?: number;
+  memoryMs?: number;
+  urgentMemoryMs?: number;
   /** The overview's Docker tab, on the same terms: read only while some client has the tab open. */
   docker?: DockerReader;
   dockerMs?: number;
@@ -92,6 +104,10 @@ interface ConnData {
   typing: Promise<void> | null;
   /** This client has the system overview open. */
   system: boolean;
+  /** ...and its app list in view, which is what the process list is read for. */
+  list: boolean;
+  /** This client shows memory on its tabs. */
+  memory: boolean;
   /** This client has the overview's Docker tab open. */
   docker: boolean;
 }
@@ -283,9 +299,13 @@ export function createServer(opts: ServerOptions): RunningServer {
     }
   }
 
+  /** The tmux server the last `state` was read from: window ids mean something only under it. */
+  let tmuxServerId: string | null = null;
+
   /** Re-read tmux state and send it to each socket that has not seen it yet. */
   async function readState(): Promise<void> {
     const read = await tmux.listState().catch(() => ({ sessions: [] as SessionInfo[], tmuxServer: null }));
+    tmuxServerId = read.tmuxServer;
     const sessions = await label(read.sessions);
     followRenames(sessions);
     const json = JSON.stringify({
@@ -442,19 +462,28 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "ping":
           return;
         case "system":
-          if (typeof m.on !== "boolean") return send(ws, { t: "error", message: "invalid system" });
+          if (typeof m.on !== "boolean" || (m.list !== undefined && typeof m.list !== "boolean")) return send(ws, { t: "error", message: "invalid system" });
           ws.data.system = m.on;
+          ws.data.list = m.on && (m.list ?? true);
+          syncFast();
           if (!m.on) return;
-          // Someone was already watching: the timer's last reading is at most an
-          // interval old. A fresh read now would hand every watcher a CPU figure
-          // over a fraction of an interval, and an extra point on their history.
-          // Only while it is that fresh: the others may have just opened the box
-          // too, after an hour of nobody looking.
-          if (lastSystem && Date.now() - lastSystem.at <= systemMs && watchingSystem().length > 1) return void ws.sendText(lastSystem.json);
-          // The first: straight away rather than at the next tick, so the box is
-          // not empty and the CPU line has a sample to compare the next against.
-          void pollSystem();
+          // What is known now, so the box is not empty; the list follows its read.
+          if (opts.vitals?.latest()) sendSystem([ws]);
+          // The list's first read, sent when it lands rather than at the next sample.
+          if (ws.data.list && memoryAge() > systemMs) void pollMemory().then(() => { if (ws.data.list && open(ws)) sendSystem([ws]); });
           // Not a change to tmux: no session poll.
+          return;
+        case "memory":
+          if (typeof m.on !== "boolean") return send(ws, { t: "error", message: "invalid memory" });
+          ws.data.memory = m.on;
+          if (!m.on) return;
+          if (lastMemory && memoryAge() <= memoryMs) ws.sendText(memoryJson(lastMemory));
+          else void pollMemory();
+          return;
+        case "swap-ack":
+          if (!Number.isFinite(m.episode)) return send(ws, { t: "error", message: "invalid swap-ack" });
+          // The sampler tells its listeners, and the notice goes to everyone from there.
+          opts.vitals?.acknowledge(m.episode);
           return;
         case "docker":
           if (typeof m.on !== "boolean") return send(ws, { t: "error", message: "invalid docker" });
@@ -682,26 +711,125 @@ export function createServer(opts: ServerOptions): RunningServer {
   }
 
   const systemMs = opts.systemMs ?? 2000;
-  let systemReading: Promise<void> | null = null;
-  /** The last reading sent, for a client that opens the box while others have it open. */
-  let lastSystem: { json: string; at: number } | null = null;
-  const watchingSystem = () => [...clients].filter((ws) => ws.data.system && ws.readyState === WebSocket.OPEN);
+  const memoryMs = opts.memoryMs ?? 5000;
+  const urgentMemoryMs = opts.urgentMemoryMs ?? 30_000;
+  const memoryReader = opts.memory?.(tmux);
+  const open = (ws: Socket) => ws.readyState === WebSocket.OPEN;
+  const watchingSystem = () => [...clients].filter((ws) => ws.data.system && open(ws));
+  const watchingList = () => [...clients].filter((ws) => ws.data.list && open(ws));
+  const watchingMemory = () => [...clients].filter((ws) => ws.data.memory && open(ws));
 
-  /** Never two at once: a slow `ps` and a client opening the box can both find one due. */
-  function pollSystem(): Promise<void> {
-    systemReading ??= readSystem().finally(() => { systemReading = null; });
-    return systemReading;
+  // The sampler runs every five seconds for the nudge; every two while someone
+  // has the overview open, which is the cadence its CPU line is drawn at.
+  let fastSent = false;
+  function syncFast() {
+    const on = watchingSystem().length > 0;
+    if (on === fastSent) return;
+    fastSent = on;
+    opts.vitals?.setFast(on);
   }
 
-  async function readSystem(): Promise<void> {
-    if (!opts.system || watchingSystem().length === 0) return;
-    const stats = await opts.system.read().catch(() => null);
-    if (!stats) return;
-    const json = JSON.stringify({ t: "system", stats } satisfies ServerMessage);
-    lastSystem = { json, at: Date.now() };
-    // Asked again: a client may have closed the box while `ps` ran.
-    for (const ws of watchingSystem()) ws.sendText(json);
+  let lastMemory: MemoryReading | null = null;
+  let lastMemoryAt = 0;
+  let memoryReading: Promise<void> | null = null;
+  const memoryAge = () => (lastMemory ? Date.now() - lastMemoryAt : Infinity);
+  const memoryJson = (m: MemoryReading) =>
+    JSON.stringify({ t: "memory", tmuxServer: tmuxServerId, at: m.at, metric: m.metric, windows: m.windows } satisfies ServerMessage);
+
+  /** Never two at once: the list, the tab chips and an urgent notice all share one reading. */
+  function pollMemory(): Promise<void> {
+    memoryReading ??= readMemory().finally(() => { memoryReading = null; });
+    return memoryReading;
   }
+
+  async function readMemory(): Promise<void> {
+    if (!memoryReader) return;
+    const reading = await memoryReader.read().catch(() => null);
+    if (!reading) return;
+    lastMemory = reading;
+    lastMemoryAt = Date.now();
+    const json = memoryJson(reading);
+    for (const ws of watchingMemory()) ws.sendText(json);
+  }
+
+  function systemStats(list: boolean): SystemStats {
+    const v = opts.vitals?.latest();
+    const m = list ? lastMemory : null;
+    return {
+      ...(v?.cpu === undefined ? {} : { cpu: v.cpu }),
+      load: v?.load ?? [0, 0, 0],
+      ...(v?.mem ? { mem: v.mem } : {}),
+      ...(v?.swap ? { swap: v.swap } : {}),
+      ...(v?.battery ? { battery: v.battery } : {}),
+      ...(v?.split ? { split: v.split } : {}),
+      apps: m?.apps ?? [],
+      ...(m ? { appsCpu: m.appsCpu, metric: m.metric, windows: m.windows } : {}),
+      ...(tmuxServerId ? { tmuxServer: tmuxServerId } : {}),
+      history: opts.vitals?.history() ?? [],
+      rate: v?.rate ?? null,
+      written: v?.written ?? null,
+      bootTime: v?.bootTime ?? null,
+    };
+  }
+
+  /** Two bodies at most: with the list, for those who show it, and without. */
+  function sendSystem(targets: Socket[]) {
+    let withList: string | null = null;
+    let without: string | null = null;
+    for (const ws of targets) {
+      ws.sendText(ws.data.list
+        ? (withList ??= JSON.stringify({ t: "system", stats: systemStats(true) } satisfies ServerMessage))
+        : (without ??= JSON.stringify({ t: "system", stats: systemStats(false) } satisfies ServerMessage)));
+    }
+  }
+
+  /** The four biggest holders, apps and tabs on one scale, for the urgent nudge. */
+  function holders(): SwapHolder[] {
+    if (!lastMemory) return [];
+    const all: SwapHolder[] = [
+      ...lastMemory.apps.filter((a) => !a.unreadable).map((a) => ({ kind: "app" as const, name: a.name, bytes: a.mem })),
+      ...lastMemory.windows.map((w) => ({ kind: "tab" as const, name: w.windowId, bytes: w.bytes })),
+    ];
+    return all.sort((a, b) => b.bytes - a.bytes).slice(0, 4);
+  }
+
+  function notice(): SwapNotice {
+    const v = opts.vitals!.latest();
+    const l = opts.vitals!.level();
+    return {
+      episode: l.episode, severity: l.severity, reason: l.reason,
+      rate: v?.rate ?? null, swapUsed: v?.swap?.used ?? null, written: v?.written ?? null, bootTime: v?.bootTime ?? null,
+      holders: l.severity === "urgent" ? holders() : [], acked: l.acked, at: v?.at ?? Date.now(),
+    };
+  }
+
+  // While calm, a notice is news only when it changes; otherwise every sample
+  // is, so the banner's rate never goes stale.
+  let noticeKey = "";
+  const keyOf = (n: SwapNotice) => `${n.severity} ${n.episode} ${n.acked}`;
+  function broadcastNotice() {
+    const n = notice();
+    if (n.severity === "calm" && keyOf(n) === noticeKey) return;
+    noticeKey = keyOf(n);
+    const json = JSON.stringify({ t: "swap", notice: n } satisfies ServerMessage);
+    for (const ws of clients) if (open(ws)) ws.sendText(json);
+  }
+
+  async function onVitals(): Promise<void> {
+    const age = memoryAge();
+    // 0.8: samples land a little either side of their period, and a read that
+    // just missed being due would wait a whole extra period.
+    const due = (watchingList().length > 0 && age >= systemMs * 0.8)
+      || (watchingMemory().length > 0 && age >= memoryMs * 0.8)
+      || (opts.vitals!.level().severity === "urgent" && age >= urgentMemoryMs * 0.8);
+    if (due && memoryReader) await pollMemory();
+    broadcastNotice();
+    const watching = watchingSystem();
+    if (watching.length > 0) sendSystem(watching);
+  }
+  const offVitals = opts.vitals?.onSample(() => { void onVitals(); });
+  opts.vitals?.start();
+  void opts.vitals?.sampleNow();
 
   const dockerMs = opts.dockerMs ?? 5000;
   let dockerReading: Promise<void> | null = null;
@@ -733,11 +861,6 @@ export function createServer(opts: ServerOptions): RunningServer {
   // timer's own.
   const usageTimer = opts.usage
     ? setInterval(() => { if (clients.size > 0 && usageDue()) void pollUsage(); }, usageMs / 4)
-    : undefined;
-  // Unlike the quota, only for the clients looking: four processes every two
-  // seconds is too much to spend on a box nobody has open.
-  const systemTimer = opts.system
-    ? setInterval(() => { if (watchingSystem().length > 0) void pollSystem(); }, systemMs)
     : undefined;
   const dockerTimer = opts.docker
     ? setInterval(() => { if (watchingDocker().length > 0) void pollDocker(); }, dockerMs)
@@ -786,7 +909,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, docker: false } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, list: false, memory: false, docker: false } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -802,6 +925,12 @@ export function createServer(opts: ServerOptions): RunningServer {
         // endpoint came to answer 429.
         if (lastUsage && ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(lastUsage));
         if (opts.usage && usageDue()) void pollUsage();
+        // The swap level, whatever it is: the nudge and the title need it with every panel shut.
+        if (opts.vitals && ws.readyState === WebSocket.OPEN) {
+          const n = notice();
+          noticeKey = keyOf(n);
+          send(ws, { t: "swap", notice: n });
+        }
         // Asked per connection rather than once at startup: at login tmux may not
         // be up yet, and the answer stops being true the moment a restore runs.
         void opts.hint?.().then((message) => {
@@ -828,6 +957,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         clients.delete(ws);
         ws.data.attachSeq++; // invalidate any in-flight attach for this socket
         detach(ws);
+        syncFast();
       },
     },
   });
@@ -849,7 +979,8 @@ export function createServer(opts: ServerOptions): RunningServer {
     stop() {
       clearInterval(timer);
       clearInterval(usageTimer);
-      clearInterval(systemTimer);
+      offVitals?.();
+      opts.vitals?.stop();
       clearInterval(dockerTimer);
       for (const ws of clients) {
         ws.data.attachSeq++; // invalidate any in-flight attach

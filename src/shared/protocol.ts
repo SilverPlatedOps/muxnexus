@@ -191,8 +191,16 @@ export type ClientMessage =
   /** Every note with anything in it, for the explorer; answered with `notes`. */
   | { t: "notes-list" }
   | { t: "note-delete"; noteId: string }
-  /** Whether this browser shows the system overview: answered with `system` every couple of seconds while on. */
-  | { t: "system"; on: boolean }
+  /**
+   * Whether this browser shows the system overview: answered with `system` every
+   * couple of seconds while on. `list` says whether its app list is in view;
+   * absent, as from a page loaded before it existed, it counts as in view.
+   */
+  | { t: "system"; on: boolean; list?: boolean }
+  /** Whether this browser shows memory on its tabs: answered with `memory` while on. */
+  | { t: "memory"; on: boolean }
+  /** The user saw the urgent nudge for this episode. */
+  | { t: "swap-ack"; episode: number }
   /** Whether this browser shows the overview's Docker tab: answered with `docker` every few seconds while on. */
   | { t: "docker"; on: boolean }
   | { t: "ping" };
@@ -289,10 +297,58 @@ export interface SystemStats {
   swap?: { used: number; total: number };
   /** `state` as `pmset` words it: "charging", "discharging", "charged", "on AC". */
   battery?: { percent: number; state: string };
-  /** The busiest few by CPU and the largest few by memory, in no order. */
+  /**
+   * The busiest few by CPU and the largest few by memory, in no order, with the
+   * processes inside tmux windows taken out (they are in `windows`). Empty for a
+   * client that has the list hidden: the process list is read only to be shown.
+   */
   apps: SystemApp[];
   /** Every process's CPU summed, on `cpu`'s scale: the rest of `cpu` is the kernel's. */
   appsCpu?: number;
+  /** The Mem bar's four parts. */
+  split?: MemSplit;
+  /** How `apps` and `windows` counted memory. */
+  metric?: MemoryMetric;
+  /** Every tmux window's processes, for the list to rank beside the apps. */
+  windows?: WindowMemory[];
+  /** The tmux server `windows` were read from, as `state` names it; ids mean nothing under another. */
+  tmuxServer?: string;
+  /** Swap-write rates over the last five minutes, oldest first. */
+  history?: RatePoint[];
+  /** The latest swap-write rate, bytes a second, or null when unknown. */
+  rate?: number | null;
+  /** Bytes written to swap since boot. */
+  written?: number | null;
+  /** When the Mac booted, ms. */
+  bootTime?: number | null;
+}
+
+/** One of the biggest holders named by an urgent notice: an app by name, or a tab by window id. */
+export interface SwapHolder {
+  kind: "app" | "tab";
+  name: string;
+  bytes: number;
+}
+
+/**
+ * The swap level, pushed to every client: the collapsed overview, the nudge
+ * and the page title need it whether or not the panel is open.
+ */
+export interface SwapNotice {
+  /** When the current episode began, ms; the id an acknowledgement names. 0 before any. */
+  episode: number;
+  severity: SwapSeverity;
+  reason: SwapReason | null;
+  rate: number | null;
+  /** Bytes of swap on disk. */
+  swapUsed: number | null;
+  written: number | null;
+  bootTime: number | null;
+  /** Biggest first; filled while urgent. */
+  holders: SwapHolder[];
+  acked: boolean;
+  /** The sample's time, by the server's clock. */
+  at: number;
 }
 
 /** One container, running or not. */
@@ -341,6 +397,10 @@ export type ServerMessage =
   | { t: "system"; stats: SystemStats }
   /** Likewise, to a client that asked with `docker`. */
   | { t: "docker"; stats: DockerStats }
+  /** To every client, on connect and whenever it says something new. */
+  | { t: "swap"; notice: SwapNotice }
+  /** To a client that asked with `memory`: every window's memory, for the tab chips. */
+  | { t: "memory"; tmuxServer: string | null; at: number; metric: MemoryMetric; windows: WindowMemory[] }
   | { t: "attached"; session: string }
   /**
    * The attached session now has this name -- renamed here, in cmux, or with

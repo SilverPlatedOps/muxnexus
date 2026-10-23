@@ -7,8 +7,10 @@ import { createSnapshotter, pendingRestore, restoreHint, snapshotDir } from "./r
 import { createServer } from "./server";
 import { Tmux } from "./tmux";
 import { createUsageReader, localProfiles } from "./usage";
-import { createSystemReader } from "./system";
 import { createDockerReader } from "./docker";
+import { footprintReader } from "./footprint";
+import { createMemoryReader } from "./memory";
+import { createVitalsSampler } from "./vitals";
 
 /** How often the live windows are recorded. One `list-panes` call, so it is cheap. */
 const SNAPSHOT_MS = 2 * 60 * 1000;
@@ -148,7 +150,8 @@ if (import.meta.main) {
   const hint = async () => restoreHint((await pendingRestore(tmux, snapshots))?.steps ?? []);
   const running = createServer({
     hosts, port: args.port, socketPath, index, mirror, allowHosts, usage, hint, profiles: () => localProfiles(),
-    system: createSystemReader(),
+    vitals: createVitalsSampler(),
+    memory: (tmux) => createMemoryReader({ panes: () => tmux.listPaneRoots(), footprint: footprintReader() }),
     docker: createDockerReader(),
   });
   for (const h of hosts) console.log(`muxnexus listening on http://${h}:${running.port}`);
