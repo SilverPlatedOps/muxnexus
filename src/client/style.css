@@ -349,6 +349,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    they would leave the bars too short to read. Expanded is where you go for
    them, so there they stay at every width (below). */
 @container (max-width: 264px) { #usage:not(.expanded) .usage-reset { display: none; } }
+/* Except on an account at its limit, where when it lifts is the news (usage.ts summaryWindow). */
+#usage:not(.expanded) .usage-row.spent .usage-reset { display: block; }
 /* Too narrow for a name column as well, collapsed: the name takes a line of
    its own above its bar rather than being cut to "pers…" -- or, with badges
    on, goes, and the badge alone says whose bar it is, keeping the glance one
@@ -357,6 +359,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   #usage:not(.expanded) .usage-grid { grid-template-columns: [badge] auto [kind] 22px [meter] minmax(20px, 1fr) [pct] 30px; }
   #usage:not(.expanded) .usage-name { grid-column: kind / -1; }
   #usage:not(.expanded) .usage-grid.badged .usage-name.by-badge { display: none; }
+  /* No reset column at all this narrow: the row's hover title says it. */
+  #usage:not(.expanded) .usage-row.spent .usage-reset { display: none; }
 }
 /* Badges off: no badge column, so no empty gap indenting every row. */
 .usage-grid:not(.badged) { grid-template-columns: [name] 54px [kind] 22px [meter] minmax(16px, 1fr) [pct] 30px [reset] auto; }

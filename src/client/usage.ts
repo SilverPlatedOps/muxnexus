@@ -108,15 +108,32 @@ const EXPANDED_KEY = "muxnexus.usage.expanded";
  * window, the same one for everybody. Providers name it differently
  * (`session`, `5h`), so it is found through the label rather than by key.
  *
+ * Except when the account is at one of its limits: then it cannot be worked in
+ * whatever its 5h says, so that limit speaks -- of several, the one that lifts
+ * last, since that is when the account is back.
+ *
  * An account with no short window falls back to its most severe, else fullest.
  */
 export function summaryWindow(windows: readonly UsageWindow[]): UsageWindow | undefined {
   if (windows.length === 0) return undefined;
+  const spent = windows.filter(atLimit);
+  if (spent.length > 0) return [...spent].sort((a, b) => lifts(b) - lifts(a))[0];
   const short = windows.find((w) => kindLabel(w.kind) === SHORT_WINDOW);
   if (short) return short;
   const severe = windows.filter((w) => w.severity && w.severity !== "normal");
   const pool = severe.length > 0 ? severe : windows;
   return [...pool].sort((a, b) => b.percent - a.percent)[0];
+}
+
+/** A window that has stopped the account: the provider says so, or it is full. */
+export function atLimit(w: UsageWindow): boolean {
+  return w.severity === "exceeded" || w.percent >= 100;
+}
+
+/** When a window lifts; one that does not say is taken as the last. */
+function lifts(w: UsageWindow): number {
+  const at = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
+  return Number.isNaN(at) ? Infinity : at;
 }
 
 /** Whether the panel is expanded, remembered per browser -- a per-viewer preference. */
@@ -185,14 +202,17 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
       return;
     }
     for (const w of windows) {
-      const row = el("div", `usage-row${stale}`);
+      // A row at its limit keeps its reset time at every width: when the account is back is the news.
+      const row = el("div", `usage-row${stale}${atLimit(w) ? " spent" : ""}`);
       row.append(
         el("span", "usage-kind", kindLabel(w.kind)),
         meter(w.percent, tone(w)),
         el("span", "usage-pct", `${Math.round(w.percent)}%`),
         el("span", "usage-reset", formatReset(w.resetsAt, now)),
       );
-      row.title = s.state !== "ok" ? `${s.label}: last read ${new Date(s.checkedAt).toLocaleTimeString()}` : s.label;
+      row.title = s.state !== "ok" ? `${s.label}: last read ${new Date(s.checkedAt).toLocaleTimeString()}`
+        : atLimit(w) ? `${s.label}: at its ${kindLabel(w.kind)} limit until ${formatReset(w.resetsAt, now) || "it resets"}`
+        : s.label;
       grid.append(row);
     }
   });
@@ -221,7 +241,7 @@ function toggle(root: HTMLElement, sources: UsageSource[], now: number, open: bo
   const chevron = el("span", "chevron");
   chevron.innerHTML = ICONS.chevron;
   b.append(chevron, el("span", "", "Quota"));
-  b.title = open ? "Show only each account's 5h window" : "Show every window and when it resets";
+  b.title = open ? "Show one line an account: its 5h window, or the limit it is at" : "Show every window and when it resets";
   b.setAttribute("aria-expanded", String(open));
   b.onclick = (e) => {
     e.stopPropagation();

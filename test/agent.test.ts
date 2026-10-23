@@ -429,6 +429,25 @@ describe("summaryWindow", () => {
     ])?.kind).toBe("session");
   });
 
+  test("a window at its limit speaks instead: the 5h one cannot say the account is usable", () => {
+    expect(summaryWindow([
+      { kind: "weekly_all", percent: 100, severity: "exceeded" },
+      { kind: "session", percent: 20, severity: "normal" },
+    ])?.kind).toBe("weekly_all");
+    // Claude may not send `exceeded`; full is full.
+    expect(summaryWindow([
+      { kind: "weekly_all", percent: 100, severity: "critical" },
+      { kind: "session", percent: 20 },
+    ])?.kind).toBe("weekly_all");
+  });
+
+  test("of several at their limit, the one that lifts last, since none of them can be worked past", () => {
+    expect(summaryWindow([
+      { kind: "session", percent: 100, severity: "exceeded", resetsAt: "2026-10-23T12:00:00Z" },
+      { kind: "weekly_all", percent: 100, severity: "exceeded", resetsAt: "2026-10-26T08:00:00Z" },
+    ])?.kind).toBe("weekly_all");
+  });
+
   test("with no 5h window, the severe one, else the fullest", () => {
     expect(summaryWindow([
       { kind: "weekly_all", percent: 20, severity: "warning" },
