@@ -717,6 +717,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   -webkit-touch-callout: none;
 }
 #tabs.crowded .tab { max-width: 220px; }
+/* A lone tab has nothing to crowd out: it takes the strip up to the new-window buttons. */
+#tabs.lone .tab { flex: 0 1 auto; min-width: 0; max-width: none; }
 .tab:hover { background: var(--hover); color: var(--fg); }
 /* The active tab is the terminal's surface, grown up over the strip. */
 .tab.active, .tab.active:hover {

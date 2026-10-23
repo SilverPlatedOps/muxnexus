@@ -92,6 +92,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   let sharing = new Map<string, Sharing>();
   let profiles: string[] = [];
   let beside: string | null = null;
+  /** The active window the strip last scrolled to. */
+  let revealed: string | null = null;
 
   const rerender = () => draw(lastSessions, lastCurrent);
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -333,6 +335,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     }
     root.append(adds);
     fitTitles();
+    revealActive(windows);
     // Fixed to the chevron rather than hung off the strip: the strip scrolls on
     // a phone, and this sits at its far end, so an in-flow menu lands off screen.
     const menu = adds.querySelector<HTMLElement>(".tab-menu");
@@ -366,11 +369,28 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   function fitTitles() {
     const last = root.lastElementChild as HTMLElement | null;
     if (!last) return;
+    root.classList.toggle("lone", root.querySelectorAll(":scope > .tab").length === 1);
     root.classList.remove("crowded");
     // Where the strip's last item ends, not its scroll width: an open menu
     // overhangs the strip on purpose and is no sign of crowding.
     root.classList.toggle("crowded", last.offsetLeft + last.offsetWidth > root.clientWidth);
   }
+  /**
+   * Scroll the active tab into the strip when it changes -- picked in the
+   * sidebar, by ⌘J, from another device -- but not on every redraw, which
+   * would yank back a strip scrolled along to look at the others.
+   */
+  function revealActive(windows: WindowInfo[]) {
+    const id = windows.find((w) => w.active)?.id ?? null;
+    if (id === revealed) return;
+    revealed = id;
+    const tab = root.querySelector<HTMLElement>(":scope > .tab.active");
+    if (!tab) return;
+    const end = tab.offsetLeft + tab.offsetWidth;
+    if (tab.offsetLeft < root.scrollLeft) root.scrollLeft = tab.offsetLeft;
+    else if (end > root.scrollLeft + root.clientWidth) root.scrollLeft = end - root.clientWidth;
+  }
+
   // The strip changes width without a redraw: the notes panel, the sidebar, the window.
   new ResizeObserver(fitTitles).observe(root);
 
