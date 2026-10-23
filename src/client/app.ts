@@ -47,6 +47,8 @@ const collapseBtn = document.getElementById("collapse")!;
 const expandBtn = document.getElementById("expand")!;
 const displayBtn = document.getElementById("display")!;
 const hamburger = document.getElementById("hamburger")!;
+const nextBtn = document.getElementById("next-waiting") as HTMLButtonElement;
+const nextCount = document.getElementById("next-count")!;
 const drawerClose = document.getElementById("drawer-close")!;
 const findEl = document.getElementById("find")!;
 const findInput = document.getElementById("find-input") as HTMLInputElement;
@@ -132,6 +134,7 @@ function paintMain() {
 /** The view came or went: back on the terminal, it gets the room and the keys again. */
 function viewChanged() {
   paintMain();
+  updateAttention(); // ⌘J goes to a window in a view, a session out of one
   if (views.showing() || !terminalOn) return;
   term.fit();
   // Not from behind a modal: the Display modal is one way a view goes away,
@@ -168,6 +171,26 @@ function updateAttention() {
     "aria-label",
     n > 0 ? `Show sessions (${n} waiting for you)` : "Show sessions",
   );
+  // Live whenever ⌘J would go somewhere, counted only when someone is blocked:
+  // with nothing waiting it still walks the sessions with news.
+  nextBtn.disabled = !nextJump();
+  nextCount.hidden = n === 0;
+  nextCount.textContent = String(n);
+}
+
+/**
+ * Where ⌘J and "Next waiting" go: the next session that wants you, in the order
+ * the sidebar draws, so it walks down the list you can see -- or, while a view
+ * is up, the window there. Null when nothing wants you, so neither moves you
+ * somewhere arbitrary.
+ */
+function nextJump(): (() => void) | null {
+  if (views.showing()) {
+    const ref = nextWaiting(sessions, current);
+    return ref ? () => views.reveal(ref) : null;
+  }
+  const next = nextAttention(visualOrder(sessions, sessionLabel), current);
+  return next ? () => attach(next) : null;
 }
 
 /**
@@ -642,6 +665,10 @@ expandBtn.onclick = () => {
   term.fit();
 };
 hamburger.onclick = () => setDrawer(true);
+nextBtn.onclick = () => {
+  nextJump()?.();
+  if (onPhone()) setDrawer(false);
+};
 drawerClose.onclick = () => setDrawer(false);
 // The badges are worn by the tabs and legended by the quota panel; the checkout
 // mark by the tabs and the sidebar. A switch redraws all of them.
@@ -708,18 +735,10 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
     // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
     // ⌘J for itself -- it costs one clause and saves finding out the hard way.
-    // In the order the sidebar draws, so ⌘J walks down the list you can see.
-    if (views.showing()) {
-      const ref = nextWaiting(sessions, current);
-      if (!ref) return;
-      e.preventDefault();
-      views.reveal(ref);
-      return;
-    }
-    const next = nextAttention(visualOrder(sessions, sessionLabel), current);
-    if (!next) return;
+    const go = nextJump();
+    if (!go) return;
     e.preventDefault();
-    attach(next);
+    go();
   }
 });
 

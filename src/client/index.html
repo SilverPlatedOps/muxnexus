@@ -59,6 +59,13 @@
         <input id="side-search-input" type="search" placeholder="Sessions and windows" aria-label="Search sessions and windows" autocomplete="off" spellcheck="false" />
         <kbd>&#8984;K</kbd>
       </div>
+      <!-- Outside #sessions, which is rebuilt on every render. -->
+      <button id="next-waiting" type="button" title="Go to the next session waiting on you, else the next with news (&#8984;J)" disabled>
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 3v10l8-5z"></path></svg>
+        <span class="next-label">Next waiting</span>
+        <span id="next-count" hidden></span>
+        <kbd>&#8984;J</kbd>
+      </button>
       <div id="sessions"></div>
       <!-- A sibling of the footer, not a child: the footer is rebuilt on every
            session render and would take the panel with it. -->
