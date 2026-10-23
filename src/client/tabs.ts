@@ -3,7 +3,8 @@ import { MENU_REORDER, makeReorderable, moveItem } from "./reorder";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
-import { badgesShown, marksShown } from "./display";
+import { badgesShown, marksShown, memoryShown } from "./display";
+import { memoryStore } from "./memory";
 
 /** The windows of the attached session, in tmux order. Empty when nothing is attached. */
 export function tabsModel(sessions: SessionInfo[], current: string | null): WindowInfo[] {
@@ -243,6 +244,14 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       const mark = el("span", `pbadge${b.slot === null ? "" : ` p${b.slot}`}`, b.initial);
       mark.title = `${b.profile} profile`;
       name.append(mark);
+    }
+    // What the tab and everything running in it hold, when the viewer asked
+    // for it (Display): grey unless it is among what memory is short for.
+    const mem = memoryShown() ? memoryStore.window(w.id) : null;
+    if (mem) {
+      const chip = el("span", `mem-chip${mem.tone ? ` ${mem.tone}` : ""}`, mem.text);
+      chip.title = "Memory held by this tab and everything running in it";
+      name.append(chip);
     }
     const shared = sharing.get(w.id);
     if (shared) name.append(checkoutMark(shared));

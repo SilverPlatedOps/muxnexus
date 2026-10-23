@@ -3,7 +3,8 @@ import { MENU_REORDER, makeReorderable } from "./reorder";
 import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, dotCounts, windowGlyph, type Sharing } from "./agent";
 import { findSessions, folderOf } from "./find";
 import { ICONS } from "./icons";
-import { marksShown } from "./display";
+import { marksShown, memoryShown } from "./display";
+import { memoryStore } from "./memory";
 import { sessionLabel, tabLabel, windowPlace } from "./labels";
 import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
 import { categoryKey, splitCategory } from "../shared/category";
@@ -222,6 +223,14 @@ export function createSidebar(
     }
     // Only for a session that is blocked: how long it has been waiting changes
     // what you do about it, where how long a turn has run does not.
+    // The session's tabs summed, when the viewer asked for it: the tab strip
+    // shows only the attached session's, so this is where the others say.
+    const mem = memoryShown() ? memoryStore.session(row.windows) : null;
+    if (mem) {
+      const chip = el("span", "mem-chip", mem.text);
+      chip.title = "Memory held by this session's tabs";
+      name.append(chip);
+    }
     const elapsed = glyph === "input" ? formatElapsed(sessionAgent(row.windows)?.since, Date.now()) : "";
     if (elapsed) name.append(el("span", "elapsed", elapsed));
     // One dot per window, in tab order, so a session with several agents says

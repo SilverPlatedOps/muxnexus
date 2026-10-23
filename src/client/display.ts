@@ -6,11 +6,13 @@ import { VIEW_CHOICES, type ViewName } from "./view-host";
  * browser like the folded groups -- a viewer's convenience, not shared state.
  * On unless switched off, so a browser that has never chosen sees them; a
  * browser whose storage is blocked sees them too, and its choice lasts the page.
+ * Memory on tabs is the exception, off until chosen.
  */
 
 const BADGES_KEY = "muxnexus.badges";
 const MARKS_KEY = "muxnexus.checkout-marks";
 const SYSTEM_KEY = "muxnexus.system";
+const MEMORY_KEY = "muxnexus.tab-memory";
 
 /** What the preference is kept in: `localStorage`, or a stand-in under test. */
 export interface Store {
@@ -23,6 +25,15 @@ function shown(key: string, store?: Store): boolean {
     return (store ?? localStorage).getItem(key) !== "0";
   } catch {
     return true;
+  }
+}
+
+/** The opposite default: off unless this browser switched it on. For a mark that adds a figure to every tab. */
+function shownIfChosen(key: string, store?: Store): boolean {
+  try {
+    return (store ?? localStorage).getItem(key) === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -45,6 +56,10 @@ export const setMarksShown = (on: boolean, store?: Store) => setShown(MARKS_KEY,
 /** Whether the notes panel ends in the system overview; its own ✕ switches this off too. */
 export const systemShown = (store?: Store) => shown(SYSTEM_KEY, store);
 export const setSystemShown = (on: boolean, store?: Store) => setShown(SYSTEM_KEY, on, store);
+
+/** Whether each tab shows its memory, and each session row its total. Off by default: the ranked list is the everyday view. */
+export const memoryShown = (store?: Store) => shownIfChosen(MEMORY_KEY, store);
+export const setMemoryShown = (on: boolean, store?: Store) => setShown(MEMORY_KEY, on, store);
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -76,6 +91,7 @@ export function openDisplay(
     ["Profile badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
     ["Shared checkout", "Two live agents working in one git checkout, marked on both", marksShown, setMarksShown],
     ["System overview", "CPU, memory, the busiest apps and Docker's containers, under the notes", systemShown, setSystemShown],
+    ["Memory on tabs", "Each tab's memory, and each session's total in the sidebar; the ranked list stays in the system overview", memoryShown, setMemoryShown],
   ];
   for (const [name, note, get, set] of rows) {
     const row = el("label", "display-row");

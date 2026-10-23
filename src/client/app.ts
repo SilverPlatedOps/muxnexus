@@ -11,7 +11,8 @@ import { makeResizable } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { marksShown, openDisplay, setSystemShown, systemShown } from "./display";
+import { marksShown, memoryShown, openDisplay, setSystemShown, systemShown } from "./display";
+import { memoryStore } from "./memory";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
 import { createDockerPanel, loadTab, type OverviewTab, saveTab } from "./docker";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
@@ -440,6 +441,14 @@ systemToggle.onclick = () => {
 let systemSent = false;
 /** ...and whether its app list is in view, which is what the server reads the process list for. */
 let listSent = false;
+/** Whether this socket asked for every tab's memory, for the chips the Display switch puts on. */
+let memorySent = false;
+function syncMemory() {
+  const on = memoryShown();
+  if (on === memorySent) return;
+  if (!on) memoryStore.clear();
+  if (conn.send({ t: "memory", on })) memorySent = on;
+}
 systemEl.hidden = !(notes.open && systemShown());
 const dockerBody = document.getElementById("docker-body")!;
 const docker = createDockerPanel(dockerBody);
@@ -599,7 +608,9 @@ const conn = new Connection(wsUrl, {
     systemSent = false;
     listSent = false;
     dockerSent = false;
+    memorySent = false;
     syncSystem();
+    syncMemory();
     if (desired) attach(desired);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
@@ -626,6 +637,8 @@ const conn = new Connection(wsUrl, {
             pendingTabs = null;
           }
         }
+        // tmux hands its window ids out again after a restart: the chips' table is the old server's.
+        if ((m.tmuxServer ?? null) !== tmuxServer) memoryStore.clear();
         tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         paintAll();
@@ -673,6 +686,13 @@ const conn = new Connection(wsUrl, {
         break;
       case "swap":
         system.notice(m.notice);
+        memoryStore.setNotice(m.notice);
+        if (memoryShown()) paintAll();
+        break;
+      case "memory":
+        if (!memorySent) break;
+        memoryStore.set(m, tmuxServer);
+        paintAll();
         break;
       case "docker":
         if (dockerSent) docker.receive(m.stats);
@@ -709,6 +729,7 @@ drawerClose.onclick = () => setDrawer(false);
 // The badges are worn by the tabs and legended by the quota panel; the checkout
 // mark by the tabs and the sidebar. A switch redraws all of them.
 displayBtn.onclick = () => openDisplay(document.body, () => {
+  syncMemory();
   paintAll();
   renderUsage(usageEl, usageSources);
   syncSystem();

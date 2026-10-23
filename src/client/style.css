@@ -259,6 +259,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   letter-spacing: 0.02em;
   color: var(--fg);
 }
+/* A tab's or a session's memory (Display, "Memory on tabs"): grey, coloured only while it is the trouble. */
+.mem-chip { flex: none; margin-left: 6px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mem-chip.warning { color: var(--yellow); border-color: color-mix(in oklab, var(--yellow) 45%, transparent); }
+.mem-chip.critical { color: var(--red); border-color: color-mix(in oklab, var(--red) 45%, transparent); }
 .pbadge.p0 { color: var(--profile-0); }
 .pbadge.p1 { color: var(--profile-1); }
 .pbadge.p2 { color: var(--profile-2); }
