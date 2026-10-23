@@ -291,9 +291,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
    it, at the row's weight, with the red "needs you" before it and nothing for
    any other state (app.ts updateChip). */
 .chip { display: flex; align-items: center; gap: 8px; min-width: 0; }
-/* The category tag, when the name has one: quieter than the name, as the
-   sidebar's header is, so the name is what reads first. */
-#chip-name .chip-tag { color: var(--muted); font-weight: 500; }
+/* A tagged name as a path, "Personal / Private" (labels.ts crumb): the group
+   quieter than the name, as the sidebar's header is, so the name reads first. */
+.crumb-tag { color: var(--muted); font-weight: 500; }
+.crumb-sep { color: var(--faint); font-weight: 500; }
 #chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1303,6 +1304,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   font-weight: 600;
   font-size: 12.5px;
 }
+/* "This window": the session a small path, the tab's name the title (notes.ts
+   sync). The title wraps rather than cut: a cut title is what the tabs had. */
+#note-heading { padding: 14px 14px 4px; white-space: normal; }
+#note-heading .note-crumb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; color: var(--muted); }
+#note-heading .note-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: 5px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 1.35;
+}
 /* A note's editor (CodeMirror), and a file read beside the terminal in its
    likeness: under an id to outrank the base theme CodeMirror injects at
    runtime, light selection and all. */
@@ -1311,6 +1326,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 :is(#notes-panel, #pane-side) .note-editor .cm-scroller { font: inherit; line-height: inherit; overflow-y: auto; }
 :is(#notes-panel, #pane-side) .note-editor .cm-content { padding: 8px 0 14px; caret-color: var(--accent); }
 :is(#notes-panel, #pane-side) .note-editor .cm-line { padding: 0 14px; }
+/* Notes are read as much as typed: a little more air than a file beside the terminal. */
+#notes-panel .note-editor { line-height: 1.65; }
+/* A heading starts a section: room above it, so the sections read apart. */
+:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-h { padding-top: 12px; padding-bottom: 2px; }
 :is(#notes-panel, #pane-side) .note-editor .cm-cursor { border-left: 2px solid var(--accent); }
 :is(#notes-panel, #pane-side) .note-editor .cm-selectionBackground { background: var(--chip); }
 :is(#notes-panel, #pane-side) .note-editor .cm-placeholder { color: var(--faint); }

@@ -1,6 +1,5 @@
 import { createSidebar, sessionLabel } from "./sidebar";
 import { visualOrder } from "./groups";
-import { splitCategory } from "../shared/category";
 import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
 import { Connection } from "./socket";
@@ -9,7 +8,7 @@ import { createSplit } from "./split";
 import { markdownPath } from "./file-links";
 import { createNotes } from "./notes";
 import { makeResizable } from "./resize";
-import { windowPlace } from "./labels";
+import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { marksShown, openDisplay, setSystemShown, systemShown } from "./display";
@@ -145,16 +144,7 @@ function updateChip() {
   const session = sessions.find((s) => s.name === current);
   // The whole name, tag included: the sidebar row drops the tag under its
   // group's header, and up here there is no header to carry it.
-  const label = session ? sessionLabel(session) : current ?? "";
-  const cat = splitCategory(label);
-  if (cat && cat.rest !== cat.category) {
-    const tag = document.createElement("span");
-    tag.className = "chip-tag";
-    tag.textContent = `[${cat.category}] `;
-    chipName.replaceChildren(tag, cat.rest);
-  } else {
-    chipName.textContent = label;
-  }
+  chipName.replaceChildren(...crumb(session ? sessionLabel(session) : current ?? ""));
   // The chip says only that the session you are looking at is waiting on you.
   // Its other states are already on the tabs right under it, and with the
   // drawer closed the hamburger's count covers every other session; the red is
@@ -383,7 +373,7 @@ const notes = createNotes({
   ownerPlace: () => {
     const s = sessions.find((x) => x.name === current);
     const w = notesOwner();
-    return s && w ? windowPlace(s, w) : "";
+    return s && w ? { session: sessionLabel(s), window: tabLabel(w) } : null;
   },
   phone: onPhone,
   focusTerminal: () => term.focus(),

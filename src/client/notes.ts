@@ -11,6 +11,7 @@
 import type { ClientMessage, NoteSummary, ServerMessage, WindowInfo } from "../shared/protocol";
 import { createExplorer } from "./explorer";
 import { createNoteEditor } from "./note-editor";
+import { crumb } from "./labels";
 
 export type NotesTab = "window" | "all";
 
@@ -25,6 +26,13 @@ const KEY = "muxnexus.notes-panel";
  */
 export function takesRemote(editing: { focused: boolean; dirty: boolean }): boolean {
   return !editing.focused && !editing.dirty;
+}
+
+function line(cls: string, parts: (Node | string)[]): HTMLElement {
+  const e = document.createElement("div");
+  e.className = cls;
+  e.append(...parts);
+  return e;
 }
 
 export interface NoteElements {
@@ -47,8 +55,8 @@ export interface NotesHost {
   session(): string | null;
   /** The window whose note this is: the one in the terminal pane that last had focus. */
   owner(): WindowInfo | undefined;
-  /** How that window is named, `session › window`. */
-  ownerPlace(): string;
+  /** How that window is named: its session's label and its tab's. */
+  ownerPlace(): { session: string; window: string } | null;
   phone(): boolean;
   focusTerminal(): void;
   toast(message: string): void;
@@ -145,8 +153,11 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   function sync() {
     if (!open) return;
     const w = host.owner();
-    els.heading.textContent = w ? `✎ ${host.ownerPlace()}` : "";
-    els.heading.title = els.heading.textContent;
+    // The tab's name is the title, the session a small path above it: the
+    // window is what the note is about, the session only where it lives.
+    const place = w ? host.ownerPlace() : null;
+    els.heading.replaceChildren(...(place ? [line("note-crumb", crumb(place.session)), line("note-title", [place.window])] : []));
+    els.heading.title = place ? `${place.session} › ${place.window}` : "";
     const id = w?.id ?? null;
     const held = w?.conversation?.sessionId;
     if (id === windowId) {
