@@ -296,7 +296,10 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const windows = tabsModel(sessions, current);
     root.replaceChildren();
     root.hidden = windows.length === 0;
-    if (windows.length === 0) return;
+    if (windows.length === 0) {
+      revealed = null; // shown again, the strip starts at its left edge
+      return;
+    }
 
     sharing = marksShown() ? sharedCheckouts(sessions, windowPlace) : new Map();
     for (const w of windows) root.append(renderTab(w));
@@ -383,9 +386,10 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   function revealActive(windows: WindowInfo[]) {
     const id = windows.find((w) => w.active)?.id ?? null;
     if (id === revealed) return;
-    revealed = id;
     const tab = root.querySelector<HTMLElement>(":scope > .tab.active");
-    if (!tab) return;
+    // Not scrollable just now -- a menu or rename box holds it open: the next draw tries again.
+    if (!tab || root.clientWidth === 0 || getComputedStyle(root).overflowX === "visible") return;
+    revealed = id;
     const end = tab.offsetLeft + tab.offsetWidth;
     if (tab.offsetLeft < root.scrollLeft) root.scrollLeft = tab.offsetLeft;
     else if (end > root.scrollLeft + root.clientWidth) root.scrollLeft = end - root.clientWidth;
