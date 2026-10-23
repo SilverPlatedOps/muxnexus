@@ -709,8 +709,9 @@ const conn = new Connection(wsUrl, {
         lastSwap = m.notice;
         system.notice(m.notice);
         nudge.update(m.notice, sessions);
-        memoryStore.setNotice(m.notice);
-        if (memoryShown()) paintAll();
+        // A notice comes every few seconds while memory is tight; the tabs are
+        // redrawn only when it changes which chip is coloured, or how.
+        if (memoryStore.setNotice(m.notice) && memoryShown()) paintAll();
         break;
       case "memory":
         if (!memorySent) break;

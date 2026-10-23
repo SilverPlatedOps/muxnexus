@@ -51,6 +51,16 @@ describe("createMemoryStore", () => {
     expect(m.window("@1")!.tone).toBe("");
   });
 
+  test("a notice says whether any chip's colour changed, so the tabs repaint only then", () => {
+    const m = createMemoryStore();
+    const holders = [{ kind: "tab" as const, name: "@1", bytes: 1.5 * GiB }];
+    expect(m.setNotice(notice({ severity: "calm" }))).toBe(false);
+    expect(m.setNotice(notice({ severity: "urgent", reason: "writes", holders }))).toBe(true);
+    expect(m.setNotice(notice({ severity: "urgent", reason: "writes", holders, rate: 30 }))).toBe(false);
+    expect(m.setNotice(notice({ severity: "busy", reason: "writes", holders }))).toBe(true);
+    expect(m.setNotice(notice({ severity: "calm" }))).toBe(true);
+  });
+
   test("a session sums its tabs, carrying a floor or an unknown", () => {
     const m = createMemoryStore();
     m.set(reading([win("@1", 1.5), win("@2", 0.5, 2, 1), win("@3", 0, 2, 2)]), "123-456");

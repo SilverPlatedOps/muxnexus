@@ -15,7 +15,8 @@ export type ChipTone = "" | "warning" | "critical";
 
 export interface MemoryStore {
   set(m: Extract<ServerMessage, { t: "memory" }>, tmuxServer: string | null): void;
-  setNotice(n: SwapNotice): void;
+  /** True when it changed some chip's colour: the one thing a notice can change on a tab. */
+  setNotice(n: SwapNotice): boolean;
   window(id: string): { text: string; tone: ChipTone } | null;
   session(windows: readonly WindowInfo[]): { text: string; tone: "" } | null;
   clear(): void;
@@ -24,12 +25,19 @@ export interface MemoryStore {
 export function createMemoryStore(): MemoryStore {
   let table = new Map<string, WindowMemory>();
   let notice: SwapNotice | null = null;
+  /** Which tabs are coloured, and how: what a repaint would change. */
+  let toneKey = "";
   return {
     set(m, tmuxServer) {
       table = m.tmuxServer !== null && m.tmuxServer === tmuxServer ? new Map(m.windows.map((w) => [w.windowId, w])) : new Map();
     },
     setNotice(n) {
       notice = n;
+      const tight = n.severity === "busy" || n.severity === "urgent";
+      const key = tight ? `${n.severity} ${n.holders.filter((h) => h.kind === "tab").map((h) => h.name).sort().join(",")}` : "";
+      const changed = key !== toneKey;
+      toneKey = key;
+      return changed;
     },
     window(id) {
       const w = table.get(id);
