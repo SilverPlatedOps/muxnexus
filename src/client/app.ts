@@ -171,11 +171,12 @@ function updateAttention() {
     "aria-label",
     n > 0 ? `Show sessions (${n} waiting for you)` : "Show sessions",
   );
-  // Live whenever ⌘J would go somewhere, counted only when someone is blocked:
-  // with nothing waiting it still walks the sessions with news.
+  // Live whenever ⌘J would go somewhere, counted only when someone elsewhere
+  // is blocked: the one on screen says so on its own chip.
+  const elsewhere = needsYouCount(sessions.filter((s) => s.name !== current));
   nextBtn.disabled = !nextJump();
-  nextCount.hidden = n === 0;
-  nextCount.textContent = String(n);
+  nextCount.hidden = elsewhere === 0;
+  nextCount.textContent = String(elsewhere);
 }
 
 /**
@@ -189,8 +190,9 @@ function nextJump(): (() => void) | null {
     const ref = nextWaiting(sessions, current);
     return ref ? () => views.reveal(ref) : null;
   }
+  // The one on screen comes round last; going there is going nowhere.
   const next = nextAttention(visualOrder(sessions, sessionLabel), current);
-  return next ? () => attach(next) : null;
+  return next && next !== current ? () => attach(next) : null;
 }
 
 /**

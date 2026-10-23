@@ -364,6 +364,9 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
    * grew on being chosen would slide its neighbours out from under the pointer.
    */
   function fitTitles() {
+    // An open menu or rename box overhangs the strip on purpose; measured, it
+    // would read as crowding and shrink the tab it hangs from.
+    if (root.querySelector(".tab-menu, .tab-rename")) return;
     root.classList.remove("crowded");
     root.classList.toggle("crowded", root.scrollWidth > root.clientWidth);
   }

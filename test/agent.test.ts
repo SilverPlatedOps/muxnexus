@@ -448,6 +448,14 @@ describe("summaryWindow", () => {
     ])?.kind).toBe("weekly_all");
   });
 
+  test("a limit whose reset time has passed no longer speaks, though the reading still says 100%", () => {
+    const now = Date.parse("2026-10-23T12:00:00Z");
+    expect(summaryWindow([
+      { kind: "session", percent: 20 },
+      { kind: "weekly_all", percent: 100, severity: "exceeded", resetsAt: "2026-10-23T11:00:00Z" },
+    ], now)?.kind).toBe("session");
+  });
+
   test("with no 5h window, the severe one, else the fullest", () => {
     expect(summaryWindow([
       { kind: "weekly_all", percent: 20, severity: "warning" },

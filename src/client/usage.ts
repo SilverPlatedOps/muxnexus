@@ -114,9 +114,10 @@ const EXPANDED_KEY = "muxnexus.usage.expanded";
  *
  * An account with no short window falls back to its most severe, else fullest.
  */
-export function summaryWindow(windows: readonly UsageWindow[]): UsageWindow | undefined {
+export function summaryWindow(windows: readonly UsageWindow[], now: number = Date.now()): UsageWindow | undefined {
   if (windows.length === 0) return undefined;
-  const spent = windows.filter(atLimit);
+  // One past its reset has lifted, whatever the last reading said.
+  const spent = windows.filter((w) => atLimit(w) && lifts(w) > now);
   if (spent.length > 0) return [...spent].sort((a, b) => lifts(b) - lifts(a))[0];
   const short = windows.find((w) => kindLabel(w.kind) === SHORT_WINDOW);
   if (short) return short;
@@ -187,7 +188,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
   const grid = el("div", `usage-grid${badgesShown() ? " badged" : ""}`);
   sources.forEach((s, i) => {
     if (i > 0) grid.append(el("div", "usage-gap"));
-    const windows = open ? s.windows : s.windows.length > 0 ? [summaryWindow(s.windows)!] : [];
+    const windows = open ? s.windows : s.windows.length > 0 ? [summaryWindow(s.windows, now)!] : [];
     const stale = s.state !== "ok" ? " stale" : "";
     const head = el("div", `usage-row usage-head${windows.length > 0 ? stale : ""}`);
     // The badge stands in for the name only beside a bar: "signed out" needs both.
@@ -211,7 +212,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
         el("span", "usage-reset", formatReset(w.resetsAt, now)),
       );
       row.title = s.state !== "ok" ? `${s.label}: last read ${new Date(s.checkedAt).toLocaleTimeString()}`
-        : atLimit(w) ? `${s.label}: at its ${kindLabel(w.kind)} limit until ${formatReset(w.resetsAt, now) || "it resets"}`
+        : atLimit(w) ? `${s.label}: ${kindLabel(w.kind)} limit reached${w.resetsAt ? `, resets ${formatReset(w.resetsAt, now)}` : ""}`
         : s.label;
       grid.append(row);
     }

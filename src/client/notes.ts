@@ -156,8 +156,12 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     // The tab's name is the title, the session a small path above it: the
     // window is what the note is about, the session only where it lives.
     const place = w ? host.ownerPlace() : null;
-    els.heading.replaceChildren(...(place ? [line("note-crumb", crumb(place.session)), line("note-title", [place.window])] : []));
-    els.heading.title = place ? `${place.session} › ${place.window}` : "";
+    const title = place ? `${place.session} › ${place.window}` : "";
+    // Redrawn only when it changes: sync runs on every state push.
+    if (title !== els.heading.title) {
+      els.heading.replaceChildren(...(place ? [line("note-crumb", crumb(place.session)), line("note-title", [place.window])] : []));
+      els.heading.title = title;
+    }
     const id = w?.id ?? null;
     const held = w?.conversation?.sessionId;
     if (id === windowId) {
