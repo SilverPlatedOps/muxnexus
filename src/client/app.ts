@@ -174,7 +174,8 @@ function updateAttention() {
   // Live whenever ⌘J would go somewhere, counted only when someone elsewhere
   // is blocked: the one on screen says so on its own chip.
   const elsewhere = needsYouCount(sessions.filter((s) => s.name !== current));
-  nextBtn.disabled = !nextJump();
+  const next = nextJump();
+  nextBtn.disabled = !next || next.here;
   nextCount.hidden = elsewhere === 0;
   nextCount.textContent = String(elsewhere);
 }
@@ -183,16 +184,16 @@ function updateAttention() {
  * Where ⌘J and "Next waiting" go: the next session that wants you, in the order
  * the sidebar draws, so it walks down the list you can see -- or, while a view
  * is up, the window there. Null when nothing wants you, so neither moves you
- * somewhere arbitrary.
+ * somewhere arbitrary. `here` when that is the session on screen, which comes
+ * round last: ⌘J still takes the key, the button has nowhere to go.
  */
-function nextJump(): (() => void) | null {
+function nextJump(): { go(): void; here: boolean } | null {
   if (views.showing()) {
     const ref = nextWaiting(sessions, current);
-    return ref ? () => views.reveal(ref) : null;
+    return ref ? { go: () => views.reveal(ref), here: false } : null;
   }
-  // The one on screen comes round last; going there is going nowhere.
   const next = nextAttention(visualOrder(sessions, sessionLabel), current);
-  return next && next !== current ? () => attach(next) : null;
+  return next ? { go: () => attach(next), here: next === current } : null;
 }
 
 /**
@@ -684,7 +685,7 @@ expandBtn.onclick = () => {
 };
 hamburger.onclick = () => setDrawer(true);
 nextBtn.onclick = () => {
-  nextJump()?.();
+  nextJump()?.go();
   if (onPhone()) setDrawer(false);
 };
 drawerClose.onclick = () => setDrawer(false);
@@ -753,10 +754,10 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
     // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
     // ⌘J for itself -- it costs one clause and saves finding out the hard way.
-    const go = nextJump();
-    if (!go) return;
+    const next = nextJump();
+    if (!next) return;
     e.preventDefault();
-    go();
+    next.go();
   }
 });
 
