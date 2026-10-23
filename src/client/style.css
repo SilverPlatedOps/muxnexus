@@ -64,6 +64,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 ::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* An urgent swap or pressure episode (nudge.ts): a banner above everything,
+   the layout shrinking under it rather than covered by it. */
+body.has-nudge { display: flex; flex-direction: column; }
+body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
+.nudge-banner {
+  flex: none; display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 6px 16px;
+  background: color-mix(in oklab, var(--red) 22%, var(--chrome)); border-bottom: 1px solid color-mix(in oklab, var(--red) 55%, transparent);
+  color: var(--fg-strong); flex-wrap: wrap; row-gap: 4px;
+}
+.nudge-banner.blink { animation: nudge-pulse 1.2s ease-in-out infinite; }
+@keyframes nudge-pulse { 50% { background: color-mix(in oklab, var(--red) 38%, var(--chrome)); border-bottom-color: var(--red); } }
+@media (prefers-reduced-motion: reduce) { .nudge-banner.blink { animation: none; } }
+.nudge-head { color: var(--red); font-weight: 600; }
+.nudge-who { color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nudge-banner .spacer { flex: 1; }
+.nudge-btn { height: 26px; padding: 0 10px; border-radius: 5px; border: 1px solid color-mix(in oklab, var(--red) 50%, transparent); background: none; color: var(--fg-strong); font: inherit; cursor: pointer; }
+.nudge-btn.solid { background: var(--red); color: var(--chrome); border-color: var(--red); font-weight: 600; }
+.nudge-btn:focus-visible { outline: 2px solid var(--fg-strong); outline-offset: 1px; }
+
 #layout {
   display: grid;
   grid-template-columns: var(--sidebar) 1fr;

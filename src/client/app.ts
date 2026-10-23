@@ -13,10 +13,11 @@ import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { marksShown, memoryShown, openDisplay, setSystemShown, systemShown } from "./display";
 import { memoryStore } from "./memory";
+import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
 import { createDockerPanel, loadTab, type OverviewTab, saveTab } from "./docker";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
-import type { SessionInfo, UsageSource, WindowInfo } from "../shared/protocol";
+import type { SessionInfo, SwapNotice, UsageSource, WindowInfo } from "../shared/protocol";
 import { createFolded } from "./folded";
 import { buildWorld, nextWaiting, type World } from "./world";
 import { diffWorlds } from "./transitions";
@@ -494,6 +495,24 @@ function syncSystem() {
     listSent = list;
   }
 }
+// The urgent nudge, and Show list: the ranked list in view however the panel
+// was left -- notes open, the overview on and unfolded, its System tab, by memory.
+let lastSwap: SwapNotice | null = null;
+const nudge = createNudge(document.body, {
+  ack: (episode) => { conn.send({ t: "swap-ack", episode }); },
+  showList: () => {
+    if (!notes.open) notes.show("window");
+    setSystemShown(true);
+    systemFolded = false;
+    setSystemCollapsed(false);
+    paintSystemToggle();
+    overviewTab = "system";
+    saveTab(overviewTab);
+    showOverviewTab();
+    system.sortBy("mem");
+    syncSystem();
+  },
+});
 document.getElementById("system-close")!.onclick = () => {
   setSystemShown(false);
   syncSystem();
@@ -642,6 +661,8 @@ const conn = new Connection(wsUrl, {
         tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         paintAll();
+        // The nudge names tabs by session and tab, which may just have changed.
+        if (lastSwap) nudge.update(lastSwap, sessions);
         break;
       }
       case "usage":
@@ -685,7 +706,9 @@ const conn = new Connection(wsUrl, {
         if (systemSent) system.receive(m.stats);
         break;
       case "swap":
+        lastSwap = m.notice;
         system.notice(m.notice);
+        nudge.update(m.notice, sessions);
         memoryStore.setNotice(m.notice);
         if (memoryShown()) paintAll();
         break;
