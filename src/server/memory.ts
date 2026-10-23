@@ -62,6 +62,13 @@ async function run(cmd: string[], timeoutMs: number): Promise<string> {
   }
 }
 
+/** `p`, or a rejection once `ms` pass without it. */
+function deadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("timed out")), ms); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+
 /**
  * One snapshot per reading: the process list once, then the panes, then every
  * footprint straight away, so a process is read moments after it was listed
@@ -86,7 +93,8 @@ export function createMemoryReader(opts: {
       const ps = await exec(["ps", "-Ao", "pid=,ppid=,pcpu=,rss=,comm="], RUN_TIMEOUT_MS).catch(() => null);
       if (ps === null) return null;
       const procs = parsePs(ps, cores());
-      const panes = await opts.panes().catch(() => [] as PaneRoot[]);
+      // tmux answers in milliseconds; one that does not costs this reading its tabs, not the reading.
+      const panes = await deadline(opts.panes(), RUN_TIMEOUT_MS).catch(() => [] as PaneRoot[]);
       const metric: MemoryMetric = opts.footprint ? "footprint" : "rss";
       const sizes = new Map<number, Footprint>(procs.map((p) => [p.pid, opts.footprint ? opts.footprint(p.pid) : { bytes: p.rss }]));
 

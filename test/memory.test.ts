@@ -171,6 +171,19 @@ describe("createMemoryReader", () => {
     expect(r.apps.map((a) => a.name)).toContain("Docker VM · Rancher");
   });
 
+  test("a tmux that does not answer costs the reading its tabs, not the reading", async () => {
+    const reader = createMemoryReader({
+      panes: () => new Promise(() => {}),
+      footprint: mem(SIZES),
+      cores: () => 10,
+      run: async (cmd) => (cmd[1] === "-Ao" ? PS_TEXT : ""),
+    });
+    const t0 = Date.now();
+    const r = (await reader.read())!;
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(r.windows).toEqual([]);
+  });
+
   test("no process list, no reading; no panes, every process an app's", async () => {
     expect(await rig({ failPs: true }).reader.read()).toBeNull();
     const r = (await rig({ failPanes: true }).reader.read())!;

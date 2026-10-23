@@ -815,19 +815,23 @@ export function createServer(opts: ServerOptions): RunningServer {
     for (const ws of clients) if (open(ws)) ws.sendText(json);
   }
 
-  async function onVitals(): Promise<void> {
+  function onVitals(): void {
     const age = memoryAge();
     // 0.8: samples land a little either side of their period, and a read that
     // just missed being due would wait a whole extra period.
     const due = (watchingList().length > 0 && age >= systemMs * 0.8)
       || (watchingMemory().length > 0 && age >= memoryMs * 0.8)
       || (opts.vitals!.level().severity === "urgent" && age >= urgentMemoryMs * 0.8);
-    if (due && memoryReader) await pollMemory();
+    // Never waited on: the notice and the figures go now, with the last reading's
+    // list. A reading that lands while urgent names the biggest holders afresh.
+    if (due && memoryReader) {
+      void pollMemory().then(() => { if (opts.vitals!.level().severity === "urgent") broadcastNotice(); });
+    }
     broadcastNotice();
     const watching = watchingSystem();
     if (watching.length > 0) sendSystem(watching);
   }
-  const offVitals = opts.vitals?.onSample(() => { void onVitals(); });
+  const offVitals = opts.vitals?.onSample(onVitals);
   opts.vitals?.start();
   void opts.vitals?.sampleNow();
 

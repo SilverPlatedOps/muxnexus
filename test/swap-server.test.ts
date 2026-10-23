@@ -156,6 +156,23 @@ describe("the swap notice", () => {
   });
 });
 
+describe("a memory reading that never lands", () => {
+  test("does not hold up the swap notice", async () => {
+    const v = fakeVitals();
+    srv = createServer({
+      hosts: ["127.0.0.1"], port: 0, socketName: SOCKET, pollMs: 10_000,
+      vitals: v.sampler, memory: () => ({ read: () => new Promise(() => {}) }), systemMs: 1, memoryMs: 1, urgentMemoryMs: 1,
+    });
+    const a = await connect(srv.port);
+    await waitFor(() => a.of("swap").length > 0);
+    v.set({ severity: "urgent", reason: "writes", episode: 4 });
+    v.fire();
+    v.fire();
+    v.fire();
+    await waitFor(() => a.of("swap").filter((m) => m.notice.severity === "urgent").length >= 3, 2000, "notices while memory hangs");
+  });
+});
+
 describe("the system message", () => {
   test("an old client's bare subscription gets load, apps and the split, and memory is read for it", async () => {
     const v = fakeVitals();
