@@ -1,4 +1,6 @@
-import type { SystemApp, SystemStats } from "../shared/protocol";
+import type { MemSplit, SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../shared/protocol";
+import { formatElapsed } from "./agent";
+import { sessionLabel, windowPlace } from "./labels";
 import { meter } from "./usage";
 
 /**
@@ -52,15 +54,130 @@ export function batteryPressure(b: NonNullable<SystemStats["battery"]>): Pressur
 
 /**
  * The readings as an area, newest at the right edge of a `slots`-wide box with
- * 0-100 up the side. Fixed at 0-100 rather than fitted to the readings: a
- * scale that stretched would draw 3% and 30% as the same mountain.
+ * 0-`max` up the side. Fixed rather than fitted to the readings: a scale that
+ * stretched would draw 3% and 30% as the same mountain. An unknown reading is a
+ * gap, not a zero: the line stops there and starts again after it.
  */
-export function sparkPath(values: readonly number[], slots: number = HISTORY): { area: string; line: string } {
+export function sparkPath(values: readonly (number | null)[], slots: number = HISTORY, max = 100): { area: string; line: string } {
   if (values.length < 2) return { area: "", line: "" };
   const first = slots - values.length;
-  const pts = values.map((v, i) => `${first + i},${(100 - Math.max(0, Math.min(100, v))).toFixed(1)}`);
-  const line = `M${pts.join("L")}`;
-  return { line, area: `${line}L${slots - 1},100L${first},100Z` };
+  const runs: string[][] = [];
+  let run: string[] | null = null;
+  values.forEach((v, i) => {
+    if (v === null) { run = null; return; }
+    const y = (100 - (Math.max(0, Math.min(max, v)) / max) * 100).toFixed(1);
+    if (!run) runs.push((run = []));
+    run.push(`${first + i},${y}`);
+  });
+  const line = runs.map((r) => `M${r.join("L")}`).join("");
+  const area = runs.filter((r) => r.length > 1).map((r) => {
+    const x0 = r[0].split(",")[0];
+    const x1 = r[r.length - 1].split(",")[0];
+    return `M${r.join("L")}L${x1},100L${x0},100Z`;
+  }).join("");
+  return { line, area };
+}
+
+/** The overview's one-line verdict, worded by why it is in trouble; nothing while calm. */
+export function statusLine(n: SwapNotice | null): { tone: "critical" | "warning" | "ok"; text: string; hint: string } | null {
+  if (!n || n.severity === "calm") return null;
+  const writes = n.reason !== "pressure";
+  if (n.severity === "recovered") return { tone: "ok", text: writes ? "✓ Swap writes quiet for 2 min" : "✓ Pressure back to normal", hint: "" };
+  return { tone: n.severity === "urgent" ? "critical" : "warning", text: writes ? "● Swapping to SSD" : "● Memory pressure", hint: "· close something below" };
+}
+
+/** Swap traffic: "22 MB/s", "0.4 MB/s". Rounded before the form is picked, so never "10.0". */
+export function formatRate(bytesPerSec: number): string {
+  const mb = bytesPerSec / 1024 ** 2;
+  const tenths = Math.round(mb * 10) / 10;
+  return `${tenths < 10 ? tenths.toFixed(1) : Math.round(mb)} MB/s`;
+}
+
+/** Disk-write volumes, in the decimal units drives are sold in: "250 GB", "0.9 TB" -- terabytes from half of one, so never "1000 GB". */
+export function formatVolume(bytes: number): string {
+  return bytes < 0.5e12 ? `${Math.round(bytes / 1e9)} GB` : `${(bytes / 1e12).toFixed(1)} TB`;
+}
+
+const DAY_MS = 86_400_000;
+const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const weekday = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short" });
+
+/**
+ * Under the swap graph: how much swap sits on the disk, and what it has written
+ * since the Mac started, as a daily average once there has been a day to
+ * average over. The exact total and the boot time are the detail behind it.
+ */
+export function swapLine(onDisk: number | undefined, written: number | null, bootTime: number | null, now: number): { text: string; detail: string } | null {
+  const disk = onDisk === undefined ? null : `${formatBytes(onDisk)} on disk`;
+  if (written === null || bootTime === null) return disk ? { text: disk, detail: "" } : null;
+  const boot = new Date(bootTime);
+  const days = (now - bootTime) / DAY_MS;
+  const since = days >= 1 ? `avg ${Math.round(written / 1e9 / days)} GB/day since ${weekday(boot)}` : `${formatVolume(written)} since ${hhmm(boot)}`;
+  return { text: disk ? `${disk} · ${since}` : since, detail: `${formatVolume(written)} since ${weekday(boot)} ${hhmm(boot)}` };
+}
+
+export interface LegendPart { key: "apps" | "system" | "compressed" | "available"; label: string; bytes: number; tooltip?: string }
+
+/** The Mem bar's parts, in the bar's order. */
+export function memLegend(split: MemSplit): LegendPart[] {
+  return [
+    { key: "apps", label: "apps", bytes: split.apps },
+    { key: "system", label: "system", bytes: split.system, tooltip: "Wired: memory the kernel keeps in RAM for itself, drivers and the GPU, sometimes on an app's behalf. It can't be compressed or swapped." },
+    { key: "compressed", label: "compressed", bytes: split.compressed },
+    { key: "available", label: "available", bytes: split.available, tooltip: "Free memory plus file cache macOS can reclaim: the room before it has to compress or swap" },
+  ];
+}
+
+/** A tab's memory: "≥" when some of its processes could not be read, "?" when none could. */
+export function formatMem(bytes: number, processes: number, unreadable: number): string {
+  if (processes > 0 && unreadable >= processes) return "?";
+  return `${unreadable > 0 ? "≥" : ""}${formatBytes(bytes)}`;
+}
+
+export type PanelRow =
+  | { kind: "app"; app: SystemApp }
+  | { kind: "tab"; windowId: string; place: string; alsoIn: string[]; mem: WindowMemory; idle: string | null }
+  | { kind: "more"; count: number; bytes: number };
+
+const LIST_LIMIT = 8;
+const IDLE_MS = 3600_000;
+
+/**
+ * The list: apps and tabs on one scale, ranked as sorted, at most `limit` rows.
+ * Tabs that do not make the cut fold into one "more" row rather than vanish;
+ * smaller apps are not listed. A window no session shows (gone since the
+ * reading) is left out.
+ */
+export function panelRows(
+  apps: readonly SystemApp[],
+  windows: readonly WindowMemory[],
+  sessions: readonly SessionInfo[],
+  by: AppSort,
+  now: number,
+  limit = LIST_LIMIT,
+): PanelRow[] {
+  const tabs: PanelRow[] = [];
+  for (const mem of windows) {
+    const showing = sessions.filter((s) => s.windows.some((w) => w.id === mem.windowId));
+    if (showing.length === 0) continue;
+    const w = showing[0].windows.find((x) => x.id === mem.windowId)!;
+    const a = w.agent;
+    const waited = a && (a.state === "input" || a.state === "done") && now - Date.parse(a.since) > IDLE_MS;
+    tabs.push({
+      kind: "tab", windowId: mem.windowId, place: windowPlace(showing[0], w),
+      alsoIn: showing.slice(1).map(sessionLabel), mem, idle: waited ? `agent idle ${formatElapsed(a.since, now)}` : null,
+    });
+  }
+  const bytes = (r: PanelRow) => (r.kind === "app" ? r.app.mem : r.kind === "tab" ? r.mem.bytes : r.bytes);
+  const cpu = (r: PanelRow) => Math.round((r.kind === "app" ? r.app.cpu : r.kind === "tab" ? r.mem.cpu : 0) * 10);
+  const name = (r: PanelRow) => (r.kind === "app" ? r.app.name : r.kind === "tab" ? r.place : "");
+  const ranked = [...apps.map((app): PanelRow => ({ kind: "app", app })), ...tabs].sort((a, b) =>
+    (by === "cpu" ? cpu(b) - cpu(a) || bytes(b) - bytes(a) : bytes(b) - bytes(a) || cpu(b) - cpu(a)) || name(a).localeCompare(name(b)));
+  if (ranked.length <= limit) return ranked;
+  const kept = ranked.slice(0, limit - 1);
+  const folded = ranked.slice(limit - 1).filter((r) => r.kind === "tab");
+  if (folded.length === 0) return ranked.slice(0, limit);
+  return [...kept, { kind: "more", count: folded.length, bytes: folded.reduce((n, r) => n + bytes(r), 0) }];
 }
 
 /**
