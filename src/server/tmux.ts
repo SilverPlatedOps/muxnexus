@@ -55,6 +55,13 @@ export function orderSessions<T extends { name: string; order?: number }>(sessio
  * Anything else is no stamp at all rather than a guess -- the option is a string
  * tmux will hand back whatever is in it.
  */
+/** A pane's root process (`#{pane_pid}`), and the window it belongs to. */
+export interface PaneRoot {
+  windowId: string;
+  paneId: string;
+  pid: number;
+}
+
 export interface Stamp {
   state: AgentState;
   /** Unix seconds: when the pane entered this state. */
@@ -438,6 +445,29 @@ export class Tmux {
       view: view === "1",
       server,
     }));
+  }
+
+  /**
+   * Each pane's root process -- its shell, or whatever tmux started in it -- with
+   * the window it is in, once per pane: grouped tab sessions list the same panes
+   * again, and a process is a tab's only once. What the memory reader attributes
+   * processes by.
+   */
+  async listPaneRoots(): Promise<PaneRoot[]> {
+    let out: string;
+    try {
+      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{pane_id}\t#{pane_pid}"]);
+    } catch (e) {
+      if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
+      throw e;
+    }
+    const roots = new Map<string, PaneRoot>();
+    for (const l of lines(out)) {
+      const [windowId, paneId, pid] = l.split("\t");
+      const n = Number(pid);
+      if (windowId && paneId && Number.isInteger(n) && n > 0 && !roots.has(paneId)) roots.set(paneId, { windowId, paneId, pid: n });
+    }
+    return [...roots.values()];
   }
 
   /**

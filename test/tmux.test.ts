@@ -15,6 +15,28 @@ const idOf = async (name: string) =>
 beforeEach(async () => { await tmux.killServer(); });
 afterEach(async () => { await tmux.killServer(); });
 
+describe("Tmux.listPaneRoots", () => {
+  test("returns [] when no server is running", async () => {
+    expect(await tmux.listPaneRoots()).toEqual([]);
+  });
+
+  test("lists every pane's root process once, grouped tab sessions adding none", async () => {
+    await tmux.newSession("work");
+    await tmux.run(["new-window", "-t", "=work:"]);
+    await tmux.run(["split-window", "-t", "=work:"]);
+    await tmux.run(["new-session", "-d", "-t", "=work", "-s", "work-tab"]);
+    const roots = await tmux.listPaneRoots();
+    expect(roots).toHaveLength(3);
+    expect(new Set(roots.map((r) => r.paneId)).size).toBe(3);
+    expect(new Set(roots.map((r) => r.windowId)).size).toBe(2);
+    for (const r of roots) {
+      expect(r.windowId).toMatch(/^@\d+$/);
+      expect(r.paneId).toMatch(/^%\d+$/);
+      expect(Number.isInteger(r.pid) && r.pid > 1).toBe(true);
+    }
+  });
+});
+
 describe("Tmux.listSessions", () => {
   test("returns [] when no server is running", async () => {
     expect(await tmux.listSessions()).toEqual([]);
