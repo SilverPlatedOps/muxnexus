@@ -364,11 +364,12 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
    * grew on being chosen would slide its neighbours out from under the pointer.
    */
   function fitTitles() {
-    // An open menu or rename box overhangs the strip on purpose; measured, it
-    // would read as crowding and shrink the tab it hangs from.
-    if (root.querySelector(".tab-menu, .tab-rename")) return;
+    const last = root.lastElementChild as HTMLElement | null;
+    if (!last) return;
     root.classList.remove("crowded");
-    root.classList.toggle("crowded", root.scrollWidth > root.clientWidth);
+    // Where the strip's last item ends, not its scroll width: an open menu
+    // overhangs the strip on purpose and is no sign of crowding.
+    root.classList.toggle("crowded", last.offsetLeft + last.offsetWidth > root.clientWidth);
   }
   // The strip changes width without a redraw: the notes panel, the sidebar, the window.
   new ResizeObserver(fitTitles).observe(root);

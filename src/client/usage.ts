@@ -116,9 +116,8 @@ const EXPANDED_KEY = "muxnexus.usage.expanded";
  */
 export function summaryWindow(windows: readonly UsageWindow[], now: number = Date.now()): UsageWindow | undefined {
   if (windows.length === 0) return undefined;
-  // One past its reset has lifted, whatever the last reading said.
-  const spent = windows.filter((w) => atLimit(w) && lifts(w) > now);
-  if (spent.length > 0) return [...spent].sort((a, b) => lifts(b) - lifts(a))[0];
+  const stopped = windows.filter((w) => spent(w, now));
+  if (stopped.length > 0) return [...stopped].sort((a, b) => lifts(b) - lifts(a))[0];
   const short = windows.find((w) => kindLabel(w.kind) === SHORT_WINDOW);
   if (short) return short;
   const severe = windows.filter((w) => w.severity && w.severity !== "normal");
@@ -129,6 +128,11 @@ export function summaryWindow(windows: readonly UsageWindow[], now: number = Dat
 /** A window that has stopped the account: the provider says so, or it is full. */
 export function atLimit(w: UsageWindow): boolean {
   return w.severity === "exceeded" || w.percent >= 100;
+}
+
+/** At its limit and not yet past its reset: one past it has lifted, whatever the last reading said. */
+function spent(w: UsageWindow, now: number): boolean {
+  return atLimit(w) && lifts(w) > now;
 }
 
 /** When a window lifts; one that does not say is taken as the last. */
@@ -204,7 +208,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
     }
     for (const w of windows) {
       // A row at its limit keeps its reset time at every width: when the account is back is the news.
-      const row = el("div", `usage-row${stale}${atLimit(w) ? " spent" : ""}`);
+      const row = el("div", `usage-row${stale}${spent(w, now) ? " spent" : ""}`);
       row.append(
         el("span", "usage-kind", kindLabel(w.kind)),
         meter(w.percent, tone(w)),
@@ -212,7 +216,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
         el("span", "usage-reset", formatReset(w.resetsAt, now)),
       );
       row.title = s.state !== "ok" ? `${s.label}: last read ${new Date(s.checkedAt).toLocaleTimeString()}`
-        : atLimit(w) ? `${s.label}: ${kindLabel(w.kind)} limit reached${w.resetsAt ? `, resets ${formatReset(w.resetsAt, now)}` : ""}`
+        : spent(w, now) ? `${s.label}: ${kindLabel(w.kind)} limit reached${w.resetsAt ? `, resets ${formatReset(w.resetsAt, now)}` : ""}`
         : s.label;
       grid.append(row);
     }

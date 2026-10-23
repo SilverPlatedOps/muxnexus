@@ -402,6 +402,11 @@ describe("needsYouCount and nextAttention", () => {
     expect(nextAttention([s("a", "none"), s("b", "unread")], "a")).toBe("b");
   });
 
+  test("never the session on screen: going there goes nowhere, so news elsewhere comes next", () => {
+    expect(nextAttention([s("a", "input"), s("b", "unread")], "a")).toBe("b");
+    expect(nextAttention([s("a", "input")], "a")).toBeNull();
+  });
+
   test("returns null when nothing wants you, so the key does nothing", () => {
     expect(nextAttention([s("a", "none")], "a")).toBeNull();
     expect(nextAttention([], null)).toBeNull();

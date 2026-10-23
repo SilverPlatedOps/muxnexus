@@ -101,6 +101,8 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** The conversation the window held when last looked at. */
   let conversation: string | undefined;
+  /** The place the heading last drew, `session › window`. */
+  let headingDrawn = "";
   const editor = createNoteEditor({
     label: "This window's note",
     onEdit() {
@@ -158,7 +160,8 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     const place = w ? host.ownerPlace() : null;
     const title = place ? `${place.session} › ${place.window}` : "";
     // Redrawn only when it changes: sync runs on every state push.
-    if (title !== els.heading.title) {
+    if (title !== headingDrawn) {
+      headingDrawn = title;
       els.heading.replaceChildren(...(place ? [line("note-crumb", crumb(place.session)), line("note-title", [place.window])] : []));
       els.heading.title = title;
     }

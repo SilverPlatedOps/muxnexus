@@ -1418,7 +1418,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #system.collapsed .sys-toggle { flex: 1; }
 #system.collapsed .sys-head .spacer { display: none; }
 #system.collapsed .sys-toggle .chevron { transform: rotate(-90deg); }
-#system:not(.collapsed) :is(.sys-toggle-title, .sys-summary) { display: none; }
+#system:not(.collapsed) .sys-summary { display: none; }
+/* Open, the chevron alone shows; the word stays its name for a screen reader. */
+#system:not(.collapsed) .sys-toggle-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 #system.collapsed :is(.sys-tabs, #system-body, #docker-body) { display: none; }
 .sys-summary { display: flex; gap: 12px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .sys-fig { display: inline-flex; gap: 5px; }
@@ -1429,7 +1431,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 /* The bars take the row, and every row's figure ends in one right-hand
    column, so CPU, Mem and Swap read straight down. */
 .sys-row > .usage-meter { flex: 1 1 0; min-width: 0; }
-.sys-row > .sys-end { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+.sys-row > .sys-end { min-width: 10ch; text-align: right; font-variant-numeric: tabular-nums; }
 /* Load, and the battery at the line's far end; it wraps under when the panel is narrow. */
 .sys-row.sys-pair { flex-wrap: wrap; }
 .sys-aside { display: inline-flex; gap: 6px; margin-left: auto; padding-left: 6px; }

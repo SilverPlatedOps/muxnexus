@@ -203,15 +203,17 @@ export function needsYouCount(sessions: readonly { windows: WindowInfo[] }[]): n
 
 /**
  * The session ⌘J should jump to: the next one needing you after `current`,
- * wrapping; failing that the next unread. Returns null when nothing wants you,
- * so the key does nothing rather than moving you somewhere arbitrary.
+ * wrapping; failing that the next unread. Never `current` itself: going there
+ * goes nowhere, and would hide news in another session behind it. Returns null
+ * when nothing wants you, so the key does nothing rather than moving you
+ * somewhere arbitrary.
  */
 export function nextAttention(
   sessions: readonly { name: string; windows: WindowInfo[] }[],
   current: string | null,
 ): string | null {
-  const from = Math.max(0, sessions.findIndex((s) => s.name === current));
-  const rotated = [...sessions.slice(from + 1), ...sessions.slice(0, from + 1)];
+  const at = sessions.findIndex((s) => s.name === current);
+  const rotated = at < 0 ? sessions : [...sessions.slice(at + 1), ...sessions.slice(0, at)];
   for (const want of ["input", "unread"] as const) {
     const hit = rotated.find((s) => sessionGlyph(s.windows) === want);
     if (hit) return hit.name;
