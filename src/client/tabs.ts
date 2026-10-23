@@ -332,6 +332,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       adds.append(m);
     }
     root.append(adds);
+    fitTitles();
     // Fixed to the chevron rather than hung off the strip: the strip scrolls on
     // a phone, and this sits at its far end, so an in-flow menu lands off screen.
     const menu = adds.querySelector<HTMLElement>(".tab-menu");
@@ -355,6 +356,19 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       if (shift < 0) m.style.transform = `translateX(${shift}px)`;
     }
   }
+
+  /**
+   * Every title whole while the strip has the room, so a lone tab is not cut to
+   * "Helium browser …"; back to 220px each, as they always were, once they
+   * would scroll. All of them or none, never the active one alone: a tab that
+   * grew on being chosen would slide its neighbours out from under the pointer.
+   */
+  function fitTitles() {
+    root.classList.remove("crowded");
+    root.classList.toggle("crowded", root.scrollWidth > root.clientWidth);
+  }
+  // The strip changes width without a redraw: the notes panel, the sidebar, the window.
+  new ResizeObserver(fitTitles).observe(root);
 
   makeReorderable(root, {
     axis: "x",
