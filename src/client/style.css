@@ -1279,6 +1279,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border-bottom: 1px solid var(--line-soft);
 }
 #notes-head .spacer { flex: 1; }
+/* Where the keys are, when it is not the terminal: the terminal has them nearly
+   always, so only the exception is marked, with the rule a focused pane wears. */
+#notes-panel:focus-within #notes-head { box-shadow: inset 0 2px 0 var(--accent); }
+/* In a split, the pane the note follows stays lit, which while the keys are
+   in the notes would point at the wrong place. */
+#layout:has(#notes-panel:focus-within) .pane.focused .pane-head { box-shadow: none; }
 .notes-tabs { display: flex; gap: 2px; padding: 3px; background: var(--well); border-radius: 7px; }
 .notes-tab {
   height: 26px;
