@@ -138,6 +138,18 @@ describe("level and acknowledgement", () => {
   });
 });
 
+describe("listeners", () => {
+  test("one that throws does not fail the sample or silence the rest", async () => {
+    const { s } = rig();
+    let heard = 0;
+    s.onSample(() => { throw new Error("a socket went away mid-send"); });
+    s.onSample(() => { heard++; });
+    await s.sampleNow();
+    expect(heard).toBe(1);
+    expect(s.latest()).not.toBeNull();
+  });
+});
+
 describe("cadence", () => {
   test("every five seconds, every two while fast, and nothing after stop", async () => {
     const { s, m } = rig();

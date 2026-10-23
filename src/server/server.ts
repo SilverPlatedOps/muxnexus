@@ -838,7 +838,7 @@ export function createServer(opts: ServerOptions): RunningServer {
   }
   const offVitals = opts.vitals?.onSample(onVitals);
   opts.vitals?.start();
-  void opts.vitals?.sampleNow();
+  void opts.vitals?.sampleNow().catch(() => {});
 
   const dockerMs = opts.dockerMs ?? 5000;
   let dockerReading: Promise<void> | null = null;

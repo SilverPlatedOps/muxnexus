@@ -113,11 +113,17 @@ export function createVitalsSampler(deps: {
   let cancel: (() => void) | null = null;
   const listeners = new Set<() => void>();
   const attempt = <T>(p: Promise<T>) => p.catch(() => undefined);
-  const tell = () => { for (const cb of listeners) cb(); };
+  // Each listener on its own: one that throws must not fail the sample, or
+  // leave the rest unheard -- this loop runs for as long as the server does.
+  const tell = () => {
+    for (const cb of listeners) {
+      try { cb(); } catch (e) { console.error("vitals listener:", e); }
+    }
+  };
 
   function arm() {
     cancel?.();
-    cancel = started ? schedule(() => { if (started) void sampleNow().finally(arm); }, fast ? FAST_MS : SLOW_MS) : null;
+    cancel = started ? schedule(() => { if (started) void sampleNow().catch(() => {}).finally(arm); }, fast ? FAST_MS : SLOW_MS) : null;
   }
 
   async function sample(): Promise<void> {
