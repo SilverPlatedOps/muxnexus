@@ -123,6 +123,21 @@ describe("the swap notice", () => {
     expect(b.of("swap").at(-1)!.notice).toMatchObject({ severity: "busy", reason: "writes", episode: 77, acked: false });
   });
 
+  test("a client connecting as the level calms does not keep the calm from the others", async () => {
+    const v = fakeVitals();
+    v.set({ severity: "busy", reason: "writes", episode: 6 });
+    const s = serve(v);
+    const b = await connect(s.port);
+    await waitFor(() => b.of("swap").length > 0);
+    v.fire();
+    await waitFor(() => b.of("swap").at(-1)!.notice.severity === "busy");
+    v.set({ severity: "calm", reason: null });
+    const a = await connect(s.port); // sees calm on connect
+    await waitFor(() => a.of("swap").length > 0);
+    v.fire();
+    await waitFor(() => b.of("swap").at(-1)!.notice.severity === "calm", 2000, "the calm reaches the client that was busy");
+  });
+
   test("Got it for the current episode is broadcast; for an old one, nothing happens", async () => {
     const v = fakeVitals();
     v.set({ severity: "urgent", reason: "writes", episode: 9 });

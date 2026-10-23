@@ -809,8 +809,9 @@ export function createServer(opts: ServerOptions): RunningServer {
 
   // While calm, a notice is news only when it changes; otherwise every sample
   // is, so the banner's rate never goes stale.
-  let noticeKey = "";
   const keyOf = (n: SwapNotice) => `${n.severity} ${n.episode} ${n.acked}`;
+  /** What every client was last told, starting from the sampler's own start: calm, no episode. */
+  let noticeKey = opts.vitals ? keyOf(notice()) : "";
   function broadcastNotice() {
     const n = notice();
     if (n.severity === "calm" && keyOf(n) === noticeKey) return;
@@ -934,11 +935,8 @@ export function createServer(opts: ServerOptions): RunningServer {
         if (lastUsage && ws.readyState === WebSocket.OPEN) ws.sendText(JSON.stringify(lastUsage));
         if (opts.usage && usageDue()) void pollUsage();
         // The swap level, whatever it is: the nudge and the title need it with every panel shut.
-        if (opts.vitals && ws.readyState === WebSocket.OPEN) {
-          const n = notice();
-          noticeKey = keyOf(n);
-          send(ws, { t: "swap", notice: n });
-        }
+        // To this client only: what the others were last told is not changed by it.
+        if (opts.vitals && ws.readyState === WebSocket.OPEN) send(ws, { t: "swap", notice: notice() });
         // Asked per connection rather than once at startup: at login tmux may not
         // be up yet, and the answer stops being true the moment a restore runs.
         void opts.hint?.().then((message) => {
