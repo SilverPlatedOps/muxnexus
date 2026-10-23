@@ -82,6 +82,11 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .nudge-btn { height: 26px; padding: 0 10px; border-radius: 5px; border: 1px solid color-mix(in oklab, var(--red) 50%, transparent); background: none; color: var(--fg-strong); font: inherit; cursor: pointer; }
 .nudge-btn.solid { background: var(--red); color: var(--chrome); border-color: var(--red); font-weight: 600; }
 .nudge-btn:focus-visible { outline: 2px solid var(--fg-strong); outline-offset: 1px; }
+/* On a phone the drawer, its overlay and the notes are fixed to the viewport:
+   they start under the banner, so it stays in view and its Got it within reach. */
+@media (max-width: 720px) {
+  body.has-nudge #layout :is(#sidebar, #overlay, #notes-panel) { top: var(--nudge-h, 0px); }
+}
 
 #layout {
   display: grid;

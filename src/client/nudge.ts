@@ -50,6 +50,9 @@ export function createNudge(host: HTMLElement, actions: { ack(episode: number): 
   let parts: { head: HTMLElement; who: HTMLElement } | null = null;
   let icon: HTMLLinkElement | null = null;
   let episode = 0;
+  // Its height, for the phone's fixed panels to start under: it wraps there, so it is measured, not assumed.
+  const sized = typeof ResizeObserver === "undefined" ? null
+    : new ResizeObserver(() => { if (banner) host.style.setProperty("--nudge-h", `${banner.offsetHeight}px`); });
 
   // Made once per episode on screen and only refreshed after: a button that
   // has the keys keeps them through the notice every five seconds.
@@ -86,6 +89,7 @@ export function createNudge(host: HTMLElement, actions: { ack(episode: number): 
       banner = make();
       host.prepend(banner);
       host.classList.add("has-nudge");
+      sized?.observe(banner);
     }
     parts!.head.textContent = view.headline;
     parts!.who.textContent = view.holders;
@@ -100,6 +104,8 @@ export function createNudge(host: HTMLElement, actions: { ack(episode: number): 
   }
 
   function hide() {
+    if (banner) sized?.unobserve(banner);
+    host.style.removeProperty("--nudge-h");
     banner?.remove();
     banner = null;
     parts = null;
