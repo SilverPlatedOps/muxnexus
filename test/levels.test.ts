@@ -80,6 +80,13 @@ describe("stepLevel", () => {
     expect(stepLevel(busy, NOW, steady(0, 120), undefined)).toMatchObject({ severity: "busy", leaveSince: null });
   });
 
+  test("an episode of writes alone can still end while the pressure reading is missing", () => {
+    const busy = state({ severity: "busy", reason: "writes", since: NOW - 600_000, leaveSince: NOW - 120_000 });
+    expect(stepLevel(busy, NOW, steady(0.5, 120), undefined).severity).toBe("recovered");
+    const urgent = state({ severity: "urgent", reason: "writes", since: NOW - 600_000, leaveSince: NOW - 60_000 });
+    expect(stepLevel(urgent, NOW, steady(2, 60), undefined).severity).toBe("busy");
+  });
+
   test("busy turning urgent is the same episode, acknowledged or not", () => {
     const busy = state({ severity: "busy", reason: "writes", episode: 123, acked: true, since: NOW - 60_000 });
     expect(stepLevel(busy, NOW, steady(25, 60), "normal")).toMatchObject({ severity: "urgent", episode: 123, acked: true });

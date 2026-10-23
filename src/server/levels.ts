@@ -90,19 +90,24 @@ export function stepLevel(prev: LevelState, at: number, history: readonly RatePo
     episode: active ? prev.episode : at, acked: active ? prev.acked : false,
   });
   const holding = (holds: boolean) => (holds ? prev.leaveSince ?? at : null);
+  // An unknown pressure reading blocks leaving an episode pressure was part of;
+  // one of writes alone it has no say in, or a broken sysctl would hold it forever.
+  const pressureMatters = prev.reason !== "writes";
+  const pressureEased = (limit: "normal" | "below-critical") =>
+    pressure === undefined ? !pressureMatters : limit === "normal" ? pressure === "normal" : pressure !== "critical";
 
   if (((avg !== null && avg >= URGENT_RATE) || pressure === "critical") && prev.severity !== "urgent") return begin("urgent");
   if ((writes || pressured) && !active) return begin("busy");
 
   if (prev.severity === "urgent") {
     // Eased: the minute's writes well under the urgent line and pressure known and not critical, reading after reading.
-    const since = holding(avg !== null && avg < URGENT_LEAVE_RATE && pressure !== undefined && pressure !== "critical");
+    const since = holding(avg !== null && avg < URGENT_LEAVE_RATE && pressureEased("below-critical"));
     if (since !== null && at - since >= LEAVE_URGENT_MS) return { ...prev, severity: "busy", reason: reason ?? prev.reason, since: at, leaveSince: null };
     return { ...prev, reason: reason ?? prev.reason, leaveSince: since };
   }
   if (prev.severity === "busy") {
     // Calmed: writes well under the busy line, and pressure normal, reading after reading.
-    const since = holding(avg !== null && avg < BUSY_LEAVE_RATE && pressure === "normal");
+    const since = holding(avg !== null && avg < BUSY_LEAVE_RATE && pressureEased("normal"));
     const long = windowAverage(history, at, LEAVE_BUSY_MS);
     if (since === null || at - since < LEAVE_BUSY_MS || long === null) return { ...prev, reason: reason ?? prev.reason, leaveSince: since };
     return long < QUIET_RATE
