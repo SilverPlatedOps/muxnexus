@@ -234,6 +234,20 @@ export interface MemSplit {
   total: number;
 }
 
+/**
+ * How much the Mac is swapping, as the server judges it: calm, busy (worth a
+ * yellow line), urgent (worth the whole page), and recovered -- the green line
+ * that says closing things was enough, for a while after it was.
+ */
+export type SwapSeverity = "calm" | "busy" | "urgent" | "recovered";
+/** What made it so: swap writes to the SSD, the kernel's memory pressure, or both. */
+export type SwapReason = "writes" | "pressure" | "both";
+/** One swap-write rate in bytes a second, at the sample that measured it; null when the delta could not be trusted. */
+export interface RatePoint {
+  at: number;
+  rate: number | null;
+}
+
 /** The machine at a glance. A reading that could not be taken is left out. */
 export interface SystemStats {
   /** Busy share of every core, 0-100; absent on the first reading, which has nothing to compare against. */
