@@ -171,6 +171,11 @@
       <section id="notes-all" class="notes-body" role="tabpanel" hidden></section>
       <section id="system" aria-label="System overview" hidden>
         <header class="sys-head">
+          <button id="system-toggle" class="sys-toggle" type="button" aria-expanded="false">
+            <span class="chevron"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg></span>
+            <span class="sys-title sys-toggle-title">System</span>
+            <span id="system-summary" class="sys-summary"></span>
+          </button>
           <span class="sys-tabs" role="tablist" aria-label="Overview">
             <button id="system-tab-system" class="sys-title sys-tab" type="button" role="tab">System</button>
             <button id="system-tab-docker" class="sys-title sys-tab" type="button" role="tab">Docker</button>

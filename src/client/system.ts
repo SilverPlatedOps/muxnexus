@@ -16,6 +16,7 @@ import { meter } from "./usage";
 const HISTORY = 30;
 const SHOWN_APPS = 5;
 const SORT_KEY = "muxnexus.system.sort";
+const COLLAPSED_KEY = "muxnexus.system.collapsed";
 const SVG = "http://www.w3.org/2000/svg";
 
 export type AppSort = "cpu" | "mem";
@@ -81,6 +82,34 @@ export function formatBytes(bytes: number): string {
   const gib = bytes / 1024 ** 3;
   if (gib >= 9.95) return `${Math.round(gib)}G`;
   return `${gib.toFixed(1).replace(/\.0$/, "")}G`;
+}
+
+export interface Figure { label: string; value: string; tone: Pressure }
+
+/**
+ * The overview collapsed to one line: CPU and memory, toned as in the panel,
+ * so a machine in trouble still says so. A battery joins only once it wants
+ * something; the rest is a click away.
+ */
+export function summaryFigures(cpu: number | undefined, s: SystemStats): Figure[] {
+  const out: Figure[] = [{ label: "CPU", value: cpu === undefined ? "–" : formatCpu(cpu), tone: cpu === undefined ? "" : pressure(cpu) }];
+  if (s.mem) out.push({ label: "Mem", value: `${formatBytes(s.mem.used)}/${formatBytes(s.mem.total)}`, tone: memPressure(s.mem) });
+  const bat = s.battery ? batteryPressure(s.battery) : "";
+  if (s.battery && bat) out.push({ label: "Bat", value: `${s.battery.percent}%`, tone: bat });
+  return out;
+}
+
+/** Collapsed unless this browser opened it: the one line is the everyday view. */
+export function systemCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setSystemCollapsed(on: boolean): void {
+  try { localStorage.setItem(COLLAPSED_KEY, on ? "1" : "0"); } catch { /* for this view only */ }
 }
 
 /** Tenths below 10%, whole percent above; rounded first, so never "10.0%". */
@@ -154,7 +183,7 @@ export interface SystemPanel {
   reset(): void;
 }
 
-export function createSystemPanel(body: HTMLElement): SystemPanel {
+export function createSystemPanel(body: HTMLElement, summary: HTMLElement): SystemPanel {
   let history: number[] = [];
   /** Kept so a reading without a CPU figure (the first) still shows the last known. */
   let cpu: number | undefined;
@@ -214,6 +243,11 @@ export function createSystemPanel(body: HTMLElement): SystemPanel {
     }
     figures.replaceChildren(...rows);
     list.replaceChildren(...shown);
+    summary.replaceChildren(...summaryFigures(cpu, s).map((f) => {
+      const e = el("span", "sys-fig");
+      e.append(el("span", "sys-label", f.label), el("span", withTone("sys-value", f.tone), f.value));
+      return e;
+    }));
     if (apps.parentElement !== body) body.replaceChildren(figures, apps);
   }
 
@@ -231,6 +265,7 @@ export function createSystemPanel(body: HTMLElement): SystemPanel {
       cpu = undefined;
       last = null;
       body.replaceChildren(el("div", "sys-wait", "Reading…"));
+      summary.replaceChildren(el("span", "sys-wait", "Reading…"));
     },
   };
 }

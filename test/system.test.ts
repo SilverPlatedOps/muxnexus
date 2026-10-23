@@ -4,7 +4,7 @@ import type { ServerMessage, SystemStats } from "../src/shared/protocol";
 import { createServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { waitFor } from "./helpers";
-import { batteryPressure, formatBytes, formatCpu, memPressure, pressure, sortApps, sparkPath } from "../src/client/system";
+import { batteryPressure, formatBytes, formatCpu, memPressure, pressure, sortApps, sparkPath, summaryFigures } from "../src/client/system";
 import { appOf, cpuPercent, createSystemReader, parseBattery, parsePressure, parseSwap, parseVmStat, topApps } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
@@ -253,6 +253,23 @@ describe("panel formatting", () => {
     const apps = [app("b", 0.41, 1), app("a", 0.44, 1), app("c", 1.0, 1), app("big", 0.1, 3), app("busy", 12, 0.1)];
     expect(sortApps(apps, "cpu").map((a) => a.name)).toEqual(["busy", "c", "a", "b", "big"]);
     expect(sortApps(apps, "mem").map((a) => a.name)).toEqual(["big", "c", "a", "b", "busy"]);
+  });
+
+  test("collapsed, one line: CPU and memory, toned as in the panel", () => {
+    const G = 1024 ** 3;
+    const stats: SystemStats = { load: [1, 1, 1], mem: { used: 12 * G, total: 16 * G, pressure: "warning" }, apps: [] };
+    expect(summaryFigures(15, stats)).toEqual([
+      { label: "CPU", value: "15%", tone: "" },
+      { label: "Mem", value: "12G/16G", tone: "warning" },
+    ]);
+    // Before the second reading there is no CPU figure yet.
+    expect(summaryFigures(undefined, { load: [1, 1, 1], apps: [] })).toEqual([{ label: "CPU", value: "–", tone: "" }]);
+  });
+
+  test("collapsed, a battery joins the line only once it wants something", () => {
+    const at = (percent: number) => summaryFigures(5, { load: [1, 1, 1], battery: { percent, state: "discharging" }, apps: [] });
+    expect(at(60).map((f) => f.label)).toEqual(["CPU"]);
+    expect(at(8)).toContainEqual({ label: "Bat", value: "8%", tone: "critical" });
   });
 
   test("bytes and CPU in the room a narrow panel has", () => {

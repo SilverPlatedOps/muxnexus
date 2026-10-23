@@ -12,7 +12,7 @@ import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { marksShown, openDisplay, setSystemShown, systemShown } from "./display";
-import { createSystemPanel } from "./system";
+import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
 import { createDockerPanel, loadTab, type OverviewTab, saveTab } from "./docker";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, UsageSource, WindowInfo } from "../shared/protocol";
@@ -410,7 +410,22 @@ const notes = createNotes({
 
 const systemEl = document.getElementById("system")!;
 const systemBody = document.getElementById("system-body")!;
-const system = createSystemPanel(systemBody);
+const system = createSystemPanel(systemBody, document.getElementById("system-summary")!);
+const systemToggle = document.getElementById("system-toggle")!;
+/** One line, or the figures and the apps: this browser's choice. */
+let systemFolded = systemCollapsed();
+function paintSystemToggle() {
+  systemEl.classList.toggle("collapsed", systemFolded);
+  systemToggle.setAttribute("aria-expanded", String(!systemFolded));
+  systemToggle.title = systemFolded ? "Show the figures and the apps" : "Collapse to one line";
+}
+paintSystemToggle();
+systemToggle.onclick = () => {
+  systemFolded = !systemFolded;
+  setSystemCollapsed(systemFolded);
+  paintSystemToggle();
+  syncSystem();
+};
 /** What this socket was last told about the overview: the server reads the machine only while it is on. */
 let systemSent = false;
 systemEl.hidden = !(notes.open && systemShown());
@@ -444,7 +459,8 @@ for (const [tab, b] of Object.entries(overviewTabs)) {
 function syncSystem() {
   const on = notes.open && systemShown();
   systemEl.hidden = !on;
-  const dockerOn = on && overviewTab === "docker";
+  // Docker is read only while its list shows: one line never shows it.
+  const dockerOn = on && !systemFolded && overviewTab === "docker";
   if (dockerOn !== dockerSent) {
     if (dockerOn) docker.reset();
     if (conn.send({ t: "docker", on: dockerOn })) dockerSent = dockerOn;

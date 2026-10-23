@@ -1392,6 +1392,35 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .sys-head { display: flex; align-items: center; height: 28px; }
 .sys-head .spacer { flex: 1; }
 .sys-head .icon-btn { width: 20px; height: 20px; }
+/* Collapsed (app.ts systemFolded): one line of figures, toned as the panel's,
+   and the whole line opens it -- the quota panel's toggle, in its chevron. */
+.sys-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 22px;
+  margin: 0 4px 0 -6px;
+  padding: 0 6px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sys-toggle:hover { background: var(--hover); color: var(--fg); }
+.sys-toggle .chevron { flex: none; display: inline-flex; justify-content: center; width: 13px; transition: transform 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .sys-toggle .chevron { transition: none; } }
+#system.collapsed { padding-bottom: 4px; }
+#system.collapsed .sys-toggle { flex: 1; }
+#system.collapsed .sys-toggle .chevron { transform: rotate(-90deg); }
+#system:not(.collapsed) :is(.sys-toggle-title, .sys-summary) { display: none; }
+#system.collapsed :is(.sys-tabs, #system-body, #docker-body) { display: none; }
+.sys-summary { display: flex; gap: 12px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.sys-fig { display: inline-flex; gap: 5px; }
+.sys-fig .sys-label { width: auto; }
 .sys-title { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; }
 .sys-row, .sys-app { display: flex; align-items: center; gap: 6px; line-height: 1.6; white-space: nowrap; }
 .sys-row > *, .sys-app > * { flex: none; }
