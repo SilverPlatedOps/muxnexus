@@ -48,13 +48,6 @@ export function orderSessions<T extends { name: string; order?: number }>(sessio
   });
 }
 
-/**
- * A window's `@muxnexus_agent` stamp: `"<state> <epoch> <pid> [<config dir>]"`,
- * written by the Claude Code hook. The config dir is the rest of the line, since
- * a path may hold spaces, and is absent from stamps written before it was added.
- * Anything else is no stamp at all rather than a guess -- the option is a string
- * tmux will hand back whatever is in it.
- */
 /** A pane's root process (`#{pane_pid}`), and the window it belongs to. */
 export interface PaneRoot {
   windowId: string;
@@ -64,6 +57,13 @@ export interface PaneRoot {
   server: string;
 }
 
+/**
+ * A window's `@muxnexus_agent` stamp: `"<state> <epoch> <pid> [<config dir>]"`,
+ * written by the Claude Code hook. The config dir is the rest of the line, since
+ * a path may hold spaces, and is absent from stamps written before it was added.
+ * Anything else is no stamp at all rather than a guess -- the option is a string
+ * tmux will hand back whatever is in it.
+ */
 export interface Stamp {
   state: AgentState;
   /** Unix seconds: when the pane entered this state. */

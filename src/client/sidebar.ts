@@ -221,8 +221,6 @@ export function createSidebar(
       m.setAttribute("aria-label", m.title);
       name.append(m);
     }
-    // Only for a session that is blocked: how long it has been waiting changes
-    // what you do about it, where how long a turn has run does not.
     // The session's tabs summed, when the viewer asked for it: the tab strip
     // shows only the attached session's, so this is where the others say.
     const mem = memoryShown() ? memoryStore.session(row.windows) : null;
@@ -231,6 +229,8 @@ export function createSidebar(
       chip.title = "Memory held by this session's tabs";
       name.append(chip);
     }
+    // Only for a session that is blocked: how long it has been waiting changes
+    // what you do about it, where how long a turn has run does not.
     const elapsed = glyph === "input" ? formatElapsed(sessionAgent(row.windows)?.since, Date.now()) : "";
     if (elapsed) name.append(el("span", "elapsed", elapsed));
     // One dot per window, in tab order, so a session with several agents says
