@@ -214,11 +214,42 @@ export interface SystemApp {
   name: string;
   /** Share of the whole machine, 0-100, like `SystemStats.cpu`. */
   cpu: number;
-  /** Resident memory, bytes. */
+  /** Bytes, counted as the reading's `metric` says: footprint, else resident memory. */
   mem: number;
   procs: number;
   /** The executable of its busiest process. */
   top: string;
+  /** None of its processes could be read (another user's), so `mem` is 0 and means nothing. */
+  unreadable?: boolean;
+}
+
+/**
+ * How a reading counted memory: "footprint" as Activity Monitor does,
+ * compressed and swapped memory included; "rss" only what is resident, when
+ * footprints could not be read. A reading never mixes the two.
+ */
+export type MemoryMetric = "footprint" | "rss";
+
+/** Some of a tab's processes, by name: "claude", "java · maven tests". */
+export interface ProcessPart {
+  name: string;
+  /** Null when none of them could be read. */
+  bytes: number | null;
+  cpu: number;
+}
+
+/**
+ * One tmux window's processes -- each pane's shell and everything under it --
+ * summed. `unreadable` of its `processes` could not be read and count as
+ * nothing, so `bytes` is a floor whenever that is above zero.
+ */
+export interface WindowMemory {
+  windowId: string;
+  bytes: number;
+  processes: number;
+  unreadable: number;
+  cpu: number;
+  parts: ProcessPart[];
 }
 
 /**
