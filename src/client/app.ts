@@ -412,7 +412,15 @@ const notes = createNotes({
 
 const systemEl = document.getElementById("system")!;
 const systemBody = document.getElementById("system-body")!;
-const system = createSystemPanel(systemBody, document.getElementById("system-summary")!);
+const system = createSystemPanel(systemBody, document.getElementById("system-summary")!, {
+  sessions: () => sessions,
+  tmuxServer: () => tmuxServer,
+  // A tab in any session: the list ranks them all, not just this one's.
+  goTo: (windowId) => {
+    const s = sessions.find((x) => x.windows.some((w) => w.id === windowId));
+    if (s) openWindow(s.name, windowId);
+  },
+});
 const systemToggle = document.getElementById("system-toggle")!;
 /** One line, or the figures and the apps: this browser's choice. */
 let systemFolded = systemCollapsed();
@@ -430,6 +438,8 @@ systemToggle.onclick = () => {
 };
 /** What this socket was last told about the overview: the server reads the machine only while it is on. */
 let systemSent = false;
+/** ...and whether its app list is in view, which is what the server reads the process list for. */
+let listSent = false;
 systemEl.hidden = !(notes.open && systemShown());
 const dockerBody = document.getElementById("docker-body")!;
 const docker = createDockerPanel(dockerBody);
@@ -467,9 +477,13 @@ function syncSystem() {
     if (dockerOn) docker.reset();
     if (conn.send({ t: "docker", on: dockerOn })) dockerSent = dockerOn;
   }
-  if (on === systemSent) return;
-  if (on) system.reset();
-  if (conn.send({ t: "system", on })) systemSent = on;
+  const list = on && !systemFolded && overviewTab === "system";
+  if (on === systemSent && list === listSent) return;
+  if (on && !systemSent) system.reset();
+  if (conn.send({ t: "system", on, list })) {
+    systemSent = on;
+    listSent = list;
+  }
 }
 document.getElementById("system-close")!.onclick = () => {
   setSystemShown(false);
@@ -583,6 +597,7 @@ const conn = new Connection(wsUrl, {
     notes.reconnected();
     // A new socket starts with the overview off on the server's side.
     systemSent = false;
+    listSent = false;
     dockerSent = false;
     syncSystem();
     if (desired) attach(desired);
@@ -655,6 +670,9 @@ const conn = new Connection(wsUrl, {
         break;
       case "system":
         if (systemSent) system.receive(m.stats);
+        break;
+      case "swap":
+        system.notice(m.notice);
         break;
       case "docker":
         if (dockerSent) docker.receive(m.stats);

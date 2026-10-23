@@ -1460,6 +1460,52 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .sys-app-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
 .sys-app-head > * { color: var(--dim); }
 .sys-wait { color: var(--dim); font-style: italic; line-height: 1.6; }
+/* The one-line verdict at the top (system.ts statusLine), hidden while calm. */
+.sys-status { display: flex; gap: 6px; margin: 2px 0 6px; padding: 4px 8px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.6; }
+.sys-status.critical { color: var(--red); background: color-mix(in oklab, var(--red) 12%, transparent); }
+.sys-status.warning { color: var(--yellow); background: color-mix(in oklab, var(--yellow) 10%, transparent); }
+.sys-status.ok { color: var(--green); background: color-mix(in oklab, var(--green) 10%, transparent); }
+.sys-status.stale { color: var(--dim); background: color-mix(in oklab, var(--line) 60%, transparent); }
+.sys-status-hint { color: var(--fg); opacity: 0.85; }
+.sys-status.stale .sys-status-hint { color: inherit; }
+/* Memory in its parts: apps, what the kernel keeps wired, what the compressor holds; the rest is available. */
+.sys-split { display: flex; }
+.sys-seg { display: block; height: 100%; }
+.sys-seg.apps, .sys-legend-item.apps .sys-swatch { background: var(--accent); }
+.sys-seg.system, .sys-legend-item.system .sys-swatch { background: var(--dim); }
+.sys-seg.compressed, .sys-legend-item.compressed .sys-swatch {
+  background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--accent) 70%, #000) 0 3px, color-mix(in oklab, var(--accent) 35%, #000) 3px 6px);
+}
+.sys-legend-item.available .sys-swatch { border: 1px solid var(--edge); width: 6px; height: 6px; }
+.sys-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 4px 40px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.sys-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.sys-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+/* Swap writes: a graph on its own MB/s scale, the busy and urgent thresholds marked faintly. */
+.sys-spark-mark { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+.sys-swap.warning .sys-spark-area { fill: color-mix(in oklab, var(--yellow) 28%, transparent); }
+.sys-swap.warning .sys-spark-line { stroke: var(--yellow); }
+.sys-swap.critical .sys-spark-area { fill: color-mix(in oklab, var(--red) 30%, transparent); }
+.sys-swap.critical .sys-spark-line { stroke: var(--red); }
+.sys-swap.ok .sys-spark-area { fill: color-mix(in oklab, var(--green) 22%, transparent); }
+.sys-swap.ok .sys-spark-line { stroke: var(--green); }
+.sys-value.ok { color: var(--green); }
+/* Under the graph: swap on disk and the writes since boot, the exact total on focus or tap. */
+.sys-note-row { display: flex; flex-wrap: wrap; gap: 0 8px; margin: 0 0 4px 40px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.sys-note { cursor: default; border-radius: 3px; }
+.sys-note.has-detail { cursor: help; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+.sys-note:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.sys-note-detail { display: none; color: var(--fg); }
+.sys-note.has-detail:is(:focus, .open) + .sys-note-detail { display: inline; }
+/* A tab in the list: its chevron opens what runs in it, its name goes there. */
+.sys-chevron { width: 14px; padding: 0; background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; }
+.sys-goto { padding: 0; background: none; border: 0; font: inherit; text-align: left; color: var(--fg-strong); cursor: pointer; }
+.sys-goto:hover { text-decoration: underline; text-underline-offset: 3px; }
+.sys-idle { color: var(--muted); }
+.sys-part { padding-left: 20px; }
+.sys-part > .sys-app-name, .sys-part > .sys-num { color: var(--muted); }
+.sys-dim { color: var(--dim); font-size: 11px; }
+.sys-more { width: 100%; padding: 0; background: none; border: 0; font: inherit; color: var(--fg); cursor: pointer; text-align: left; }
+.sys-more > .sys-app-name { color: var(--accent); }
 /* The overview's tabs, worded as its title was: the one showing is the bright one. */
 .sys-tab { margin-right: 10px; padding: 0; background: none; border: 0; font-family: inherit; color: var(--dim); cursor: pointer; }
 .sys-tab:hover, .sys-tab.on { color: var(--fg-strong); }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CpuInfo } from "node:os";
 import type { SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../src/shared/protocol";
-import { batteryPressure, formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, pressure, sortApps, sparkPath, statusLine, summaryFigures, swapLine } from "../src/client/system";
+import { batteryPressure, formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine } from "../src/client/system";
 import { appOf, cpuPercent, memSplit, parseBattery, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
@@ -146,8 +146,9 @@ describe("panel formatting", () => {
   test("apps sort on the tenth of a percent shown, then by name", () => {
     const app = (name: string, cpu: number, gb: number) => ({ name, cpu, mem: gb * 1024 ** 3, procs: 1, top: name });
     const apps = [app("b", 0.41, 1), app("a", 0.44, 1), app("c", 1.0, 1), app("big", 0.1, 3), app("busy", 12, 0.1)];
-    expect(sortApps(apps, "cpu").map((a) => a.name)).toEqual(["busy", "c", "a", "b", "big"]);
-    expect(sortApps(apps, "mem").map((a) => a.name)).toEqual(["big", "c", "a", "b", "busy"]);
+    const names = (by: "cpu" | "mem") => panelRows(apps, [], [], by, 0).map((r) => (r.kind === "app" ? r.app.name : ""));
+    expect(names("cpu")).toEqual(["busy", "c", "a", "b", "big"]);
+    expect(names("mem")).toEqual(["big", "c", "a", "b", "busy"]);
   });
 
   test("collapsed, one line: CPU and memory, toned as in the panel", () => {
@@ -283,5 +284,25 @@ describe("overview models", () => {
 describe("sparkPath", () => {
   test("on a scale of its own, with unknown readings as gaps", () => {
     expect(sparkPath([10, null, 20, 30], 4, 40)).toEqual({ line: "M0,75.0M2,50.0L3,25.0", area: "M2,50.0L3,25.0L3,100L2,100Z" });
+  });
+});
+
+describe("resampleRates", () => {
+  const MiB = 1024 ** 2;
+  test("five minutes as sixty five-second slots, each the latest reading, in MB/s", () => {
+    const now = 1_000_000;
+    const pts = [{ at: now - 290_000, rate: 2 * MiB }, { at: now - 7_000, rate: 22 * MiB }, { at: now - 2_000, rate: 20 * MiB }];
+    const r = resampleRates(pts, now);
+    expect(r).toHaveLength(60);
+    expect(r[59]).toBe(20);
+    expect(r[58]).toBe(22);
+    expect(r[1]).toBe(2);
+    expect(r[0]).toBeNull(); // before the first reading
+    expect(r[30]).toBeNull(); // long after it, with nothing since: a gap, not a held value
+  });
+
+  test("an unknown reading stays unknown", () => {
+    const now = 1_000_000;
+    expect(resampleRates([{ at: now - 1_000, rate: null }], now)[59]).toBeNull();
   });
 });

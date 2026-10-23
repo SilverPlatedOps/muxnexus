@@ -1,4 +1,4 @@
-import type { MemSplit, SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../shared/protocol";
+import type { MemSplit, RatePoint, SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../shared/protocol";
 import { formatElapsed } from "./agent";
 import { sessionLabel, windowPlace } from "./labels";
 import { meter } from "./usage";
@@ -16,7 +16,6 @@ import { meter } from "./usage";
 
 /** Thirty readings, two seconds apart: the last minute. */
 const HISTORY = 30;
-const SHOWN_APPS = 5;
 const SORT_KEY = "muxnexus.system.sort";
 const COLLAPSED_KEY = "muxnexus.system.collapsed";
 const SVG = "http://www.w3.org/2000/svg";
@@ -180,18 +179,6 @@ export function panelRows(
   return [...kept, { kind: "more", count: folded.length, bytes: folded.reduce((n, r) => n + bytes(r), 0) }];
 }
 
-/**
- * The apps in the order they are listed. Compared on the tenth of a percent the
- * column shows, then by name: finer, two idle apps trade places on noise; any
- * coarser, the column reads out of order ("1.0%" above "1.2%").
- */
-export function sortApps(apps: readonly SystemApp[], by: AppSort): SystemApp[] {
-  const cpu = (a: SystemApp) => Math.round(a.cpu * 10);
-  const mem = (a: SystemApp) => a.mem;
-  return [...apps].sort((a, b) =>
-    (by === "cpu" ? cpu(b) - cpu(a) || mem(b) - mem(a) : mem(b) - mem(a) || cpu(b) - cpu(a)) || a.name.localeCompare(b.name));
-}
-
 /** Bytes as the panel has room for: "972M", "1.9G", "16G". Rounded before the unit is picked, so never "1024M". */
 export function formatBytes(bytes: number): string {
   const mib = Math.round(bytes / 1024 ** 2);
@@ -270,13 +257,49 @@ export function gauge(label: string, used: number, total: number, p: Pressure): 
   return r;
 }
 
-function spark(values: readonly number[]): SVGSVGElement {
+const SWAP_SPAN_MS = 300_000;
+const SWAP_SLOT_MS = 5000;
+/** A reading older than this, with none since, is a gap in the graph -- the server's own limit for a rate. */
+const SWAP_GAP_MS = 15_000;
+/** The swap graph's ceiling, MB/s, with the busy and urgent thresholds marked under it. */
+const SWAP_MAX = 40;
+const SWAP_MARKS = [5, 20];
+/** A notice this old, with none since, is not trusted: the server or the socket has gone quiet. */
+const STALE_MS = 15_000;
+
+/**
+ * Five minutes of swap-write rates as `slots` evenly spaced values in MB/s, so
+ * the graph's time axis holds whether readings came every two seconds or five.
+ * Each slot is the latest reading at or before its end; none within
+ * `SWAP_GAP_MS`, or an unknown one, is a gap.
+ */
+export function resampleRates(points: readonly RatePoint[], now: number, spanMs = SWAP_SPAN_MS, slots = spanMs / SWAP_SLOT_MS): (number | null)[] {
+  const out: (number | null)[] = [];
+  const step = spanMs / slots;
+  let j = 0;
+  let latest: RatePoint | null = null;
+  for (let i = 0; i < slots; i++) {
+    const end = now - spanMs + (i + 1) * step;
+    while (j < points.length && points[j].at <= end) latest = points[j++];
+    out.push(latest && latest.rate !== null && end - latest.at < SWAP_GAP_MS ? latest.rate / 1024 ** 2 : null);
+  }
+  return out;
+}
+
+function spark(values: readonly (number | null)[], slots: number = HISTORY, max = 100, marks: readonly number[] = []): SVGSVGElement {
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("class", "sys-spark");
-  svg.setAttribute("viewBox", `0 0 ${HISTORY - 1} 100`);
+  svg.setAttribute("viewBox", `0 0 ${slots - 1} 100`);
   svg.setAttribute("preserveAspectRatio", "none");
   svg.setAttribute("aria-hidden", "true");
-  const { area, line } = sparkPath(values);
+  for (const m of marks) {
+    const line = document.createElementNS(SVG, "line");
+    const y = (100 - (m / max) * 100).toFixed(1);
+    line.setAttribute("class", "sys-spark-mark");
+    for (const [k, v] of [["x1", "0"], ["x2", String(slots - 1)], ["y1", y], ["y2", y]]) line.setAttribute(k, v);
+    svg.append(line);
+  }
+  const { area, line } = sparkPath(values, slots, max);
   for (const [cls, d] of [["sys-spark-area", area], ["sys-spark-line", line]]) {
     const path = document.createElementNS(SVG, "path");
     path.setAttribute("class", cls);
@@ -286,67 +309,198 @@ function spark(values: readonly number[]): SVGSVGElement {
   return svg;
 }
 
+function numCell(text: string, tone: Pressure = ""): HTMLElement {
+  return el("span", withTone("sys-num", tone), text);
+}
+
 function appRow(a: SystemApp): HTMLElement {
   const r = el("div", "sys-app");
-  r.append(el("span", "sys-app-name", a.name), el("span", "sys-num", formatCpu(a.cpu)), el("span", "sys-num", formatBytes(a.mem)));
-  r.title = a.procs === 1 ? a.top : `${a.name}: ${a.procs} processes, busiest ${a.top}`;
+  r.append(el("span", "sys-app-name", a.name), numCell(formatCpu(a.cpu)), numCell(a.unreadable ? "–" : formatBytes(a.mem)));
+  r.title = a.unreadable
+    ? `${a.name}: another user's processes, whose memory cannot be read without root`
+    : a.procs === 1 ? a.top : `${a.name}: ${a.procs} processes, busiest ${a.top}`;
   return r;
 }
+
+const partsText = (m: WindowMemory) => m.parts.map((p) => `${p.name}  ${p.bytes === null ? "?" : formatBytes(p.bytes)}`).join("\n");
 
 export interface SystemPanel {
   /** A new reading from the server. */
   receive(stats: SystemStats): void;
+  /** The swap level, which arrives on its own message whether or not the panel is open. */
+  notice(n: SwapNotice): void;
+  /** Sort the list, as its header buttons do; the nudge's Show list sorts by memory. */
+  sortBy(by: AppSort): void;
   /** The box closed, or the socket went: whatever comes next is a fresh start. */
   reset(): void;
 }
 
-export function createSystemPanel(body: HTMLElement, summary: HTMLElement): SystemPanel {
+export function createSystemPanel(
+  body: HTMLElement,
+  summary: HTMLElement,
+  deps: { sessions(): SessionInfo[]; tmuxServer(): string | null; goTo(windowId: string): void },
+): SystemPanel {
   let history: number[] = [];
   /** Kept so a reading without a CPU figure (the first) still shows the last known. */
   let cpu: number | undefined;
   let last: SystemStats | null = null;
+  let swap: { n: SwapNotice; at: number } | null = null;
   let sort = loadSort();
+  /** Tab rows opened by their chevron, by window id; and whether the folded tabs are shown. */
+  const open = new Set<string>();
+  let moreOpen = false;
 
-  // The figures are redrawn on every reading; the sort buttons are made once
-  // and only restyled, so one that has the keys keeps them through a reading.
+  // Made once and kept: the status line is a live region, which is announced
+  // only if it stays the same element; the sort buttons and the swap line keep
+  // the keys through a reading.
+  const status = el("div", "sys-status");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
   const figures = el("div");
+  const swapNote = el("span", "sys-note");
+  swapNote.tabIndex = 0;
+  const swapDetail = el("span", "sys-note-detail");
+  swapDetail.id = "sys-swap-detail";
+  swapNote.setAttribute("aria-describedby", swapDetail.id);
+  swapNote.onclick = () => swapNote.classList.toggle("open");
+  swapNote.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); swapNote.classList.toggle("open"); }
+  };
+  swapNote.onblur = () => swapNote.classList.remove("open");
+  const swapNoteRow = el("div", "sys-note-row");
+  swapNoteRow.append(swapNote, swapDetail);
   const head = el("div", "sys-app sys-app-head");
+  const headName = el("span", "sys-app-name", "Holding memory");
   const list = el("div");
   const apps = el("div", "sys-apps");
   apps.append(head, list);
   const sortButton = (by: AppSort, label: string) => {
     const b = el("button", "sys-num sys-sort", label);
     b.type = "button";
-    b.onclick = () => {
-      sort = by;
-      saveSort(by);
-      if (last) draw(last);
-    };
+    b.onclick = () => setSort(by);
     return b;
   };
   const buttons = { cpu: sortButton("cpu", "CPU"), mem: sortButton("mem", "Mem") };
-  head.append(el("span", "sys-app-name", "App"), buttons.cpu, buttons.mem);
+  head.append(headName, buttons.cpu, buttons.mem);
+
+  function setSort(by: AppSort) {
+    sort = by;
+    saveSort(by);
+    if (last) draw(last);
+  }
+
+  /** The notice, unless it has gone quiet; by this browser's clock, so another device's does not matter. */
+  const fresh = () => (swap && Date.now() - swap.at <= STALE_MS ? swap.n : null);
+
+  function swapTone(n: SwapNotice | null): Pressure {
+    return n?.severity === "urgent" ? "critical" : n?.severity === "busy" ? "warning" : "";
+  }
+
+  function drawStatus() {
+    const n = swap?.n ?? null;
+    const line = statusLine(n);
+    status.hidden = !line;
+    if (!line) return status.replaceChildren();
+    const stale = !fresh();
+    status.className = `sys-status ${stale ? "stale" : line.tone}`;
+    status.title = stale ? "stale: no word from the server for a while" : "";
+    const text = `${line.text}${line.hint ? ` ${line.hint}` : ""}`;
+    if (status.textContent !== text) {
+      const hint = line.hint ? el("span", "sys-status-hint", line.hint) : "";
+      status.replaceChildren(el("span", "", line.text), hint);
+    }
+  }
+
+  function memRows(s: SystemStats, tone: Pressure): HTMLElement[] {
+    if (!s.mem) return [];
+    if (!s.split) return [gauge("Mem", s.mem.used, s.mem.total, tone)];
+    const bar = el("span", "usage-meter sys-split");
+    for (const part of ["apps", "system", "compressed"] as const) {
+      const seg = el("span", `sys-seg ${part}`);
+      seg.style.width = `${(s.split[part] / s.split.total) * 100}%`;
+      bar.append(seg);
+    }
+    const r = row("Mem", bar, el("span", withTone("sys-value sys-end", tone), `${formatBytes(s.mem.used)}/${formatBytes(s.mem.total)}`));
+    r.title = `${Math.round((s.mem.used / s.mem.total) * 100)}% used`;
+    const legend = el("div", "sys-legend");
+    for (const part of memLegend(s.split)) {
+      const item = el("span", `sys-legend-item ${part.key}`);
+      item.append(el("i", "sys-swatch"), `${part.label} ${formatBytes(part.bytes)}`);
+      if (part.tooltip) item.title = part.tooltip;
+      legend.append(item);
+    }
+    return [r, legend];
+  }
+
+  function swapRows(s: SystemStats): HTMLElement[] {
+    if (!s.history && !s.swap) return [];
+    const n = fresh();
+    const rate = s.rate ?? n?.rate ?? null;
+    const recovered = n?.severity === "recovered";
+    const value = rate === null ? "–" : recovered || rate < 0.05 * 1024 ** 2 ? "quiet" : formatRate(rate);
+    const tone = swapTone(n);
+    const values = resampleRates(s.history ?? [], Date.now());
+    const graph = spark(values, values.length, SWAP_MAX, SWAP_MARKS);
+    graph.classList.add("sys-swap", tone || (recovered ? "ok" : "calm"));
+    const r = row("Swap", graph, el("span", `${withTone("sys-value sys-end", tone)}${recovered && value === "quiet" ? " ok" : ""}`, value));
+    r.title = "Writes to the SSD over the last five minutes, newest at the right; the marks are 5 and 20 MB/s";
+    const line = swapLine(s.swap?.used, s.written ?? null, s.bootTime ?? null, Date.now());
+    if (!line) return [r];
+    swapNote.textContent = line.text;
+    swapDetail.textContent = line.detail;
+    swapNote.classList.toggle("has-detail", line.detail !== "");
+    return [r, swapNoteRow];
+  }
+
+  function tabRow(t: Extract<PanelRow, { kind: "tab" }>): HTMLElement[] {
+    const r = el("div", "sys-app sys-tab-row");
+    const chevron = el("button", "sys-chevron");
+    chevron.type = "button";
+    chevron.dataset.chevron = t.windowId;
+    const isOpen = open.has(t.windowId);
+    chevron.setAttribute("aria-expanded", String(isOpen));
+    chevron.setAttribute("aria-label", `What runs in ${t.place}`);
+    chevron.textContent = isOpen ? "▾" : "▸";
+    chevron.onclick = () => {
+      if (open.has(t.windowId)) open.delete(t.windowId); else open.add(t.windowId);
+      if (last) draw(last);
+    };
+    const name = el("button", "sys-app-name sys-goto", t.place);
+    name.type = "button";
+    name.title = `${t.place}\n${partsText(t.mem)}\nClick to go to the tab`;
+    name.onclick = () => deps.goTo(t.windowId);
+    if (t.idle) name.append(el("span", "sys-idle", ` · ${t.idle}`));
+    r.append(chevron, name, numCell(formatCpu(t.mem.cpu)), numCell(formatMem(t.mem.bytes, t.mem.processes, t.mem.unreadable)));
+    if (!isOpen) return [r];
+    const out = [r];
+    for (const p of t.mem.parts) {
+      const part = el("div", "sys-app sys-part");
+      part.append(el("span", "sys-app-name", p.name), numCell(formatCpu(p.cpu)), numCell(p.bytes === null ? "?" : formatBytes(p.bytes)));
+      out.push(part);
+    }
+    if (t.mem.unreadable > 0) out.push(el("div", "sys-app sys-part sys-dim", `${t.mem.unreadable} of ${t.mem.processes} processes couldn't be read`));
+    if (t.alsoIn.length > 0) out.push(el("div", "sys-app sys-part sys-dim", `also in ${t.alsoIn.join(", ")}`));
+    return out;
+  }
+
+  function moreRow(m: Extract<PanelRow, { kind: "more" }>): HTMLElement {
+    const r = el("button", "sys-app sys-more");
+    r.type = "button";
+    r.append(el("span", "sys-app-name", `▸ ${m.count} more tab${m.count === 1 ? "" : "s"}`), numCell(""), numCell(formatBytes(m.bytes)));
+    r.onclick = () => { moreOpen = true; if (last) draw(last); };
+    return r;
+  }
 
   function draw(s: SystemStats) {
     const cpuRow = row("CPU", spark(history), el("span", withTone("sys-num sys-end", cpu === undefined ? "" : pressure(cpu)), cpu === undefined ? "–" : formatCpu(cpu)));
     cpuRow.classList.add("sys-cpu");
     cpuRow.title = "CPU over the last minute, newest at the right";
-    const rows: HTMLElement[] = [cpuRow];
     const memTight = s.mem ? memPressure(s.mem) : "";
-    if (s.mem) rows.push(gauge("Mem", s.mem.used, s.mem.total, memTight));
-    // Swap takes no colour of its own: macOS adds a file when the last fills,
-    // so a full bar is heavy paging, which the memory pressure already says.
-    if (s.swap) rows.push(gauge("Swap", s.swap.used, s.swap.total, ""));
-    // Load and the battery share a line: neither has a bar, and every line
-    // here is one the notes above do not get.
-    const load = row("Load", el("span", "sys-value", s.load.map((l) => l.toFixed(2)).join("  ")));
-    load.classList.add("sys-pair");
-    if (s.battery) {
-      const bat = el("span", "sys-aside");
-      bat.append(el("span", "sys-label", "Bat"), el("span", withTone("sys-value", batteryPressure(s.battery)), `${s.battery.percent}% ${s.battery.state}`));
-      load.append(bat);
+    const rows: HTMLElement[] = [cpuRow, ...memRows(s, memTight), ...swapRows(s)];
+    // The battery only once it is worth a look: while it runs down.
+    if (s.battery?.state === "discharging") {
+      rows.push(row("Bat", el("span", withTone("sys-value", batteryPressure(s.battery)), `${s.battery.percent}% ${s.battery.state}`)));
     }
-    rows.push(load);
 
     for (const by of ["cpu", "mem"] as const) {
       const b = buttons[by];
@@ -358,24 +512,39 @@ export function createSystemPanel(body: HTMLElement, summary: HTMLElement): Syst
       b.setAttribute("aria-pressed", String(sort === by));
       b.title = nudge ? "Memory is under pressure: sort by memory to see what is holding it" : `Sort by ${b.textContent}`;
     }
-    const shown = sortApps(s.apps, sort).slice(0, SHOWN_APPS).map(appRow);
+    headName.title = s.metric === "rss"
+      ? "resident memory: compressed and swapped memory not counted"
+      : "Counted the way Activity Monitor counts: compressed and swapped memory included, so the list can add up to more than the bar";
+    // Window ids are tmux's, and mean nothing under another tmux server.
+    const windows = s.windows && s.tmuxServer && s.tmuxServer === deps.tmuxServer() ? s.windows : [];
+    const ranked = panelRows(s.apps, windows, deps.sessions(), sort, Date.now(), moreOpen ? Infinity : undefined);
+    const shown = ranked.flatMap((r) => (r.kind === "app" ? [appRow(r.app)] : r.kind === "tab" ? tabRow(r) : [moreRow(r)]));
     // What the CPU line has that no process owns: the kernel, and processes
     // that came and went between readings. Said, so the column not adding up
     // to the line above is not a mystery.
     if (sort === "cpu" && cpu !== undefined && s.appsCpu !== undefined && cpu - s.appsCpu >= 1) {
       const other = el("div", "sys-app sys-other");
-      other.append(el("span", "sys-app-name", "other"), el("span", "sys-num", formatCpu(cpu - s.appsCpu)), el("span", "sys-num"));
+      other.append(el("span", "sys-app-name", "other"), numCell(formatCpu(cpu - s.appsCpu)), el("span", "sys-num"));
       other.title = "The kernel, and processes too brief for ps to catch";
       shown.push(other);
     }
+    // Redrawn every reading, so a chevron that had the keys gets them back.
+    const focused = (document.activeElement as HTMLElement | null)?.dataset?.chevron;
+    drawStatus();
     figures.replaceChildren(...rows);
     list.replaceChildren(...shown);
-    summary.replaceChildren(...summaryFigures(cpu, s).map((f) => {
+    if (focused) list.querySelector<HTMLElement>(`[data-chevron="${CSS.escape(focused)}"]`)?.focus();
+    const figs = summaryFigures(cpu, s);
+    const n = swap?.n;
+    if (n && n.severity !== "calm" && n.severity !== "recovered" && n.rate !== null) {
+      figs.push({ label: "Swap", value: `↑${formatRate(n.rate)}`, tone: fresh() ? swapTone(n) : "" });
+    }
+    summary.replaceChildren(...figs.map((f) => {
       const e = el("span", "sys-fig");
       e.append(el("span", "sys-label", f.label), el("span", withTone("sys-value", f.tone), f.value));
       return e;
     }));
-    if (apps.parentElement !== body) body.replaceChildren(figures, apps);
+    if (apps.parentElement !== body) body.replaceChildren(status, figures, apps);
   }
 
   return {
@@ -387,6 +556,12 @@ export function createSystemPanel(body: HTMLElement, summary: HTMLElement): Syst
       last = s;
       draw(s);
     },
+    notice(n) {
+      swap = { n, at: Date.now() };
+      if (last) draw(last);
+      else drawStatus();
+    },
+    sortBy: setSort,
     reset() {
       history = [];
       cpu = undefined;
