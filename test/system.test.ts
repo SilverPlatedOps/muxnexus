@@ -5,7 +5,7 @@ import { createServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { waitFor } from "./helpers";
 import { batteryPressure, formatBytes, formatCpu, memPressure, pressure, sortApps, sparkPath, summaryFigures } from "../src/client/system";
-import { appOf, cpuPercent, createSystemReader, parseBattery, parsePressure, parseSwap, parseVmStat, topApps } from "../src/server/system";
+import { appOf, cpuPercent, createSystemReader, memSplit, parseBattery, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat, topApps } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
 Pages free:                                     4261.
@@ -77,6 +77,49 @@ describe("parsers", () => {
     expect(parseBattery("Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t85%; AC attached; not charging present: true\n"))
       .toEqual({ percent: 85, state: "on AC" });
     expect(parseBattery("Now drawing from 'AC Power'\n")).toBeUndefined();
+  });
+});
+
+describe("memory split", () => {
+  const GiB = 1024 ** 3;
+  const page = 16384;
+  const pages = (gib: number) => (gib * GiB) / page;
+  const counters = (apps: number, wired: number, compressor: number) => ({
+    pageSize: page, anonymous: pages(apps), purgeable: 0, wired: pages(wired), compressor: pages(compressor), swapouts: 0,
+  });
+
+  test("vm_stat's counters, swapouts among them, in pages at the header's page size", () => {
+    const text = `${VM_STAT}Swapouts:                                   55940783.\n`;
+    expect(parseVmCounters(text)).toEqual({
+      pageSize: 16384, anonymous: 262896, purgeable: 48, wired: 178773, compressor: 409795, swapouts: 55940783,
+    });
+    expect(parseVmCounters(text.replace("(page size of 16384 bytes)", ""))).toBeUndefined();
+  });
+
+  test("apps, system and compressed are measured; available is what is left", () => {
+    expect(memSplit(counters(6, 2, 3), 16 * GiB)).toEqual({
+      apps: 6 * GiB, system: 2 * GiB, compressed: 3 * GiB, available: 5 * GiB, total: 16 * GiB,
+    });
+  });
+
+  test("purgeable pages are not apps' memory", () => {
+    const c = { ...counters(6, 2, 3), purgeable: pages(1) };
+    expect(memSplit(c, 16 * GiB).apps).toBe(5 * GiB);
+  });
+
+  test("a reading that overruns the total is scaled to fit, and no part goes negative", () => {
+    const s = memSplit(counters(10, 4, 6), 16 * GiB);
+    expect(s.apps + s.system + s.compressed).toBeCloseTo(16 * GiB, 0);
+    expect(s.available).toBe(0);
+    expect(s.apps).toBeCloseTo(8 * GiB, 0);
+    const odd = memSplit({ ...counters(1, 1, 1), purgeable: pages(3) }, 16 * GiB);
+    expect(odd.apps).toBe(0);
+    expect(Math.min(odd.apps, odd.system, odd.compressed, odd.available)).toBeGreaterThanOrEqual(0);
+  });
+
+  test("boot time from kern.boottime, in milliseconds", () => {
+    expect(parseBootTime("{ sec = 1792468718, usec = 801966 } Tue Oct 20 10:58:38 2026\n")).toBe(1792468718000);
+    expect(parseBootTime("nonsense")).toBeUndefined();
   });
 });
 

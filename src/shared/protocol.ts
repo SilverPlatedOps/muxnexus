@@ -221,6 +221,19 @@ export interface SystemApp {
   top: string;
 }
 
+/**
+ * Memory in four parts that add up to `total`, in bytes: what apps hold, what
+ * the kernel keeps wired, what the compressor holds, and the rest -- free pages
+ * and file cache macOS can take back, the room before it compresses or swaps.
+ */
+export interface MemSplit {
+  apps: number;
+  system: number;
+  compressed: number;
+  available: number;
+  total: number;
+}
+
 /** The machine at a glance. A reading that could not be taken is left out. */
 export interface SystemStats {
   /** Busy share of every core, 0-100; absent on the first reading, which has nothing to compare against. */

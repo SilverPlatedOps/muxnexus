@@ -1,5 +1,5 @@
 import { cpus as osCpus, loadavg, totalmem, type CpuInfo } from "node:os";
-import type { SystemApp, SystemStats } from "../shared/protocol";
+import type { MemSplit, SystemApp, SystemStats } from "../shared/protocol";
 
 /**
  * A small btop for the notes panel: how busy the machine is and which apps are
@@ -75,6 +75,58 @@ export function parseVmStat(text: string): number | undefined {
   const pages = (label: string) => Number(new RegExp(`^${label}:\\s+(\\d+)`, "m").exec(text)?.[1] ?? NaN);
   const used = pages("Anonymous pages") - pages("Pages purgeable") + pages("Pages wired down") + pages("Pages occupied by compressor");
   return Number.isFinite(used) ? used * page : undefined;
+}
+
+/** The `vm_stat` counters the memory split and the swap rate are made of, in pages. */
+export interface VmCounters {
+  /** Bytes. */
+  pageSize: number;
+  anonymous: number;
+  purgeable: number;
+  wired: number;
+  compressor: number;
+  /** Since boot. XNU adds each written swap segment's size over the page size, so this times the page size is bytes written to swap. */
+  swapouts: number;
+}
+
+export function parseVmCounters(text: string): VmCounters | undefined {
+  const pageSize = Number(/page size of (\d+) bytes/.exec(text)?.[1]);
+  if (!pageSize) return undefined;
+  const pages = (label: string) => Number(new RegExp(`^${label}:\\s+(\\d+)`, "m").exec(text)?.[1] ?? NaN);
+  const c = {
+    pageSize,
+    anonymous: pages("Anonymous pages"),
+    purgeable: pages("Pages purgeable"),
+    wired: pages("Pages wired down"),
+    compressor: pages("Pages occupied by compressor"),
+    swapouts: pages("Swapouts"),
+  };
+  return Object.values(c).every(Number.isFinite) ? c : undefined;
+}
+
+/**
+ * The Mem bar's four parts. Each measured part is held at zero or above, and a
+ * reading whose parts overrun the total -- counters read a moment apart -- is
+ * scaled down to fit, so the bar never overflows and "available" is never negative.
+ */
+export function memSplit(c: VmCounters, total: number): MemSplit {
+  let apps = Math.max(0, c.anonymous - c.purgeable) * c.pageSize;
+  let system = Math.max(0, c.wired) * c.pageSize;
+  let compressed = Math.max(0, c.compressor) * c.pageSize;
+  const sum = apps + system + compressed;
+  if (sum > total) {
+    const k = total / sum;
+    apps *= k;
+    system *= k;
+    compressed *= k;
+  }
+  return { apps, system, compressed, available: Math.max(0, total - apps - system - compressed), total };
+}
+
+/** `sysctl -n kern.boottime`: `{ sec = 1792468718, usec = 801966 } Tue Oct 20 ...`, as milliseconds. */
+export function parseBootTime(text: string): number | undefined {
+  const sec = Number(/sec = (\d+)/.exec(text)?.[1]);
+  return sec ? sec * 1000 : undefined;
 }
 
 /** `total = 13312.00M  used = 11735.12M  free = 1576.88M  (encrypted)`, in bytes. */
