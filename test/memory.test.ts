@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Footprint } from "../src/server/footprint";
-import { attribute, parsePs, processLabel, vmName, type Proc } from "../src/server/memory";
+import { attribute, createMemoryReader, parsePs, processLabel, vmName, type Proc } from "../src/server/memory";
 
 const MiB = 1024 ** 2;
 const VM = "/System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine";
@@ -112,6 +112,70 @@ describe("labels", () => {
     expect(vmName(["/Users/me/.colima/_lima/colima/diffdisk"])).toBe("Docker VM · Colima");
     expect(vmName(["/Users/me/vms/ubuntu.img"])).toBe("Linux VM");
     expect(vmName([])).toBe("Linux VM");
+  });
+});
+
+describe("createMemoryReader", () => {
+  const PS_TEXT = PROCS.map((p) => `${p.pid} ${p.ppid} ${p.cpu * 10} ${p.pid * 10} ${p.path}`).join("\n");
+
+  function rig(opts: { footprint?: boolean; failPs?: boolean; failPanes?: boolean } = {}) {
+    const calls: string[][] = [];
+    const reader = createMemoryReader({
+      panes: async () => {
+        if (opts.failPanes) throw new Error("no tmux");
+        return PANES;
+      },
+      footprint: opts.footprint === false ? null : mem(SIZES),
+      cores: () => 10,
+      now: () => 42,
+      run: async (cmd) => {
+        calls.push(cmd);
+        if (cmd[0] === "ps" && cmd[1] === "-Ao") {
+          if (opts.failPs) throw new Error("ps failed");
+          return PS_TEXT;
+        }
+        if (cmd[0] === "ps") return "301 java -cp x org.apache.maven.surefire.booter.ForkedBooter\n";
+        if (cmd[0] === "lsof") return "p500\nfcwd\nn/\nf4\nn/Users/me/Library/Application Support/rancher-desktop/lima/0/diffdisk\n";
+        throw new Error(`unexpected ${cmd[0]}`);
+      },
+    });
+    return { reader, calls };
+  }
+
+  test("footprints when they can be read, and says so", async () => {
+    const r = (await rig().reader.read())!;
+    expect(r).toMatchObject({ at: 42, metric: "footprint" });
+    expect(r.apps.find((a) => a.name === "IntelliJ IDEA")!.mem).toBe(3200 * MiB);
+  });
+
+  test("without footprints, resident memory throughout, never a mix", async () => {
+    const r = (await rig({ footprint: false }).reader.read())!;
+    expect(r.metric).toBe("rss");
+    expect(r.apps.find((a) => a.name === "IntelliJ IDEA")!.mem).toBe((400 + 401) * 10 * 1024);
+    expect(r.windows.find((w) => w.windowId === "@1")!.bytes).toBe((200 + 201 + 202) * 10 * 1024);
+  });
+
+  test("asks for arguments only of java inside tabs", async () => {
+    const { reader, calls } = rig();
+    const r = (await reader.read())!;
+    const asked = calls.filter((c) => c[0] === "ps" && c[1] !== "-Ao");
+    expect(asked).toEqual([["ps", "-o", "pid=,args=", "-p", "301"]]);
+    expect(r.windows.find((w) => w.windowId === "@2")!.parts[0].name).toBe("java · maven tests");
+  });
+
+  test("names the VM from its open files, asking once per VM process", async () => {
+    const { reader, calls } = rig();
+    await reader.read();
+    const r = (await reader.read())!;
+    expect(calls.filter((c) => c[0] === "lsof")).toEqual([["lsof", "-Fn", "-p", "500"]]);
+    expect(r.apps.map((a) => a.name)).toContain("Docker VM · Rancher");
+  });
+
+  test("no process list, no reading; no panes, every process an app's", async () => {
+    expect(await rig({ failPs: true }).reader.read()).toBeNull();
+    const r = (await rig({ failPanes: true }).reader.read())!;
+    expect(r.windows).toEqual([]);
+    expect(r.apps.map((a) => a.name)).toContain("zsh");
   });
 });
 

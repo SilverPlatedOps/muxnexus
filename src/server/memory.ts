@@ -1,4 +1,5 @@
-import type { SystemApp, WindowMemory } from "../shared/protocol";
+import { availableParallelism } from "node:os";
+import type { MemoryMetric, SystemApp, WindowMemory } from "../shared/protocol";
 import type { Footprint } from "./footprint";
 import { appOf } from "./system";
 import type { PaneRoot } from "./tmux";
@@ -33,8 +34,99 @@ export interface Attribution {
   appsCpu: number;
 }
 
+export interface MemoryReading extends Attribution {
+  at: number;
+  metric: MemoryMetric;
+}
+
+export interface MemoryReader {
+  /** Null when there is no process list to read from. */
+  read(): Promise<MemoryReading | null>;
+}
+
+export type Runner = (cmd: string[], timeoutMs: number) => Promise<string>;
+
 const APP_LIMIT = 8;
 const VM_PROCESS = "com.apple.Virtualization.VirtualMachine";
+const RUN_TIMEOUT_MS = 2000;
+
+async function run(cmd: string[], timeoutMs: number): Promise<string> {
+  const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore" });
+  const timer = setTimeout(() => p.kill(), timeoutMs);
+  try {
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    if (code !== 0) throw new Error(`${cmd[0]} exited ${code}`);
+    return out;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * One snapshot per reading: the process list once, then the panes, then every
+ * footprint straight away, so a process is read moments after it was listed
+ * and nothing is carried between readings by pid -- a pid reused later cannot
+ * inherit an older process's figure. Only the VM's name is remembered, by pid,
+ * since asking `lsof` every two seconds for a name that never changes is waste.
+ */
+export function createMemoryReader(opts: {
+  panes: () => Promise<PaneRoot[]>;
+  footprint: ((pid: number) => Footprint) | null;
+  run?: Runner;
+  now?: () => number;
+  cores?: () => number;
+}): MemoryReader {
+  const exec = opts.run ?? run;
+  const now = opts.now ?? Date.now;
+  const cores = opts.cores ?? availableParallelism;
+  const vmNames = new Map<number, string>();
+
+  return {
+    async read() {
+      const ps = await exec(["ps", "-Ao", "pid=,ppid=,pcpu=,rss=,comm="], RUN_TIMEOUT_MS).catch(() => null);
+      if (ps === null) return null;
+      const procs = parsePs(ps, cores());
+      const panes = await opts.panes().catch(() => [] as PaneRoot[]);
+      const metric: MemoryMetric = opts.footprint ? "footprint" : "rss";
+      const sizes = new Map<number, Footprint>(procs.map((p) => [p.pid, opts.footprint ? opts.footprint(p.pid) : { bytes: p.rss }]));
+
+      // Arguments only where a label needs them: java inside a tab.
+      const byPid = new Map(procs.map((p) => [p.pid, p]));
+      const roots = new Set(panes.map((p) => p.pid));
+      const inTab = (pid: number) => {
+        for (let p: number | undefined = pid, hops = 0; p !== undefined && p > 1 && hops <= procs.length; hops++) {
+          if (roots.has(p)) return true;
+          p = byPid.get(p)?.ppid;
+        }
+        return false;
+      };
+      const javas = procs.filter((p) => p.path.endsWith("/java") && inTab(p.pid)).map((p) => p.pid);
+      const args = new Map<number, string>();
+      if (javas.length > 0) {
+        const out = await exec(["ps", "-o", "pid=,args=", "-p", javas.join(",")], RUN_TIMEOUT_MS).catch(() => "");
+        for (const line of out.split("\n")) {
+          const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+          if (m) args.set(Number(m[1]), m[2]);
+        }
+      }
+
+      const vms = procs.filter((p) => p.path.endsWith(`/${VM_PROCESS}`)).map((p) => p.pid);
+      for (const pid of vmNames.keys()) if (!vms.includes(pid)) vmNames.delete(pid);
+      for (const pid of vms) {
+        if (vmNames.has(pid)) continue;
+        const out = await exec(["lsof", "-Fn", "-p", String(pid)], RUN_TIMEOUT_MS).catch(() => null);
+        if (out === null) continue; // asked again next time
+        vmNames.set(pid, vmName(out.split("\n").filter((l) => l.startsWith("n")).map((l) => l.slice(1))));
+      }
+
+      const a = attribute(procs, panes, (pid) => sizes.get(pid) ?? { error: "gone" }, {
+        argsOf: (pid) => args.get(pid),
+        vmNameOf: (pid) => vmNames.get(pid),
+      });
+      return { ...a, at: now(), metric };
+    },
+  };
+}
 
 /** `ps -Ao pid=,ppid=,pcpu=,rss=,comm=`. `comm` is the full path and may hold spaces; `ps` counts one core as 100%. */
 export function parsePs(text: string, cores: number): Proc[] {
