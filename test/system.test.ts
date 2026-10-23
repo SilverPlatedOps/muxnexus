@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CpuInfo } from "node:os";
 import type { SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../src/shared/protocol";
-import { batteryPressure, formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine } from "../src/client/system";
+import { batteryPressure, formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine, swapTone } from "../src/client/system";
 import { appOf, cpuPercent, memSplit, parseBattery, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
@@ -196,6 +196,14 @@ describe("overview models", () => {
     expect(statusLine(notice({ severity: "recovered", reason: "pressure" }))!.text).toBe("✓ Pressure back to normal");
     expect(statusLine(notice({ severity: "calm" }))).toBeNull();
     expect(statusLine(null)).toBeNull();
+  });
+
+  test("swap takes the level's colour only when swap writes are the reason", () => {
+    expect(swapTone(notice({ severity: "urgent", reason: "writes" }))).toBe("critical");
+    expect(swapTone(notice({ severity: "busy", reason: "both" }))).toBe("warning");
+    expect(swapTone(notice({ severity: "busy", reason: "pressure" }))).toBe("");
+    expect(swapTone(notice({ severity: "calm" }))).toBe("");
+    expect(swapTone(null)).toBe("");
   });
 
   test("rates and volumes", () => {

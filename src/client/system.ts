@@ -85,6 +85,16 @@ export function statusLine(n: SwapNotice | null): { tone: "critical" | "warning"
   return { tone: n.severity === "urgent" ? "critical" : "warning", text: writes ? "● Swapping to SSD" : "● Memory pressure", hint: "· close something below" };
 }
 
+/**
+ * The Swap row's colour: the level's, but only when swap writes are why. In a
+ * pressure-only episode memory is the trouble and says so; the swap figure
+ * stays plain, since what it shows is not the problem.
+ */
+export function swapTone(n: SwapNotice | null): Pressure {
+  if (!n || n.reason === "pressure" || n.reason === null) return "";
+  return n.severity === "urgent" ? "critical" : n.severity === "busy" ? "warning" : "";
+}
+
 /** Swap traffic: "22 MB/s", "0.4 MB/s". Rounded before the form is picked, so never "10.0". */
 export function formatRate(bytesPerSec: number): string {
   const mb = bytesPerSec / 1024 ** 2;
@@ -394,10 +404,6 @@ export function createSystemPanel(
 
   /** The notice, unless it has gone quiet; by this browser's clock, so another device's does not matter. */
   const fresh = () => (swap && Date.now() - swap.at <= STALE_MS ? swap.n : null);
-
-  function swapTone(n: SwapNotice | null): Pressure {
-    return n?.severity === "urgent" ? "critical" : n?.severity === "busy" ? "warning" : "";
-  }
 
   function drawStatus() {
     const n = swap?.n ?? null;
