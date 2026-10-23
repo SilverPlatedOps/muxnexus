@@ -1414,7 +1414,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .sys-toggle .chevron { flex: none; display: inline-flex; justify-content: center; width: 13px; transition: transform 120ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .sys-toggle .chevron { transition: none; } }
 #system.collapsed { padding-bottom: 4px; }
+/* The line takes the head's width, its spacer's included. */
 #system.collapsed .sys-toggle { flex: 1; }
+#system.collapsed .sys-head .spacer { display: none; }
 #system.collapsed .sys-toggle .chevron { transform: rotate(-90deg); }
 #system:not(.collapsed) :is(.sys-toggle-title, .sys-summary) { display: none; }
 #system.collapsed :is(.sys-tabs, #system-body, #docker-body) { display: none; }
