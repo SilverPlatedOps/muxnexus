@@ -392,7 +392,7 @@ describe("backoff", () => {
   });
 
   // One profile, a counting fetch and a movable clock, for the tests below.
-  function counted(opts: { status: () => number; retryAfterMs?: () => number | undefined; clock: () => number; store?: UsageStore }) {
+  function counted(opts: { status: () => number; retryAfterMs?: () => number | undefined; clock: () => number; store?: UsageStore; hold?: () => Promise<void> }) {
     const seen = { calls: 0 };
     const reader = createUsageReader({
       home: "/h",
@@ -402,6 +402,7 @@ describe("backoff", () => {
       secret: async () => JSON.stringify({ claudeAiOauth: { accessToken: "t" } }),
       fetch: async () => {
         seen.calls++;
+        await opts.hold?.();
         return { status: opts.status(), body: JSON.stringify({ limits: [{ kind: "session", percent: 12 }] }), retryAfterMs: opts.retryAfterMs?.() };
       },
       backoffBaseMs: 60_000,
@@ -482,11 +483,73 @@ describe("backoff", () => {
   });
 
   test("a store that holds nothing usable is a cold start, not a throw", async () => {
-    for (const text of [null, "", "not json", "{}", '{"sources":5}']) {
+    for (const text of [null, "", "not json", "{}", '{"sources":5}', '{"sources":[null]}']) {
       const { reader, seen } = counted({ status: () => 200, clock: () => 0, store: { load: () => text, save: () => {} } });
       expect((await reader.read())[0].state).toBe("ok");
       expect(seen.calls).toBe(1);
     }
+  });
+});
+
+describe("the reader's own limits", () => {
+  // The same one-profile reader as above, kept apart so these read on their own.
+  function reader(opts: { status: () => number; retryAfterMs?: number; clock: () => number; store?: UsageStore; hold?: () => Promise<void> }) {
+    const seen = { calls: 0 };
+    const r = createUsageReader({
+      home: "/h",
+      list: () => [".claude"],
+      has: (p) => p.endsWith("/projects"),
+      readFile: async () => null,
+      secret: async () => JSON.stringify({ claudeAiOauth: { accessToken: "t" } }),
+      fetch: async () => {
+        seen.calls++;
+        await opts.hold?.();
+        return { status: opts.status(), body: JSON.stringify({ limits: [{ kind: "session", percent: 12 }] }), retryAfterMs: opts.retryAfterMs };
+      },
+      backoffBaseMs: 60_000,
+      now: opts.clock,
+      warn: () => {},
+      store: opts.store,
+    });
+    return { r, seen };
+  }
+
+  test("a Retry-After past an hour is held to an hour: a wild value must not shut a source out for days", async () => {
+    let clock = 0;
+    const { r, seen } = reader({ status: () => 429, retryAfterMs: 86_400_000, clock: () => clock });
+    await r.read();
+    clock = 60 * 60_000 + 1;
+    await r.read();
+    expect(seen.calls).toBe(2);
+  });
+
+  test("a request in flight is on record before it is answered, so a restart meanwhile does not ask again", async () => {
+    let clock = 0;
+    let saved: string | null = null;
+    const store: UsageStore = { load: () => saved, save: (t) => { saved = t; } };
+    let hang = false;
+    const first = reader({ status: () => 200, clock: () => clock, store, hold: () => (hang ? new Promise(() => {}) : Promise.resolve()) });
+    await first.r.read();
+    clock = 60_001;
+    hang = true;
+    void first.r.read(); // killed by a restart before it is answered
+    await Promise.resolve();
+    clock = 65_000;
+    const second = reader({ status: () => 200, clock: () => clock, store });
+    expect((await second.r.read())[0].state).toBe("ok");
+    expect(second.seen.calls).toBe(0);
+  });
+
+  test("a read that asks nothing writes nothing", async () => {
+    let clock = 0;
+    let saves = 0;
+    const store: UsageStore = { load: () => null, save: () => { saves++; } };
+    const { r } = reader({ status: () => 429, clock: () => clock, store });
+    await r.read();
+    const after = saves;
+    clock = 10_000; // still backing off
+    await r.read();
+    expect(saves).toBe(after);
   });
 });
 

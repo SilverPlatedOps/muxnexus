@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import index from "../client/index.html";
@@ -133,7 +133,12 @@ if (import.meta.main) {
   const usage = createUsageReader({
     store: {
       load: () => { try { return readFileSync(usageFile, "utf8"); } catch { return null; } },
-      save: (text) => writeFileSync(usageFile, text),
+      // Written aside and moved into place: a restart mid-write never leaves half a file.
+      save: (text) => {
+        const aside = `${usageFile}.${process.pid}`;
+        writeFileSync(aside, text, { mode: 0o600 });
+        renameSync(aside, usageFile);
+      },
     },
   });
   // Snapshots on a timer, so shutting the laptop down costs nothing to remember.

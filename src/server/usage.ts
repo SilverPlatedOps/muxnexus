@@ -231,6 +231,8 @@ export function backoffMs(failures: number, baseMs: number): number {
 }
 
 const MAX_BACKOFF_MS = 15 * 60_000;
+/** The longest a provider's Retry-After is taken at its word: it outlives restarts, so a wild one must not shut a source out for days. */
+const MAX_RETRY_AFTER_MS = 60 * 60_000;
 
 /**
  * A Retry-After header as a wait in ms: delta-seconds or an HTTP date. Zero or
@@ -307,21 +309,32 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
    * no requests; anything unreadable is simply a cold start.
    */
   function restore(): void {
-    let saved: { sources?: unknown; failures?: unknown; nextAttempt?: unknown };
     try {
-      saved = JSON.parse(opts.store?.load() ?? "");
+      const saved: { sources?: unknown; failures?: unknown; nextAttempt?: unknown } = JSON.parse(opts.store?.load() ?? "");
+      if (!Array.isArray(saved?.sources)) return;
+      last = new Map((saved.sources as UsageSource[]).map((s) => [s.id, s]));
+      for (const [id, n] of Object.entries((saved.failures ?? {}) as Record<string, number>)) failures.set(id, n);
+      for (const [id, at] of Object.entries((saved.nextAttempt ?? {}) as Record<string, number>)) nextAttempt.set(id, at);
+      for (const s of last.values()) {
+        if (s.state !== "ok") continue;
+        const fresh = Date.parse(s.checkedAt) + baseMs;
+        if (fresh > (nextAttempt.get(s.id) ?? 0)) nextAttempt.set(s.id, fresh);
+      }
     } catch {
-      return;
+      // Half a file, or another build's shape: start cold rather than not at all.
+      last = new Map();
+      failures.clear();
+      nextAttempt.clear();
     }
-    if (!Array.isArray(saved?.sources)) return;
-    last = new Map((saved.sources as UsageSource[]).map((s) => [s.id, s]));
-    for (const [id, n] of Object.entries((saved.failures ?? {}) as Record<string, number>)) failures.set(id, n);
-    for (const [id, at] of Object.entries((saved.nextAttempt ?? {}) as Record<string, number>)) nextAttempt.set(id, at);
-    for (const s of last.values()) {
-      if (s.state !== "ok") continue;
-      const fresh = Date.parse(s.checkedAt) + baseMs;
-      if (fresh > (nextAttempt.get(s.id) ?? 0)) nextAttempt.set(s.id, fresh);
-    }
+  }
+
+  /**
+   * On record before the request goes: `bun --watch` can kill the server while
+   * it waits for an answer, and a run that had not said it asked would ask again.
+   */
+  function asking(id: string): void {
+    nextAttempt.set(id, clock() + baseMs);
+    persist();
   }
 
   function persist(): void {
@@ -358,8 +371,8 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     if (source.state === "error") {
       const n = (failures.get(source.id) ?? 0) + 1;
       failures.set(source.id, n);
-      // The provider's own wait wins, uncapped: the cap is our guess, theirs is not.
-      nextAttempt.set(source.id, now() + Math.max(backoffMs(n, baseMs), asked.get(source.id) ?? 0));
+      // The provider's own wait wins over our cap, which is only a guess -- up to an hour.
+      nextAttempt.set(source.id, now() + Math.max(backoffMs(n, baseMs), Math.min(asked.get(source.id) ?? 0, MAX_RETRY_AFTER_MS)));
     } else {
       failures.delete(source.id);
       nextAttempt.delete(source.id);
@@ -379,6 +392,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     const item = await secret(keychainService(dir, home));
     const token = item ? accessToken(item) : null;
     if (!token) return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "signed-out", now });
+    asking(id);
     const res = await get(CLAUDE_USAGE, {
       Authorization: `Bearer ${token}`,
       "anthropic-beta": "oauth-2025-04-20",
@@ -412,6 +426,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     const auth = codexAuth(text);
     if (!auth) return merge(previous, { id, label, provider: "codex", windows: [], state: "signed-out", now });
     // Codex refreshes this token itself; an expired one is signed out until it does.
+    asking(id);
     const res = await get(CODEX_USAGE, {
       Authorization: `Bearer ${auth.token}`,
       ...(auth.accountId ? { "ChatGPT-Account-Id": auth.accountId } : {}),
@@ -439,11 +454,12 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
       // A source returned unchanged was skipped for backoff, not attempted, so
       // it must not count as another failure -- that would let a source extend
       // its own backoff indefinitely without ever being asked again.
-      const sources = settled
-        .filter((s): s is UsageSource => s !== null)
-        .map((s) => (s === last.get(s.id) ? s : record(s)));
+      const kept = settled.filter((s): s is UsageSource => s !== null);
+      // Nothing asked and nothing gone: the file already says all of it.
+      const changed = kept.length !== last.size || kept.some((s) => s !== last.get(s.id));
+      const sources = kept.map((s) => (s === last.get(s.id) ? s : record(s)));
       last = new Map(sources.map((s) => [s.id, s]));
-      persist();
+      if (changed) persist();
       return sources;
     },
   };
