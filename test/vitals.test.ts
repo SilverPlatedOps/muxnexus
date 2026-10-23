@@ -11,6 +11,7 @@ function rig() {
   const m = {
     t: 1_000_000, swapouts: 1000, boot: 1792468718, pressure: "1", busy: 0, idle: 0,
     fail: new Set<string>(), calls: [] as string[], scheduled: [] as { ms: number; fn: () => void }[], cancels: 0,
+    onRun: null as null | ((cmd: string[]) => void),
   };
   const vmStat = () => `Mach Virtual Memory Statistics: (page size of 16384 bytes)
 Pages free:                                     4261.
@@ -23,6 +24,7 @@ Swapouts:                                 ${m.swapouts}.
   const s = createVitalsSampler({
     run: async (cmd) => {
       m.calls.push(cmd[0]);
+      m.onRun?.(cmd);
       if (m.fail.has(cmd[0])) throw new Error("failed");
       if (cmd[0] === "vm_stat") return vmStat();
       if (cmd[0] === "sysctl") return `total = 4096.00M  used = 3072.00M  free = 1024.00M  (encrypted)\n${m.pressure}\n{ sec = ${m.boot}, usec = 0 } Tue Oct 20 10:58:38 2026\n`;
@@ -69,6 +71,19 @@ describe("swap rate", () => {
     expect(s.latest()!.rate).toBeNull();
     expect(s.history().at(-1)!.rate).toBeNull();
     expect(s.level().severity).toBe("urgent");
+  });
+
+  test("a sleep in the middle of a sample is an unknown rate, not a spike", async () => {
+    const { s, m, later } = rig();
+    await s.sampleNow();
+    m.onRun = (cmd) => {
+      if (cmd[0] !== "vm_stat") return;
+      m.t += 6 * 3600_000; // the lid closed while the tools ran
+      m.swapouts += 900_000;
+    };
+    await later(5000);
+    expect(s.latest()!.rate).toBeNull();
+    expect(s.history().at(-1)!.at).toBe(m.t);
   });
 
   test("a failed vm_stat is an unknown point, not a quiet one", async () => {

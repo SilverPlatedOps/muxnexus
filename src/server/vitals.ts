@@ -56,6 +56,12 @@ export const FAST_MS = 2000;
 export const MAX_GAP_MS = 15_000;
 export const HISTORY_MS = 300_000;
 const RUN_TIMEOUT_MS = 2000;
+/**
+ * A sample whose own tools took longer than this -- the Mac slept, or the
+ * machine is thrashing -- read its counters at a moment nobody knows: its rate
+ * is unknown rather than a delta divided by the wrong time.
+ */
+const SLOW_SAMPLE_MS = 1000;
 /** The battery moves by the minute; asking `pmset` on every sample would say nothing new. */
 const BATTERY_MS = 30_000;
 /** A CPU sample older than this is not a "previous" reading: the delta would average over the whole gap. */
@@ -115,13 +121,16 @@ export function createVitalsSampler(deps: {
   }
 
   async function sample(): Promise<void> {
-    const at = now();
-    const batteryDue = !battery || at - battery.at >= BATTERY_MS;
+    const started = now();
+    const batteryDue = !battery || started - battery.at >= BATTERY_MS;
     const [vm, sys, batt] = await Promise.all([
       attempt(exec(["vm_stat"], RUN_TIMEOUT_MS)),
       attempt(exec(["sysctl", "-n", "vm.swapusage", "kern.memorystatus_vm_pressure_level", "kern.boottime"], RUN_TIMEOUT_MS)),
       batteryDue ? attempt(exec(["pmset", "-g", "batt"], RUN_TIMEOUT_MS)) : Promise.resolve(undefined),
     ]);
+    // Timed after the tools ran, not before: their counters are from then.
+    const at = now();
+    const slow = at - started > SLOW_SAMPLE_MS;
     if (batteryDue) battery = { at, value: batt === undefined ? undefined : parseBattery(batt) };
 
     const counters = vm === undefined ? undefined : parseVmCounters(vm);
@@ -129,7 +138,7 @@ export function createVitalsSampler(deps: {
     let rate: number | null = null;
     if (counters) {
       const prev = counted;
-      if (prev && prev.boot === boot && prev.pageSize === counters.pageSize && counters.swapouts >= prev.swapouts
+      if (!slow && prev && prev.boot === boot && prev.pageSize === counters.pageSize && counters.swapouts >= prev.swapouts
         && at > prev.at && at - prev.at <= MAX_GAP_MS) {
         rate = ((counters.swapouts - prev.swapouts) * counters.pageSize) / ((at - prev.at) / 1000);
       }
