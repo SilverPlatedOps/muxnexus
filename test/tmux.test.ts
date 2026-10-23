@@ -29,7 +29,9 @@ describe("Tmux.listPaneRoots", () => {
     expect(roots).toHaveLength(3);
     expect(new Set(roots.map((r) => r.paneId)).size).toBe(3);
     expect(new Set(roots.map((r) => r.windowId)).size).toBe(2);
+    const { tmuxServer } = await tmux.listState();
     for (const r of roots) {
+      expect(r.server).toBe(tmuxServer!);
       expect(r.windowId).toMatch(/^@\d+$/);
       expect(r.paneId).toMatch(/^%\d+$/);
       expect(Number.isInteger(r.pid) && r.pid > 1).toBe(true);

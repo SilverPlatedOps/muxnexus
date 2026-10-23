@@ -734,7 +734,7 @@ export function createServer(opts: ServerOptions): RunningServer {
   let memoryReading: Promise<void> | null = null;
   const memoryAge = () => (lastMemory ? Date.now() - lastMemoryAt : Infinity);
   const memoryJson = (m: MemoryReading) =>
-    JSON.stringify({ t: "memory", tmuxServer: tmuxServerId, at: m.at, metric: m.metric, windows: m.windows } satisfies ServerMessage);
+    JSON.stringify({ t: "memory", tmuxServer: m.tmuxServer, at: m.at, metric: m.metric, windows: m.windows } satisfies ServerMessage);
 
   /** Never two at once: the list, the tab chips and an urgent notice all share one reading. */
   function pollMemory(): Promise<void> {
@@ -763,8 +763,9 @@ export function createServer(opts: ServerOptions): RunningServer {
       ...(v?.battery ? { battery: v.battery } : {}),
       ...(v?.split ? { split: v.split } : {}),
       apps: m?.apps ?? [],
-      ...(m ? { appsCpu: m.appsCpu, metric: m.metric, windows: m.windows } : {}),
-      ...(tmuxServerId ? { tmuxServer: tmuxServerId } : {}),
+      // Stamped with the tmux server the windows were read from, not today's: after a
+      // restart the old ids would otherwise wear the new server's name.
+      ...(m ? { appsCpu: m.appsCpu, metric: m.metric, windows: m.windows, ...(m.tmuxServer ? { tmuxServer: m.tmuxServer } : {}) } : {}),
       history: opts.vitals?.history() ?? [],
       rate: v?.rate ?? null,
       written: v?.written ?? null,
@@ -788,7 +789,10 @@ export function createServer(opts: ServerOptions): RunningServer {
     if (!lastMemory) return [];
     const all: SwapHolder[] = [
       ...lastMemory.apps.filter((a) => !a.unreadable).map((a) => ({ kind: "app" as const, name: a.name, bytes: a.mem })),
-      ...lastMemory.windows.map((w) => ({ kind: "tab" as const, name: w.windowId, bytes: w.bytes })),
+      // Tabs only from a reading of the tmux server the clients see now: theirs is what names them.
+      ...(lastMemory.tmuxServer !== null && lastMemory.tmuxServer === tmuxServerId
+        ? lastMemory.windows.map((w) => ({ kind: "tab" as const, name: w.windowId, bytes: w.bytes }))
+        : []),
     ];
     return all.sort((a, b) => b.bytes - a.bytes).slice(0, 4);
   }

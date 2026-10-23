@@ -60,6 +60,8 @@ export interface PaneRoot {
   windowId: string;
   paneId: string;
   pid: number;
+  /** The tmux server it was read from, as `listState` names it: window ids mean nothing under another. */
+  server: string;
 }
 
 export interface Stamp {
@@ -456,16 +458,16 @@ export class Tmux {
   async listPaneRoots(): Promise<PaneRoot[]> {
     let out: string;
     try {
-      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{pane_id}\t#{pane_pid}"]);
+      out = await this.run(["list-panes", "-a", "-F", "#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pid}-#{start_time}"]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
     const roots = new Map<string, PaneRoot>();
     for (const l of lines(out)) {
-      const [windowId, paneId, pid] = l.split("\t");
+      const [windowId, paneId, pid, server] = l.split("\t");
       const n = Number(pid);
-      if (windowId && paneId && Number.isInteger(n) && n > 0 && !roots.has(paneId)) roots.set(paneId, { windowId, paneId, pid: n });
+      if (windowId && paneId && server && Number.isInteger(n) && n > 0 && !roots.has(paneId)) roots.set(paneId, { windowId, paneId, pid: n, server });
     }
     return [...roots.values()];
   }

@@ -37,6 +37,8 @@ export interface Attribution {
 export interface MemoryReading extends Attribution {
   at: number;
   metric: MemoryMetric;
+  /** The tmux server `windows` were read from; null when tmux gave no panes. */
+  tmuxServer: string | null;
 }
 
 export interface MemoryReader {
@@ -131,7 +133,7 @@ export function createMemoryReader(opts: {
         argsOf: (pid) => args.get(pid),
         vmNameOf: (pid) => vmNames.get(pid),
       });
-      return { ...a, at: now(), metric };
+      return { ...a, at: now(), metric, tmuxServer: panes[0]?.server ?? null };
     },
   };
 }

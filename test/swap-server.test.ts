@@ -44,10 +44,10 @@ function fakeVitals() {
   return { f, sampler, fire, set: (l: Partial<LevelState>) => { f.level = { ...f.level, ...l }; } };
 }
 
-function fakeMemory(delayMs = 0) {
+function fakeMemory(delayMs = 0, tmuxServer: () => string | null = () => null) {
   const m = { reads: 0, inFlight: 0, maxInFlight: 0 };
   const reading: MemoryReading = {
-    at: 1, metric: "footprint", appsCpu: 10,
+    at: 1, metric: "footprint", appsCpu: 10, tmuxServer: null,
     apps: [
       { name: "IntelliJ IDEA", cpu: 0.4, mem: 3.2 * GiB, procs: 3, top: "idea" },
       { name: "Docker VM · Rancher", cpu: 0.3, mem: 3.0 * GiB, procs: 1, top: "vm" },
@@ -66,7 +66,7 @@ function fakeMemory(delayMs = 0) {
       m.maxInFlight = Math.max(m.maxInFlight, m.inFlight);
       if (delayMs) await Bun.sleep(delayMs);
       m.inFlight--;
-      return reading;
+      return { ...reading, tmuxServer: tmuxServer() };
     },
   });
   return { m, factory };
@@ -139,10 +139,13 @@ describe("the swap notice", () => {
   });
 
   test("while urgent, memory is read at most every urgentMemoryMs and the biggest four are named", async () => {
+    await new Tmux(SOCKET).newSession("t");
     const v = fakeVitals();
-    const mem = fakeMemory();
+    let server: string | null = null;
+    const mem = fakeMemory(0, () => server);
     const s = serve(v, mem);
     const a = await connect(s.port);
+    server = (await waitFor(() => a.of("state").find((m) => m.tmuxServer), 3000, "state with an identity")).tmuxServer!;
     v.set({ severity: "urgent", reason: "writes", episode: 3 });
     for (let i = 0; i < 5; i++) v.fire();
     await waitFor(() => a.of("swap").some((m) => m.notice.holders.length > 0), 2000, "holders named");
@@ -170,6 +173,21 @@ describe("a memory reading that never lands", () => {
     v.fire();
     v.fire();
     await waitFor(() => a.of("swap").filter((m) => m.notice.severity === "urgent").length >= 3, 2000, "notices while memory hangs");
+  });
+});
+
+describe("tab holders", () => {
+  test("are named only from a reading of the tmux server the clients now see", async () => {
+    await new Tmux(SOCKET).newSession("t");
+    const v = fakeVitals();
+    const mem = fakeMemory(0, () => "an-old-server");
+    const s = serve(v, mem);
+    const a = await connect(s.port);
+    await waitFor(() => a.of("state").some((m) => m.tmuxServer), 3000);
+    v.set({ severity: "urgent", reason: "writes", episode: 3 });
+    v.fire();
+    await waitFor(() => a.of("swap").some((m) => m.notice.holders.length > 0), 2000, "holders");
+    expect(a.of("swap").at(-1)!.notice.holders.every((h) => h.kind === "app")).toBe(true);
   });
 });
 
@@ -224,7 +242,7 @@ describe("the memory message", () => {
     const tmuxServer = a.of("state").find((m) => m.tmuxServer)!.tmuxServer;
     a.send({ t: "memory", on: true });
     await waitFor(() => a.of("memory").length > 0, 2000, "memory pushed");
-    expect(a.of("memory")[0]).toMatchObject({ tmuxServer, metric: "footprint" });
+    expect(a.of("memory")[0]).toMatchObject({ tmuxServer: null, metric: "footprint" }); // the reading's own, not the state's
     expect(a.of("memory")[0].windows.map((w) => w.windowId)).toEqual(["@1", "@2"]);
     a.send({ t: "memory", on: false });
     await Bun.sleep(30);

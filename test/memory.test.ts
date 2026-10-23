@@ -14,8 +14,8 @@ const mem = (table: Record<number, number | "gone" | "denied">) => (pid: number)
 
 // tmux server 100 runs two windows: @1 (pane %1, shell 200) and @2 (pane %2, shell 300).
 const PANES = [
-  { windowId: "@1", paneId: "%1", pid: 200 },
-  { windowId: "@2", paneId: "%2", pid: 300 },
+  { windowId: "@1", paneId: "%1", pid: 200, server: "100-1" },
+  { windowId: "@2", paneId: "%2", pid: 300, server: "100-1" },
 ];
 const PROCS = [
   proc(1, 0, "/sbin/launchd"),
@@ -48,7 +48,7 @@ describe("attribute", () => {
 
   test("a process under two panes counts once, under the nearest", () => {
     // A pane whose shell runs inside another pane's tree (a nested tmux client's server, say).
-    const panes = [...PANES, { windowId: "@3", paneId: "%3", pid: 201 }];
+    const panes = [...PANES, { windowId: "@3", paneId: "%3", pid: 201, server: "100-1" }];
     const a = attribute(PROCS, panes, mem(SIZES));
     expect(a.windows.find((w) => w.windowId === "@3")).toMatchObject({ processes: 2, bytes: 520 * MiB });
     expect(a.windows.find((w) => w.windowId === "@1")).toMatchObject({ processes: 1, bytes: 2 * MiB });
@@ -142,9 +142,9 @@ describe("createMemoryReader", () => {
     return { reader, calls };
   }
 
-  test("footprints when they can be read, and says so", async () => {
+  test("footprints when they can be read, and says so, with the tmux server its windows came from", async () => {
     const r = (await rig().reader.read())!;
-    expect(r).toMatchObject({ at: 42, metric: "footprint" });
+    expect(r).toMatchObject({ at: 42, metric: "footprint", tmuxServer: "100-1" });
     expect(r.apps.find((a) => a.name === "IntelliJ IDEA")!.mem).toBe(3200 * MiB);
   });
 
