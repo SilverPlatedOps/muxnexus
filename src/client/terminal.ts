@@ -70,6 +70,8 @@ export interface SearchState {
 export interface TerminalView {
   write(bytes: Uint8Array): void;
   reset(): void;
+  /** Gone for good, its WebGL context and glyph atlas with it. */
+  dispose(): void;
   fit(): void;
   focus(): void;
   /** Scan the scrollback for `query` and jump to the first match. */
@@ -200,18 +202,30 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     return step((q, o) => search.findPrevious(q, o));
   }
 
+  let disposed = false;
   const fitAndReport = () => {
+    if (disposed) return; // a resize still debouncing would report this terminal's size to its successor's connection
     fit.fit();
     const key = `${term.cols}x${term.rows}`;
     if (key === reported) return; // nothing changed: do not spam tmux with resizes
     reported = key;
     h.onResize(term.cols, term.rows);
   };
-  new ResizeObserver(debounce(fitAndReport, 100)).observe(container);
+  const resized = new ResizeObserver(debounce(fitAndReport, 100));
+  resized.observe(container);
 
   return {
     write: (bytes) => term.write(bytes),
     reset: () => term.reset(),
+    dispose: () => {
+      disposed = true;
+      resized.disconnect();
+      // The WebGL addon leaves its context to garbage collection; losing it
+      // here hands its GPU memory back now. Its canvas is the screen's unclassed one.
+      const gl = container.querySelector<HTMLCanvasElement>(".xterm-screen > canvas:not([class])")?.getContext("webgl2");
+      term.dispose();
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    },
     fit: fitAndReport,
     focus: () => term.focus(),
     search: (q) => (q === query ? found : scan(q)),

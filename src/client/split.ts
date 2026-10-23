@@ -203,9 +203,11 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
   let focused: Pane = "main";
 
   /**
-   * Made on the first open, once its pane is on screen: xterm measures its
+   * Made when the pane opens without one, once it is on screen: xterm measures its
    * cells when it opens, and measured inside a hidden pane it sizes itself a few
    * rows taller than it draws -- which pushes tmux's status line off the bottom.
+   * Disposed when the pane closes or turns to a file: kept, an idle one held
+   * its WebGL context and glyph atlas, ~40 MB between the page and the GPU.
    */
   let sideTerm: TerminalView | null = null;
   const term = (): TerminalView =>
@@ -328,7 +330,8 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     if (split && !split.file) {
       conn?.close();
       conn = null;
-      sideTerm?.reset();
+      sideTerm?.dispose();
+      sideTerm = null;
     }
     // Without the room for two panes, the file takes the terminal's place.
     const over = host.enabled() ? undefined : mainWindow()?.id;
@@ -348,7 +351,8 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     zoomed = null;
     conn?.close();
     conn = null;
-    sideTerm?.reset();
+    sideTerm?.dispose();
+    sideTerm = null;
     sideReader?.close();
     focused = "main";
     layout();
