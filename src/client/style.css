@@ -1325,6 +1325,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 /* ---------- the notes panel ---------- */
 
 #notes-panel {
+  --notes-head: 52px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1338,7 +1339,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 52px;
+  height: var(--notes-head);
   flex: none;
   padding: 0 8px 0 10px;
   background: var(--chrome);
@@ -1423,9 +1424,9 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 }
 #system[hidden] { display: none; }
 /* Open, it takes at most its share (resize.ts makeSplit) of what it splits
-   with the note -- the panel under its 52px head -- and never less than its
+   with the note -- the panel under its head -- and never less than its
    overview line; what does not fit scrolls under its head. */
-#system:not(.collapsed) { max-height: max(96px, calc((100% - 52px) * var(--system-share, 0.4))); }
+#system:not(.collapsed) { max-height: max(96px, calc((100% - var(--notes-head)) * var(--system-share, 0.4))); }
 #system :is(#system-body, #docker-body) { flex: 0 1 auto; min-height: 0; overflow: hidden auto; }
 /* The edge between the note and the overview, dragged up and down. */
 .grip-row {
@@ -1452,15 +1453,17 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .grip-row:focus-visible { outline: none; }
 .resizing-row, .resizing-row * { cursor: row-resize !important; user-select: none; }
 #system.collapsed .grip-row { display: none; }
-/* No hover on a finger, so the edge shows a handle, and grabs a finger's width. */
-@media (pointer: coarse) {
-  .grip-row { top: -12px; height: 20px; }
-  .grip-row::after { top: 11px; }
+/* No hover on a finger, so the edge shows a handle, in a strip of its own
+   above the head: wider to grab, and reaching no further into the note.
+   Not on a phone, where the drawer has no grips. */
+@media (pointer: coarse) and (min-width: 721px) {
+  #system:not(.collapsed) { padding-top: 12px; }
+  .grip-row { height: 18px; }
   .grip-row::before {
     content: "";
     position: absolute;
     left: 50%;
-    top: 9px;
+    top: 8px;
     width: 32px;
     height: 4px;
     margin-left: -16px;
@@ -1554,8 +1557,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--accent) 70%, #000) 0 3px, color-mix(in oklab, var(--accent) 35%, #000) 3px 6px);
 }
 .sys-legend-item.available .sys-swatch { border: 1px solid var(--edge); width: 6px; height: 6px; }
-/* In columns, so four parts take two lines in a narrow drawer, not three, and one in a wide one. */
-.sys-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(15ch, max-content)); gap: 2px 12px; margin: 0 0 4px 40px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.sys-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 4px 40px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .sys-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .sys-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 /* Swap writes: a graph on its own MB/s scale, the busy and urgent thresholds marked faintly. */
@@ -1755,7 +1757,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
     border-left: 0;
   }
   .grip, .grip-row { display: none; }
-  #notes-head { height: 52px; }
+  #notes-head { height: var(--notes-head); }
   .notes-tab { height: 34px; padding: 0 14px; }
   #notes-close { width: 44px; height: 44px; }
   .explorer-row { padding: 11px 10px; }

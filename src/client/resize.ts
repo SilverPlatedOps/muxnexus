@@ -97,7 +97,17 @@ export function shareAt(y: number, top: number, bottom: number): number {
 export function clampShare(share: number, area: number, natural: number, floor: number): number {
   const hi = Math.min(MAX_SHARE, natural / area);
   const lo = Math.min(floor / area, hi);
-  return Math.round(Math.max(lo, Math.min(hi, share)) * 1000) / 1000;
+  return Math.max(lo, Math.min(hi, share));
+}
+
+/**
+ * An arrow key's step, from the share on screen. A step up with nothing more
+ * to show keeps the share kept, so it is there when the overview has more.
+ */
+export function stepShare(share: number, delta: number, area: number, natural: number, floor: number): number {
+  const seen = clampShare(share, area, natural, floor);
+  const next = clampShare(seen + delta, area, natural, floor);
+  return delta > 0 && next <= seen ? share : next;
 }
 
 export function storedShare(raw: string | null, fallback: number): number {
@@ -129,22 +139,23 @@ export function makeSplit(o: SplitOptions): void {
   const save = () => {
     try { localStorage.setItem(o.storageKey, String(share)); } catch { /* this browser forgets */ }
   };
-  const set = (s: number) => {
-    const a = o.area();
-    share = clampShare(s, a.bottom - a.top, o.natural(), o.floor);
-    apply();
-  };
   apply();
   o.grip.setAttribute("aria-valuemin", "0");
   o.grip.setAttribute("aria-valuemax", String(MAX_SHARE * 100));
 
   o.grip.addEventListener("pointerdown", (e) => {
+    // The main button only: a context menu can swallow the release.
+    if (e.button !== 0) return;
     e.preventDefault();
     try { o.grip.setPointerCapture(e.pointerId); } catch { /* keep dragging */ }
     document.body.classList.add("resizing-row");
+    // Measured once: only the pointer moves while dragging, and a measure
+    // after each move's write would lay the panel out again every move.
+    const a = o.area();
+    const natural = o.natural();
     const move = (ev: PointerEvent) => {
-      const a = o.area();
-      set(shareAt(ev.clientY, a.top, a.bottom));
+      share = clampShare(shareAt(ev.clientY, a.top, a.bottom), a.bottom - a.top, natural, o.floor);
+      apply();
     };
     const up = () => {
       document.body.classList.remove("resizing-row");
@@ -152,18 +163,22 @@ export function makeSplit(o: SplitOptions): void {
       o.grip.removeEventListener("pointermove", move);
       o.grip.removeEventListener("pointerup", up);
       o.grip.removeEventListener("pointercancel", up);
+      o.grip.removeEventListener("lostpointercapture", up);
     };
     o.grip.addEventListener("pointermove", move);
     o.grip.addEventListener("pointerup", up);
     o.grip.addEventListener("pointercancel", up);
+    o.grip.addEventListener("lostpointercapture", up);
   });
   o.grip.addEventListener("dblclick", () => { share = o.fallback; apply(); save(); });
   o.grip.addEventListener("keydown", (e) => {
     // Up raises the edge, so the overview grows.
-    if (e.key === "ArrowUp") set(share + 0.05);
-    else if (e.key === "ArrowDown") set(share - 0.05);
-    else return;
+    const delta = e.key === "ArrowUp" ? 0.05 : e.key === "ArrowDown" ? -0.05 : 0;
+    if (!delta) return;
     e.preventDefault();
+    const a = o.area();
+    share = stepShare(share, delta, a.bottom - a.top, o.natural(), o.floor);
+    apply();
     save();
   });
 }

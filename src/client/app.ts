@@ -537,10 +537,10 @@ makeResizable({
 makeSplit({
   grip: document.getElementById("system-grip")!, panel: systemEl,
   area: () => ({ top: document.getElementById("notes-head")!.getBoundingClientRect().bottom, bottom: notesPanel.getBoundingClientRect().bottom }),
-  // The tab showing, scrolled to its end.
+  // The tab showing, scrolled to its end; a pixel over, as the layout rounds these down.
   natural: () => {
     const body = overviewTab === "docker" ? dockerBody : systemBody;
-    return systemEl.offsetHeight - body.clientHeight + body.scrollHeight;
+    return systemEl.offsetHeight - body.clientHeight + body.scrollHeight + 1;
   },
   floor: 96, cssVar: "--system-share", storageKey: "muxnexus.system-share", fallback: 0.4,
 });

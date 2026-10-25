@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { clampShare, shareAt, storedShare } from "../src/client/resize";
+import { clampShare, shareAt, stepShare, storedShare } from "../src/client/resize";
 
 test("the pointer's height above the area's foot is the overview's share", () => {
   expect(shareAt(300, 100, 600)).toBe(0.6);
@@ -28,4 +28,19 @@ test("a kept share is read back within half, and anything else is the default", 
   expect(storedShare(null, 0.4)).toBe(0.4);
   expect(storedShare("wide", 0.4)).toBe(0.4);
   expect(storedShare("0", 0.4)).toBe(0.4);
+});
+
+test("the share is kept whole, so an overview held to its own height shows its last pixel", () => {
+  expect(clampShare(0.5, 500, 166.2, 96)).toBe(166.2 / 500);
+});
+
+test("an arrow key steps from the share on screen", () => {
+  expect(stepShare(0.3, 0.05, 500, 400, 96)).toBeCloseTo(0.35);
+  // Kept at 0.4 but showing 0.2, all it has: down shrinks what is seen.
+  expect(stepShare(0.4, -0.05, 500, 100, 40)).toBeCloseTo(0.15);
+});
+
+test("a step up with nothing more to show keeps the share kept", () => {
+  expect(stepShare(0.4, 0.05, 500, 100, 40)).toBe(0.4);
+  expect(stepShare(0.5, 0.05, 500, 1000, 96)).toBe(0.5);
 });
