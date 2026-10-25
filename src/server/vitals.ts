@@ -1,11 +1,11 @@
 import { cpus as osCpus, loadavg as osLoadavg, totalmem as osTotalmem, type CpuInfo } from "node:os";
-import type { MemSplit, RatePoint, SystemStats } from "../shared/protocol";
+import type { MemSplit, RatePoint } from "../shared/protocol";
 import { INITIAL_LEVEL, stepLevel, type LevelState, type Pressure } from "./levels";
-import { cpuPercent, memSplit, parseBattery, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "./system";
+import { cpuPercent, memSplit, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "./system";
 
 /**
  * The cheap readings, taken whether or not anyone is looking: `vm_stat`, one
- * `sysctl`, the CPU counters and now and then the battery. This is the one
+ * `sysctl` and the CPU counters. This is the one
  * owner of the swap counter, so the rate, its five-minute history and the
  * alarm level come from one place; everything costly (the process list,
  * footprints) is the memory reader's, and runs only on demand.
@@ -25,7 +25,6 @@ export interface Vitals {
   mem?: { used: number; total: number; pressure?: Pressure };
   split?: MemSplit;
   swap?: { used: number; total: number };
-  battery?: SystemStats["battery"];
   /** Bytes a second written to swap since the sample before, or null when that could not be trusted. */
   rate: number | null;
   /** Bytes written to swap since boot. */
@@ -62,8 +61,6 @@ const RUN_TIMEOUT_MS = 2000;
  * is unknown rather than a delta divided by the wrong time.
  */
 const SLOW_SAMPLE_MS = 1000;
-/** The battery moves by the minute; asking `pmset` on every sample would say nothing new. */
-const BATTERY_MS = 30_000;
 /** A CPU sample older than this is not a "previous" reading: the delta would average over the whole gap. */
 const CPU_STALE_MS = 10_000;
 /** Nor is one this fresh: counters a moment apart read 0% or 100%. The older sample is kept instead. */
@@ -106,7 +103,6 @@ export function createVitalsSampler(deps: {
   let level = INITIAL_LEVEL;
   let counted: { at: number; swapouts: number; pageSize: number; boot: number | undefined } | null = null;
   let prevCpu: { at: number; cpus: CpuInfo[] } | null = null;
-  let battery: { at: number; value: SystemStats["battery"] } | null = null;
   let sampling: Promise<void> | null = null;
   let started = false;
   let fast = false;
@@ -128,16 +124,13 @@ export function createVitalsSampler(deps: {
 
   async function sample(): Promise<void> {
     const started = now();
-    const batteryDue = !battery || started - battery.at >= BATTERY_MS;
-    const [vm, sys, batt] = await Promise.all([
+    const [vm, sys] = await Promise.all([
       attempt(exec(["vm_stat"], RUN_TIMEOUT_MS)),
       attempt(exec(["sysctl", "-n", "vm.swapusage", "kern.memorystatus_vm_pressure_level", "kern.boottime"], RUN_TIMEOUT_MS)),
-      batteryDue ? attempt(exec(["pmset", "-g", "batt"], RUN_TIMEOUT_MS)) : Promise.resolve(undefined),
     ]);
     // Timed after the tools ran, not before: their counters are from then.
     const at = now();
     const slow = at - started > SLOW_SAMPLE_MS;
-    if (batteryDue) battery = { at, value: batt === undefined ? undefined : parseBattery(batt) };
 
     const counters = vm === undefined ? undefined : parseVmCounters(vm);
     const boot = sys === undefined ? undefined : parseBootTime(sys);
@@ -169,7 +162,6 @@ export function createVitalsSampler(deps: {
       ...(used === undefined ? {} : { mem: { used: Math.min(used, total), total, ...(pressure ? { pressure } : {}) } }),
       ...(counters ? { split: memSplit(counters, total) } : {}),
       ...(swap ? { swap } : {}),
-      ...(battery?.value ? { battery: battery.value } : {}),
       rate,
       written: counters ? counters.swapouts * counters.pageSize : null,
       bootTime: boot ?? null,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CpuInfo } from "node:os";
 import type { SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../src/shared/protocol";
 import { formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, parseOpen, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine, swapTone } from "../src/client/system";
-import { appOf, cpuPercent, memSplit, parseBattery, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "../src/server/system";
+import { appOf, cpuPercent, memSplit, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
 Pages free:                                     4261.
@@ -57,14 +57,6 @@ describe("parsers", () => {
     expect(parsePressure(`${swap}2\n`)).toBe("warning");
     expect(parsePressure(`${swap}4\n`)).toBe("critical");
     expect(parsePressure(swap)).toBeUndefined();
-  });
-
-  test("battery, and none on a Mac without one", () => {
-    expect(parseBattery("Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t62%; discharging; 3:20 remaining present: true\n"))
-      .toEqual({ percent: 62, state: "discharging" });
-    expect(parseBattery("Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t85%; AC attached; not charging present: true\n"))
-      .toEqual({ percent: 85, state: "on AC" });
-    expect(parseBattery("Now drawing from 'AC Power'\n")).toBeUndefined();
   });
 });
 
@@ -157,10 +149,6 @@ describe("panel formatting", () => {
     ]);
     // Before the second reading there is no CPU figure yet.
     expect(summaryFigures(undefined, { load: [1, 1, 1], apps: [] })).toEqual([{ label: "CPU", value: "–", tone: "" }]);
-  });
-
-  test("collapsed, the battery is not on the line, however low", () => {
-    expect(summaryFigures(5, { load: [1, 1, 1], battery: { percent: 8, state: "discharging" }, apps: [] }).map((f) => f.label)).toEqual(["CPU"]);
   });
 
   test("the parts this browser opened are read back; anything else stays closed", () => {

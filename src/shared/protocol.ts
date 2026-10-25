@@ -295,8 +295,6 @@ export interface SystemStats {
   /** Bytes, and the kernel's memory pressure when it could be read. */
   mem?: { used: number; total: number; pressure?: "normal" | "warning" | "critical" };
   swap?: { used: number; total: number };
-  /** `state` as `pmset` words it: "charging", "discharging", "charged", "on AC". */
-  battery?: { percent: number; state: string };
   /**
    * The busiest few by CPU and the largest few by memory, in no order, with the
    * processes inside tmux windows taken out (they are in `windows`). Empty for a

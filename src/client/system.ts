@@ -419,6 +419,7 @@ export function createSystemPanel(
     setOpened("list", !opened.has("list"));
     paintList();
     deps.listToggled();
+    if (last) draw(last);
   };
   /**
    * A figure's line that opens its detail under it: the whole line is the
@@ -506,7 +507,10 @@ export function createSystemPanel(
     const line = swapLine(s.swap?.used, s.written ?? null, s.bootTime ?? null, Date.now());
     const r = line ? opener("swap", "Swap", graph, end) : row("Swap", graph, end);
     r.title = "Writes to the SSD over the last five minutes, newest at the right; the marks are 5 and 20 MB/s";
-    if (!line || !opened.has("swap")) return [r];
+    if (!line || !opened.has("swap")) {
+      swapNote.classList.remove("open");
+      return [r];
+    }
     swapNote.textContent = line.text;
     swapDetail.textContent = line.detail;
     swapNote.classList.toggle("has-detail", line.detail !== "");
@@ -559,6 +563,12 @@ export function createSystemPanel(
     const memTight = s.mem ? memPressure(s.mem) : "";
     const rows: HTMLElement[] = [cpuRow, ...memRows(s, memTight), ...swapRows(s)];
 
+    // Folded, the sort buttons are away, so the fold itself asks to be opened.
+    const foldNudge = memTight !== "" && !opened.has("list");
+    headName.classList.toggle("nudge", foldNudge);
+    headName.classList.toggle("warning", foldNudge && memTight === "warning");
+    headName.classList.toggle("critical", foldNudge && memTight === "critical");
+    headName.setAttribute("aria-description", foldNudge ? "Memory is under pressure: open to see what is holding it" : "");
     for (const by of ["cpu", "mem"] as const) {
       const b = buttons[by];
       const nudge = by === "mem" && memTight !== "" && sort !== "mem";
@@ -574,12 +584,14 @@ export function createSystemPanel(
       : "Counted the way Activity Monitor counts: compressed and swapped memory included, so the list can add up to more than the bar";
     // Window ids are tmux's, and mean nothing under another tmux server.
     const windows = s.windows && s.tmuxServer && s.tmuxServer === deps.tmuxServer() ? s.windows : [];
-    const ranked = panelRows(s.apps, windows, deps.sessions(), sort, Date.now(), undefined, moreOpen);
+    const listed = opened.has("list");
+    const ranked = listed ? panelRows(s.apps, windows, deps.sessions(), sort, Date.now(), undefined, moreOpen) : [];
     const shown = ranked.flatMap((r) => (r.kind === "app" ? [appRow(r.app)] : r.kind === "tab" ? tabRow(r) : [moreRow(r)]));
+    if (listed && !shown.length) shown.push(el("div", "sys-wait", "Reading…"));
     // What the CPU line has that no process owns: the kernel, and processes
     // that came and went between readings. Said, so the column not adding up
     // to the line above is not a mystery.
-    if (sort === "cpu" && cpu !== undefined && s.appsCpu !== undefined && cpu - s.appsCpu >= 1) {
+    if (listed && sort === "cpu" && cpu !== undefined && s.appsCpu !== undefined && cpu - s.appsCpu >= 1) {
       const other = el("div", "sys-app sys-other");
       other.append(el("span", "sys-app-name", "other"), numCell(formatCpu(cpu - s.appsCpu)), el("span", "sys-num"));
       other.title = "The kernel, and processes too brief for ps to catch";
@@ -591,7 +603,7 @@ export function createSystemPanel(
     const focusedLine = active?.opener;
     drawStatus();
     figures.replaceChildren(...rows);
-    if (focusedLine) figures.querySelector<HTMLElement>(`[data-opener="${focusedLine}"]`)?.focus();
+    if (focusedLine) figures.querySelector<HTMLElement>(`[data-opener="${focusedLine}"]`)?.focus({ preventScroll: true });
     list.replaceChildren(...shown);
     if (focused) list.querySelector<HTMLElement>(`[data-chevron="${CSS.escape(focused)}"]`)?.focus();
     const figs = summaryFigures(cpu, s);

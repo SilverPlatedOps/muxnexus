@@ -760,7 +760,6 @@ export function createServer(opts: ServerOptions): RunningServer {
       load: v?.load ?? [0, 0, 0],
       ...(v?.mem ? { mem: v.mem } : {}),
       ...(v?.swap ? { swap: v.swap } : {}),
-      ...(v?.battery ? { battery: v.battery } : {}),
       ...(v?.split ? { split: v.split } : {}),
       apps: m?.apps ?? [],
       // Stamped with the tmux server the windows were read from, not today's: after a

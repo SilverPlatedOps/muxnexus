@@ -1,9 +1,9 @@
 import type { CpuInfo } from "node:os";
-import type { MemSplit, SystemStats } from "../shared/protocol";
+import type { MemSplit } from "../shared/protocol";
 
 /**
  * Reading the machine for the system overview: the parsers for what every Mac
- * has -- `vm_stat`, `sysctl`, `pmset`, the CPU counters -- with no sudo, so no
+ * has -- `vm_stat`, `sysctl`, the CPU counters -- with no sudo, so no
  * temperatures or GPU, which only `powermetrics` as root can see. The sampler
  * (vitals.ts) and the memory reader (memory.ts) run the tools; each parser
  * stands alone, and output it does not recognise gives no answer rather than a
@@ -121,19 +121,6 @@ export function parseSwap(text: string): { used: number; total: number } | undef
  */
 export function parsePressure(text: string): "normal" | "warning" | "critical" | undefined {
   return PRESSURE[/^\s*([124])\s*$/m.exec(text)?.[1] ?? ""];
-}
-
-/**
- * `pmset -g batt`: the percentage and what the power is doing. A Mac with no
- * battery prints only the "drawing from" line, which is no battery at all
- * rather than a broken one. "AC attached; not charging" is a full-enough battery
- * on a charger that is holding it there.
- */
-export function parseBattery(text: string): SystemStats["battery"] {
-  const m = /(\d+)%;\s*([^;]+)/.exec(text);
-  if (!m) return undefined;
-  const state = m[2].trim();
-  return { percent: Number(m[1]), state: state === "AC attached" ? "on AC" : state };
 }
 
 /**

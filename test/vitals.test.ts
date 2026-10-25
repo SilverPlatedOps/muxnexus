@@ -28,7 +28,7 @@ Swapouts:                                 ${m.swapouts}.
       if (m.fail.has(cmd[0])) throw new Error("failed");
       if (cmd[0] === "vm_stat") return vmStat();
       if (cmd[0] === "sysctl") return `total = 4096.00M  used = 3072.00M  free = 1024.00M  (encrypted)\n${m.pressure}\n{ sec = ${m.boot}, usec = 0 } Tue Oct 20 10:58:38 2026\n`;
-      return " -InternalBattery-0 (id=1)\t62%; discharging; 3:20 remaining present: true";
+      return "";
     },
     now: () => m.t,
     cpus: () => [cpu(m.busy, m.idle)],
@@ -191,24 +191,20 @@ describe("the rest of the figures", () => {
     expect(s.latest()!.cpu).toBeUndefined();
   });
 
-  test("asks pmset only every half minute", async () => {
+  test("never asks pmset: nothing shows the battery", async () => {
     const { s, m, later } = rig();
     await s.sampleNow();
-    expect(s.latest()!.battery).toEqual({ percent: 62, state: "discharging" });
-    await later(5000);
-    expect(s.latest()!.battery).toEqual({ percent: 62, state: "discharging" });
-    expect(m.calls.filter((c) => c === "pmset")).toHaveLength(1);
+    await later(60_000);
+    expect(m.calls).not.toContain("pmset");
   });
 
   test("a tool that fails leaves its figures out and the rest standing", async () => {
     const { s, m } = rig();
     m.fail.add("vm_stat");
-    m.fail.add("pmset");
     await s.sampleNow();
     const v = s.latest()!;
     expect(v.mem).toBeUndefined();
     expect(v.split).toBeUndefined();
-    expect(v.battery).toBeUndefined();
     expect(v.swap).toEqual({ used: 3 * GiB, total: 4 * GiB });
   });
 });

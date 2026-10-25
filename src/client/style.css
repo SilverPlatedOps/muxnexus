@@ -1552,6 +1552,8 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 @media (prefers-reduced-motion: reduce) { .sys-list-toggle .chevron { transition: none; } }
 .sys-apps.folded .sys-list-toggle .chevron { transform: rotate(-90deg); }
 .sys-apps.folded .sys-sort { display: none; }
+.sys-app-head > .sys-list-toggle.nudge.warning { color: var(--yellow); }
+.sys-app-head > .sys-list-toggle.nudge.critical { color: var(--red); }
 .sys-app-head > * { color: var(--dim); }
 .sys-wait { color: var(--dim); font-style: italic; line-height: 1.6; }
 /* The one-line verdict at the top (system.ts statusLine), hidden while calm. */
