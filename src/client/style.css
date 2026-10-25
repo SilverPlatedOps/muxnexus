@@ -1538,10 +1538,25 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .sys-other > * { color: var(--dim); font-style: italic; }
 .sys-apps { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--line-soft); }
 .sys-app-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+/* A figure's line that opens its detail: the whole line is the button, and its
+   label wears the dotted underline that says there is more, as the swap note does. */
+.sys-row.sys-opener { width: 100%; padding: 0; background: none; border: 0; border-radius: 4px; color: inherit; font: inherit; line-height: 1.6; text-align: left; cursor: pointer; }
+.sys-opener .sys-label { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+.sys-opener:hover .sys-label, .sys-opener[aria-expanded="true"] .sys-label { color: var(--fg); }
+.sys-opener:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* The list's head is its fold, in the overview's chevron. */
+.sys-list-toggle { display: flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.sys-app-head > .sys-list-toggle:hover { color: var(--fg); }
+.sys-list-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.sys-list-toggle .chevron { flex: none; display: inline-flex; transition: transform 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .sys-list-toggle .chevron { transition: none; } }
+.sys-apps.folded .sys-list-toggle .chevron { transform: rotate(-90deg); }
+.sys-apps.folded .sys-sort { display: none; }
 .sys-app-head > * { color: var(--dim); }
 .sys-wait { color: var(--dim); font-style: italic; line-height: 1.6; }
 /* The one-line verdict at the top (system.ts statusLine), hidden while calm. */
-.sys-status { display: flex; gap: 6px; margin: 2px 0 6px; padding: 4px 8px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.6; }
+/* Wrapped in a narrow drawer, so the hint is never cut short. */
+.sys-status { margin: 2px 0 6px; padding: 4px 8px; border-radius: 5px; line-height: 1.6; }
 .sys-status.critical { color: var(--red); background: color-mix(in oklab, var(--red) 12%, transparent); }
 .sys-status.warning { color: var(--yellow); background: color-mix(in oklab, var(--yellow) 10%, transparent); }
 .sys-status.ok { color: var(--green); background: color-mix(in oklab, var(--green) 10%, transparent); }

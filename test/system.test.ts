@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CpuInfo } from "node:os";
 import type { SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../src/shared/protocol";
-import { batteryPressure, formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine, swapTone } from "../src/client/system";
+import { formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, parseOpen, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine, swapTone } from "../src/client/system";
 import { appOf, cpuPercent, memSplit, parseBattery, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
@@ -129,11 +129,8 @@ describe("panel formatting", () => {
     expect(sparkPath([0, 25, 150], 10)).toEqual({ line: "M7,100.0L8,75.0L9,0.0", area: "M7,100.0L8,75.0L9,0.0L9,100L7,100Z" });
   });
 
-  test("a figure turns yellow at 80% and red at 90%; a battery only while it runs down", () => {
+  test("a figure turns yellow at 80% and red at 90%", () => {
     expect([79, 80, 89, 90].map(pressure)).toEqual(["", "warning", "warning", "critical"]);
-    expect(batteryPressure({ percent: 15, state: "discharging" })).toBe("warning");
-    expect(batteryPressure({ percent: 8, state: "discharging" })).toBe("critical");
-    expect(batteryPressure({ percent: 8, state: "charging" })).toBe("");
   });
 
   test("memory is the kernel's call, by percentage only when it does not say", () => {
@@ -162,10 +159,16 @@ describe("panel formatting", () => {
     expect(summaryFigures(undefined, { load: [1, 1, 1], apps: [] })).toEqual([{ label: "CPU", value: "–", tone: "" }]);
   });
 
-  test("collapsed, a battery joins the line only once it wants something", () => {
-    const at = (percent: number) => summaryFigures(5, { load: [1, 1, 1], battery: { percent, state: "discharging" }, apps: [] });
-    expect(at(60).map((f) => f.label)).toEqual(["CPU"]);
-    expect(at(8)).toContainEqual({ label: "Bat", value: "8%", tone: "critical" });
+  test("collapsed, the battery is not on the line, however low", () => {
+    expect(summaryFigures(5, { load: [1, 1, 1], battery: { percent: 8, state: "discharging" }, apps: [] }).map((f) => f.label)).toEqual(["CPU"]);
+  });
+
+  test("the parts this browser opened are read back; anything else stays closed", () => {
+    expect([...parseOpen(JSON.stringify(["mem", "list"]))]).toEqual(["mem", "list"]);
+    expect([...parseOpen(JSON.stringify(["swap", "bat", 3]))]).toEqual(["swap"]);
+    expect(parseOpen(null).size).toBe(0);
+    expect(parseOpen("{").size).toBe(0);
+    expect(parseOpen(JSON.stringify({ mem: true })).size).toBe(0);
   });
 
   test("bytes and CPU in the room a narrow panel has", () => {

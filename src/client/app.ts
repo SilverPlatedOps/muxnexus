@@ -422,6 +422,7 @@ const system = createSystemPanel(systemBody, document.getElementById("system-sum
     const s = sessions.find((x) => x.windows.some((w) => w.id === windowId));
     if (s) openWindow(s.name, windowId);
   },
+  listToggled: () => syncSystem(),
 });
 const systemToggle = document.getElementById("system-toggle")!;
 /** One line, or the figures and the apps: this browser's choice. */
@@ -487,7 +488,7 @@ function syncSystem() {
     if (dockerOn) docker.reset();
     if (conn.send({ t: "docker", on: dockerOn })) dockerSent = dockerOn;
   }
-  const list = on && !systemFolded && overviewTab === "system";
+  const list = on && !systemFolded && overviewTab === "system" && system.listOpen();
   if (on === systemSent && list === listSent) return;
   if (on && !systemSent) system.reset();
   if (conn.send({ t: "system", on, list })) {
@@ -509,6 +510,7 @@ const nudge = createNudge(document.body, {
     overviewTab = "system";
     saveTab(overviewTab);
     showOverviewTab();
+    system.openList();
     system.sortBy("mem");
     syncSystem();
   },

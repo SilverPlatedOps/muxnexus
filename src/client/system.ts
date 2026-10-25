@@ -1,11 +1,12 @@
 import type { MemSplit, RatePoint, SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../shared/protocol";
 import { formatElapsed } from "./agent";
+import { ICONS } from "./icons";
 import { sessionLabel, windowPlace } from "./labels";
 import { meter } from "./usage";
 
 /**
  * The system overview at the foot of the notes panel: CPU over the last minute,
- * memory, swap, battery, and the apps doing the most. The server only reads the
+ * memory, swap, and the apps doing the most. The server only reads the
  * machine while this is open (`{t:"system", on}`), so the CPU history is this
  * view's own and starts again each time it opens.
  *
@@ -18,6 +19,7 @@ import { meter } from "./usage";
 const HISTORY = 30;
 const SORT_KEY = "muxnexus.system.sort";
 const COLLAPSED_KEY = "muxnexus.system.collapsed";
+const OPEN_KEY = "muxnexus.system.open";
 const SVG = "http://www.w3.org/2000/svg";
 
 export type AppSort = "cpu" | "mem";
@@ -41,14 +43,6 @@ export function pressure(percent: number): Pressure {
 export function memPressure(mem: NonNullable<SystemStats["mem"]>): Pressure {
   if (mem.pressure) return mem.pressure === "normal" ? "" : mem.pressure;
   return pressure((mem.used / mem.total) * 100);
-}
-
-/** A battery is only a worry while it is running down. */
-export function batteryPressure(b: NonNullable<SystemStats["battery"]>): Pressure {
-  if (b.state !== "discharging") return "";
-  if (b.percent <= 10) return "critical";
-  if (b.percent <= 20) return "warning";
-  return "";
 }
 
 /**
@@ -205,15 +199,26 @@ export interface Figure { label: string; value: string; tone: Pressure }
 
 /**
  * The overview collapsed to one line: CPU and memory, toned as in the panel,
- * so a machine in trouble still says so. A battery joins only once it wants
- * something; the rest is a click away.
+ * so a machine in trouble still says so; the rest is a click away.
  */
 export function summaryFigures(cpu: number | undefined, s: SystemStats): Figure[] {
   const out: Figure[] = [{ label: "CPU", value: cpu === undefined ? "–" : formatCpu(cpu), tone: cpu === undefined ? "" : pressure(cpu) }];
   if (s.mem) out.push({ label: "Mem", value: `${formatBytes(s.mem.used)}/${formatBytes(s.mem.total)}`, tone: memPressure(s.mem) });
-  const bat = s.battery ? batteryPressure(s.battery) : "";
-  if (s.battery && bat) out.push({ label: "Bat", value: `${s.battery.percent}%`, tone: bat });
   return out;
+}
+
+/** What opens on a tap: Mem's legend, Swap's history on disk, and the list. */
+export type SystemPart = "mem" | "swap" | "list";
+const PARTS: readonly SystemPart[] = ["mem", "swap", "list"];
+
+/** The parts this browser opened; closed unless it did, so the overview starts as its three lines. */
+export function parseOpen(raw: string | null): Set<SystemPart> {
+  try {
+    const v: unknown = JSON.parse(raw ?? "[]");
+    return new Set(Array.isArray(v) ? PARTS.filter((p) => v.includes(p)) : []);
+  } catch {
+    return new Set();
+  }
 }
 
 /** Collapsed unless this browser opened it: the one line is the everyday view. */
@@ -344,6 +349,10 @@ export interface SystemPanel {
   notice(n: SwapNotice): void;
   /** Sort the list, as its header buttons do; the nudge's Show list sorts by memory. */
   sortBy(by: AppSort): void;
+  /** Whether the list is open: only then does the server read what holds memory. */
+  listOpen(): boolean;
+  /** Open the list, as the nudge's Show list does. */
+  openList(): void;
   /** The box closed, or the socket went: whatever comes next is a fresh start. */
   reset(): void;
 }
@@ -351,7 +360,7 @@ export interface SystemPanel {
 export function createSystemPanel(
   body: HTMLElement,
   summary: HTMLElement,
-  deps: { sessions(): SessionInfo[]; tmuxServer(): string | null; goTo(windowId: string): void },
+  deps: { sessions(): SessionInfo[]; tmuxServer(): string | null; goTo(windowId: string): void; listToggled(): void },
 ): SystemPanel {
   let history: number[] = [];
   /** Kept so a reading without a CPU figure (the first) still shows the last known. */
@@ -362,6 +371,13 @@ export function createSystemPanel(
   /** Tab rows opened by their chevron, by window id; and whether the folded tabs are shown. */
   const open = new Set<string>();
   let moreOpen = false;
+  const opened = (() => {
+    try { return parseOpen(localStorage.getItem(OPEN_KEY)); } catch { return new Set<SystemPart>(); }
+  })();
+  function setOpened(part: SystemPart, on: boolean) {
+    if (on) opened.add(part); else opened.delete(part);
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify([...opened])); } catch { /* for this view only */ }
+  }
 
   // Made once and kept: the status line is a live region, which is announced
   // only if it stays the same element; the sort buttons and the swap line keep
@@ -383,10 +399,43 @@ export function createSystemPanel(
   const swapNoteRow = el("div", "sys-note-row");
   swapNoteRow.append(swapNote, swapDetail);
   const head = el("div", "sys-app sys-app-head");
-  const headName = el("span", "sys-app-name", "Holding memory");
+  // Folded, the list is its head alone, and the server stops reading it.
+  const headName = el("button", "sys-app-name sys-list-toggle");
+  headName.type = "button";
+  const chevron = el("span", "chevron");
+  chevron.innerHTML = ICONS.chevron;
+  headName.append(chevron, "Holding memory");
   const list = el("div");
   const apps = el("div", "sys-apps");
   apps.append(head, list);
+  function paintList() {
+    const on = opened.has("list");
+    apps.classList.toggle("folded", !on);
+    headName.setAttribute("aria-expanded", String(on));
+    list.hidden = !on;
+  }
+  paintList();
+  headName.onclick = () => {
+    setOpened("list", !opened.has("list"));
+    paintList();
+    deps.listToggled();
+  };
+  /**
+   * A figure's line that opens its detail under it: the whole line is the
+   * button, so a finger can find it; the detail stays open in this browser.
+   */
+  function opener(part: SystemPart, label: string, ...rest: Element[]): HTMLButtonElement {
+    const b = el("button", "sys-row sys-opener");
+    b.type = "button";
+    b.dataset.opener = part;
+    b.setAttribute("aria-expanded", String(opened.has(part)));
+    b.append(el("span", "sys-label", label), ...rest);
+    b.onclick = () => {
+      setOpened(part, !opened.has(part));
+      if (last) draw(last);
+    };
+    return b;
+  }
   const sortButton = (by: AppSort, label: string) => {
     const b = el("button", "sys-num sys-sort", label);
     b.type = "button";
@@ -415,8 +464,9 @@ export function createSystemPanel(
     status.title = stale ? "stale: no word from the server for a while" : "";
     const text = `${line.text}${line.hint ? ` ${line.hint}` : ""}`;
     if (status.textContent !== text) {
-      const hint = line.hint ? el("span", "sys-status-hint", line.hint) : "";
-      status.replaceChildren(el("span", "", line.text), hint);
+      // Running text, so a narrow drawer wraps it between words.
+      const hint = line.hint ? [" ", el("span", "sys-status-hint", line.hint)] : [];
+      status.replaceChildren(el("span", "", line.text), ...hint);
     }
   }
 
@@ -429,8 +479,9 @@ export function createSystemPanel(
       seg.style.width = `${(s.split[part] / s.split.total) * 100}%`;
       bar.append(seg);
     }
-    const r = row("Mem", bar, el("span", withTone("sys-value sys-end", tone), `${formatBytes(s.mem.used)}/${formatBytes(s.mem.total)}`));
+    const r = opener("mem", "Mem", bar, el("span", withTone("sys-value sys-end", tone), `${formatBytes(s.mem.used)}/${formatBytes(s.mem.total)}`));
     r.title = `${Math.round((s.mem.used / s.mem.total) * 100)}% used`;
+    if (!opened.has("mem")) return [r];
     const legend = el("div", "sys-legend");
     for (const part of memLegend(s.split)) {
       const item = el("span", `sys-legend-item ${part.key}`);
@@ -451,10 +502,11 @@ export function createSystemPanel(
     const values = resampleRates(s.history ?? [], Date.now());
     const graph = spark(values, values.length, SWAP_MAX, SWAP_MARKS);
     graph.classList.add("sys-swap", tone || (recovered ? "ok" : "calm"));
-    const r = row("Swap", graph, el("span", `${withTone("sys-value sys-end", tone)}${recovered && value === "quiet" ? " ok" : ""}`, value));
-    r.title = "Writes to the SSD over the last five minutes, newest at the right; the marks are 5 and 20 MB/s";
+    const end = el("span", `${withTone("sys-value sys-end", tone)}${recovered && value === "quiet" ? " ok" : ""}`, value);
     const line = swapLine(s.swap?.used, s.written ?? null, s.bootTime ?? null, Date.now());
-    if (!line) return [r];
+    const r = line ? opener("swap", "Swap", graph, end) : row("Swap", graph, end);
+    r.title = "Writes to the SSD over the last five minutes, newest at the right; the marks are 5 and 20 MB/s";
+    if (!line || !opened.has("swap")) return [r];
     swapNote.textContent = line.text;
     swapDetail.textContent = line.detail;
     swapNote.classList.toggle("has-detail", line.detail !== "");
@@ -506,10 +558,6 @@ export function createSystemPanel(
     cpuRow.title = "CPU over the last minute, newest at the right";
     const memTight = s.mem ? memPressure(s.mem) : "";
     const rows: HTMLElement[] = [cpuRow, ...memRows(s, memTight), ...swapRows(s)];
-    // The battery only once it is worth a look: while it runs down.
-    if (s.battery?.state === "discharging") {
-      rows.push(row("Bat", el("span", withTone("sys-value", batteryPressure(s.battery)), `${s.battery.percent}% ${s.battery.state}`)));
-    }
 
     for (const by of ["cpu", "mem"] as const) {
       const b = buttons[by];
@@ -537,10 +585,13 @@ export function createSystemPanel(
       other.title = "The kernel, and processes too brief for ps to catch";
       shown.push(other);
     }
-    // Redrawn every reading, so a chevron that had the keys gets them back.
-    const focused = (document.activeElement as HTMLElement | null)?.dataset?.chevron;
+    // Redrawn every reading, so a chevron or a figure's line that had the keys gets them back.
+    const active = (document.activeElement as HTMLElement | null)?.dataset;
+    const focused = active?.chevron;
+    const focusedLine = active?.opener;
     drawStatus();
     figures.replaceChildren(...rows);
+    if (focusedLine) figures.querySelector<HTMLElement>(`[data-opener="${focusedLine}"]`)?.focus();
     list.replaceChildren(...shown);
     if (focused) list.querySelector<HTMLElement>(`[data-chevron="${CSS.escape(focused)}"]`)?.focus();
     const figs = summaryFigures(cpu, s);
@@ -571,6 +622,12 @@ export function createSystemPanel(
       else drawStatus();
     },
     sortBy: setSort,
+    listOpen: () => opened.has("list"),
+    openList() {
+      if (opened.has("list")) return;
+      setOpened("list", true);
+      paintList();
+    },
     reset() {
       history = [];
       cpu = undefined;
