@@ -77,3 +77,93 @@ export function makeResizable(o: ResizeOptions): void {
     save();
   });
 }
+
+/**
+ * The system overview's share of the height it splits with the note, dragged
+ * by a grip on its top edge. A share, not pixels, so a resized window keeps the
+ * split; held under half, so the note always has the larger part.
+ */
+export const MAX_SHARE = 0.5;
+
+/** The share a pointer at `y` asks for: its height above the area's foot. */
+export function shareAt(y: number, top: number, bottom: number): number {
+  return (bottom - y) / (bottom - top);
+}
+
+/**
+ * Between the overview's line (`floor` px) and half, and no more than the
+ * overview has to show (`natural` px), so the share kept is the one seen.
+ */
+export function clampShare(share: number, area: number, natural: number, floor: number): number {
+  const hi = Math.min(MAX_SHARE, natural / area);
+  const lo = Math.min(floor / area, hi);
+  return Math.round(Math.max(lo, Math.min(hi, share)) * 1000) / 1000;
+}
+
+export function storedShare(raw: string | null, fallback: number): number {
+  const v = Number(raw);
+  return v > 0 ? Math.min(MAX_SHARE, v) : fallback;
+}
+
+export interface SplitOptions {
+  grip: HTMLElement;
+  /** The overview, which carries the variable. */
+  panel: HTMLElement;
+  /** The height it splits with the note, in the viewport. */
+  area: () => { top: number; bottom: number };
+  /** Its height if it were not held to its share. */
+  natural: () => number;
+  floor: number;
+  cssVar: string;
+  storageKey: string;
+  fallback: number;
+}
+
+export function makeSplit(o: SplitOptions): void {
+  let share = o.fallback;
+  try { share = storedShare(localStorage.getItem(o.storageKey), o.fallback); } catch { /* the default */ }
+  const apply = () => {
+    o.panel.style.setProperty(o.cssVar, String(share));
+    o.grip.setAttribute("aria-valuenow", String(Math.round(share * 100)));
+  };
+  const save = () => {
+    try { localStorage.setItem(o.storageKey, String(share)); } catch { /* this browser forgets */ }
+  };
+  const set = (s: number) => {
+    const a = o.area();
+    share = clampShare(s, a.bottom - a.top, o.natural(), o.floor);
+    apply();
+  };
+  apply();
+  o.grip.setAttribute("aria-valuemin", "0");
+  o.grip.setAttribute("aria-valuemax", String(MAX_SHARE * 100));
+
+  o.grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { o.grip.setPointerCapture(e.pointerId); } catch { /* keep dragging */ }
+    document.body.classList.add("resizing-row");
+    const move = (ev: PointerEvent) => {
+      const a = o.area();
+      set(shareAt(ev.clientY, a.top, a.bottom));
+    };
+    const up = () => {
+      document.body.classList.remove("resizing-row");
+      save();
+      o.grip.removeEventListener("pointermove", move);
+      o.grip.removeEventListener("pointerup", up);
+      o.grip.removeEventListener("pointercancel", up);
+    };
+    o.grip.addEventListener("pointermove", move);
+    o.grip.addEventListener("pointerup", up);
+    o.grip.addEventListener("pointercancel", up);
+  });
+  o.grip.addEventListener("dblclick", () => { share = o.fallback; apply(); save(); });
+  o.grip.addEventListener("keydown", (e) => {
+    // Up raises the edge, so the overview grows.
+    if (e.key === "ArrowUp") set(share + 0.05);
+    else if (e.key === "ArrowDown") set(share - 0.05);
+    else return;
+    e.preventDefault();
+    save();
+  });
+}

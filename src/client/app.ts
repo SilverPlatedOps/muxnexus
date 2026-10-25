@@ -7,7 +7,7 @@ import { createTerminal } from "./terminal";
 import { createSplit } from "./split";
 import { markdownPath } from "./file-links";
 import { createNotes } from "./notes";
-import { makeResizable } from "./resize";
+import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
@@ -533,6 +533,16 @@ makeResizable({
 makeResizable({
   grip: document.getElementById("notes-grip")!, panel: notesPanel, host: layout,
   cssVar: "--notes", storageKey: "muxnexus.notes-width", min: 260, max: 640, fallback: 380, edge: "left",
+});
+makeSplit({
+  grip: document.getElementById("system-grip")!, panel: systemEl,
+  area: () => ({ top: document.getElementById("notes-head")!.getBoundingClientRect().bottom, bottom: notesPanel.getBoundingClientRect().bottom }),
+  // The tab showing, scrolled to its end.
+  natural: () => {
+    const body = overviewTab === "docker" ? dockerBody : systemBody;
+    return systemEl.offsetHeight - body.clientHeight + body.scrollHeight;
+  },
+  floor: 96, cssVar: "--system-share", storageKey: "muxnexus.system-share", fallback: 0.4,
 });
 
 /** Show a window: its session attached, the window selected in the main pane. */
