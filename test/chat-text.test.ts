@@ -17,7 +17,7 @@ const JOIN = `You've joined muxnexus chat "shop review" as @codex1 (role: review
 Folder: ~/github/shop-orders
 Members: @user (the human) · @claude1 (Claude, shop-orders, driver)
 
-Commands
+Commands (run mux as written: muxnexus catches it in this tab, so it needn't be on your PATH)
   mux say "<text>"      post; @handle wakes that member
   mux read [n]          older messages
   mux who               members, folders, roles, what each is doing
