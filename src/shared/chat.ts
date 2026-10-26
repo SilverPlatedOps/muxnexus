@@ -98,6 +98,8 @@ export interface ChatSummary {
   glyph: ChatGlyph;
   /** Agents still in it. */
   members: number;
+  /** The tabs of those agents, so a tab can say which chats it is in. */
+  windows: string[];
 }
 
 /** Handed out in order, so two agents of one kind still look different. */
@@ -115,3 +117,46 @@ export const MEMBER_COLOURS = [
   "oklch(82% .10 280)",
   "oklch(84% .08 190)",
 ] as const;
+
+/** `@name` not glued to a word, an address or a path before it. */
+const MENTION = /(?<![\w@.\/])@([A-Za-z][A-Za-z0-9_-]*)/g;
+
+/**
+ * The handles a line mentions, in order and once each. A bare kind (`@codex`)
+ * names the one active member of that kind, and nobody when there are two.
+ * Shared: the server decides who is woken, and the message box shows the same.
+ */
+export function resolveMentions(chat: Pick<Chat, "members">, text: string): { to: string[]; unknown: string[] } {
+  const to: string[] = [];
+  const unknown: string[] = [];
+  const live = chat.members.filter((m) => m.kind !== "user" && !m.left);
+  for (const match of text.matchAll(MENTION)) {
+    const name = match[1]!.toLowerCase();
+    let handle: string | undefined;
+    if (name === "user") handle = "user";
+    else handle = live.find((m) => m.handle.toLowerCase() === name)?.handle;
+    if (!handle) {
+      const ofKind = live.filter((m) => m.kind === name);
+      if (ofKind.length === 1) handle = ofKind[0]!.handle;
+    }
+    if (handle) {
+      if (!to.includes(handle)) to.push(handle);
+    } else if (!unknown.includes(name)) {
+      unknown.push(name);
+    }
+  }
+  return { to, unknown };
+}
+
+/** A line split into plain text and the mentions in it, for drawing. */
+export function mentionParts(text: string): { text: string; mention?: true }[] {
+  const out: { text: string; mention?: true }[] = [];
+  let at = 0;
+  for (const m of text.matchAll(MENTION)) {
+    if (m.index! > at) out.push({ text: text.slice(at, m.index) });
+    out.push({ text: m[0], mention: true });
+    at = m.index! + m[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}

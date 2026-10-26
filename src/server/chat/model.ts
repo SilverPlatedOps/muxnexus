@@ -1,4 +1,6 @@
-import { SHAPES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatSummary } from "../../shared/chat";
+import { resolveMentions, SHAPES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatSummary } from "../../shared/chat";
+
+export { resolveMentions };
 
 /**
  * The room's rules, with no I/O: who is in a chat, whom a line wakes, and when
@@ -10,9 +12,6 @@ import { SHAPES, type AgentKind, type Chat, type ChatMember, type ChatMessage, t
 export const DEFAULT_CAP = 3;
 /** How many missed lines ride along with a mention before `mux read` takes over. */
 export const DEFAULT_CATCHUP = 5;
-
-/** `@name` not glued to a word, an address or a path before it. */
-const MENTION = /(?<![\w@.\/])@([A-Za-z][A-Za-z0-9_-]*)/g;
 
 export function newChat(id: string, name: string, now: string, cap: number = DEFAULT_CAP): Chat {
   return {
@@ -50,32 +49,6 @@ export function addMember(
   };
   chat.members.push(member);
   return member;
-}
-
-/**
- * The handles a line mentions, in order and once each. A bare kind (`@codex`)
- * names the one active member of that kind, and nobody when there are two.
- */
-export function resolveMentions(chat: Chat, text: string): { to: string[]; unknown: string[] } {
-  const to: string[] = [];
-  const unknown: string[] = [];
-  const live = active(chat);
-  for (const match of text.matchAll(MENTION)) {
-    const name = match[1]!.toLowerCase();
-    let handle: string | undefined;
-    if (name === "user") handle = "user";
-    else handle = live.find((m) => m.handle.toLowerCase() === name)?.handle;
-    if (!handle) {
-      const ofKind = live.filter((m) => m.kind === name);
-      if (ofKind.length === 1) handle = ofKind[0]!.handle;
-    }
-    if (handle) {
-      if (!to.includes(handle)) to.push(handle);
-    } else if (!unknown.includes(name)) {
-      unknown.push(name);
-    }
-  }
-  return { to, unknown };
 }
 
 function setPending(chat: Chat, from: "queued" | "held", to: "queued" | "held" | "cancelled", now: string, reason?: string): number {
@@ -197,5 +170,5 @@ export function summary(chat: Chat, agentGlyph: (m: ChatMember) => string | unde
       : live.some((m) => agentGlyph(m) === "running")
         ? "running"
         : "seen";
-  return { id: chat.id, name: chat.name, archived: chat.archived === true, glyph, members: live.length };
+  return { id: chat.id, name: chat.name, archived: chat.archived === true, glyph, members: live.length, windows: live.flatMap((m) => (m.windowId ? [m.windowId] : [])) };
 }
