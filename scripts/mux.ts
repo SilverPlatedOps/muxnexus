@@ -157,7 +157,7 @@ export async function runHook(
   // Codex command can read it, and nothing in the reply is ever parsed by a shell.
   const dir = join(env.TMPDIR || "/tmp", "muxnexus-chat");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${crypto.randomUUID()}.out`);
+  const file = join(dir, `${crypto.randomUUID().slice(0, 8)}.out`);
   writeFileSync(file, `${reply.output}\n`);
   return hookOutput(`cat ${q(file)}; rm -f ${q(file)}${reply.ok ? "" : "; exit 1"}`);
 }

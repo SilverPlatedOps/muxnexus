@@ -1,4 +1,5 @@
 import type { NewWindowAgent, SessionInfo, WindowInfo } from "../shared/protocol";
+import type { ChatSummary } from "../shared/chat";
 import { MENU_REORDER, makeReorderable, moveItem } from "./reorder";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
@@ -47,6 +48,8 @@ export interface Tabs {
   setProfiles(labels: string[]): void;
   /** The window shown in the beside pane, if the terminal is split. */
   setBeside(id: string | null): void;
+  /** The chats each tab's agent is in; a tab in any wears a mark that lists them. */
+  setChatMarks(marks: Map<string, ChatSummary[]>, open: (anchor: HTMLElement, chats: ChatSummary[], windowId: string) => void): void;
 }
 
 const ICON = {
@@ -93,6 +96,8 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   let sharing = new Map<string, Sharing>();
   let profiles: string[] = [];
   let beside: string | null = null;
+  let chatMarks = new Map<string, ChatSummary[]>();
+  let openChats: ((anchor: HTMLElement, chats: ChatSummary[], windowId: string) => void) | null = null;
   /** The active window the strip last scrolled to. */
   let revealed: string | null = null;
 
@@ -259,6 +264,14 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
       const n = el("span", "note-mark", "✎");
       n.title = "Has a note";
       name.append(n);
+    }
+    const inChats = chatMarks.get(w.id);
+    if (inChats?.length) {
+      const c = el("span", "chat-mark", `💬${inChats.length}`);
+      c.title = `In ${inChats.length === 1 ? "a chat" : `${inChats.length} chats`}: ${inChats.map((x) => x.name).join(", ")}`;
+      c.setAttribute("role", "button");
+      c.onclick = (e) => { e.stopPropagation(); openChats?.(c, inChats, w.id); };
+      name.append(c);
     }
     if (w.panes > 1) {
       const panes = el("span", "panes", String(w.panes));
@@ -427,6 +440,13 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
 
   return {
     render: draw,
+    setChatMarks(marks, open) {
+      const key = (m: Map<string, ChatSummary[]>) => [...m].map(([w, cs]) => `${w}:${cs.map((c) => c.id).join(",")}`).join(";");
+      openChats = open;
+      if (key(marks) === key(chatMarks)) return;
+      chatMarks = marks;
+      if (lastCurrent) rerender();
+    },
     setBeside(id) {
       if (id === beside) return;
       beside = id;
