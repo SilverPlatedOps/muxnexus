@@ -123,6 +123,12 @@ describe("agent-state.sh", () => {
     }
   });
 
+  test("claude never writes a thread stamp", async () => {
+    await fire("SessionStart", { session_id: "abc", transcript_path: "/tmp/t.jsonl" });
+    await fire("UserPromptSubmit", { session_id: "abc", transcript_path: "/tmp/t.jsonl" });
+    expect(await option("@muxnexus_thread")).toBe("");
+  });
+
   describe("under Codex", () => {
     /**
      * Run it as `codex --no-daemon` does: from a process inside the pane. The
@@ -147,6 +153,17 @@ describe("agent-state.sh", () => {
       await codex("SessionStart", { session_id: "abc", transcript_path: "/Users/someone/.codex/sessions/r.jsonl" });
       expect(await state()).toBe("done");
       expect(await option("@muxnexus_session")).toBe("");
+    });
+
+    test("its thread is stamped on SessionStart, so a chat can queue to it", async () => {
+      await codex("SessionStart", { session_id: "01a1-thread", transcript_path: "/Users/someone/.codex/sessions/r 1.jsonl" });
+      expect(await option("@muxnexus_thread")).toBe("01a1-thread /Users/someone/.codex/sessions/r 1.jsonl");
+    });
+
+    test("a new thread after /new is stamped by its first prompt", async () => {
+      await codex("SessionStart", { session_id: "old", transcript_path: "/x/old.jsonl" });
+      await codex("UserPromptSubmit", { session_id: "new", transcript_path: "/x/new.jsonl" });
+      expect(await option("@muxnexus_thread")).toBe("new /x/new.jsonl");
     });
 
     test("asking the user a question is waiting on them", async () => {

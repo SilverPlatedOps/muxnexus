@@ -48,6 +48,24 @@ export function orderSessions<T extends { name: string; order?: number }>(sessio
   });
 }
 
+/** The agent behind a window, as chat delivery needs it (`Tmux.agentOfWindow`). */
+export interface WindowAgentInfo {
+  paneId: string;
+  kind: "claude" | "codex";
+  /** The agent process, from the stamp. Absent for a daemon-run Codex tab. */
+  pid?: number;
+  configDir?: string;
+  /** The stamp's own state, before the server's staleness guards. */
+  state?: AgentState;
+  cwd?: string;
+  /** Codex: the thread `codex queue` addresses, and its rollout. */
+  thread?: { id: string; path?: string };
+  /** Claude: the conversation and its transcript. */
+  conversation?: ConversationInfo;
+  /** A Codex tab without `--no-daemon`: no stamp, unreachable by a chat. */
+  daemon?: boolean;
+}
+
 /** A pane's root process (`#{pane_pid}`), and the window it belongs to. */
 export interface PaneRoot {
   windowId: string;
@@ -1027,6 +1045,48 @@ export class Tmux {
     for (const [a, b] of swapPlan(positions, indices)) {
       await this.run(["swap-window", "-s", `${target}:${b}`, "-t", `${target}:${a}`]);
     }
+  }
+
+  /** The window and session a pane belongs to: how a chat hook's pane becomes a member. */
+  async windowOfPane(paneId: string): Promise<{ windowId: string; session: string } | null> {
+    if (!/^%\d+$/.test(paneId)) return null;
+    const out = await this.run(["display-message", "-p", "-t", paneId, "#{window_id}\t#{session_name}"]).catch(() => "");
+    const [windowId, session] = out.replace(/\r?\n$/, "").split("\t");
+    return windowId && session ? { windowId, session } : null;
+  }
+
+  /**
+   * The agent a window runs, from its pane stamps: what chat delivery needs to
+   * reach it. A Codex tab started without `--no-daemon` runs its hooks in the
+   * shared daemon, so it carries no stamp; it is reported with `daemon` set,
+   * because a chat can neither reach it nor hear from it.
+   */
+  async agentOfWindow(windowId: string): Promise<WindowAgentInfo | null> {
+    if (!/^@\d+$/.test(windowId)) return null;
+    const out = await this.run(["list-panes", "-t", windowId, "-F",
+      "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}"]).catch(() => "");
+    let daemon: WindowAgentInfo | null = null;
+    for (const row of out.split("\n").filter(Boolean)) {
+      const [paneId, command, cwd, thread, session, raw] = row.split("\t");
+      const stamp = parseStamp(raw ?? "");
+      if (!stamp) {
+        if (/codex/i.test(command ?? "")) daemon ??= { paneId: paneId!, kind: "codex", daemon: true, cwd };
+        continue;
+      }
+      const kind = stamp.configDir && /\/\.codex[^/]*$/.test(stamp.configDir) ? "codex" : "claude";
+      const t = /^(\S+)(?:\s+(.+))?$/.exec((thread ?? "").trim());
+      return {
+        paneId: paneId!,
+        kind,
+        pid: stamp.pid,
+        state: stamp.state,
+        cwd,
+        ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
+        ...(kind === "codex" && t ? { thread: { id: t[1]!, ...(t[2] ? { path: t[2] } : {}) } } : {}),
+        ...(kind === "claude" ? (() => { const c = parseSession(session ?? ""); return c ? { conversation: c } : {}; })() : {}),
+      };
+    }
+    return daemon;
   }
 
   /** Kill the whole server on this socket. Never throws (used by tests). */

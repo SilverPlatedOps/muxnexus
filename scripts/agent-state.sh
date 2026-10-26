@@ -28,6 +28,10 @@
 #     within a session -- and deliberately NOT cleared on SessionEnd: a tab whose
 #     agent has quit is exactly the one worth resuming elsewhere.
 #
+#   @muxnexus_thread = "<thread id> <rollout path>"    (Codex only: SessionStart
+#     and every UserPromptSubmit, since /new starts a thread without restarting)
+#     The thread a chat queues messages to with `codex queue --thread`.
+#
 # `tmux` needs no socket argument: it takes one from $TMUX, which is set in the
 # pane the hook inherits. Outside tmux there is no pane and the script exits.
 
@@ -84,6 +88,13 @@ stamp_session() {
   tmux set-option -p -t "$TMUX_PANE" @muxnexus_session "$sid $tpath" 2>/dev/null
 }
 
+# Codex's thread, for chat delivery. Off the hot path: prompts and session starts only.
+stamp_thread() {
+  sid=$(field session_id) || return 0
+  tpath=$(field transcript_path) || tpath=""
+  tmux set-option -p -t "$TMUX_PANE" @muxnexus_thread "$sid${tpath:+ $tpath}" 2>/dev/null
+}
+
 # Matched against the raw JSON, so both `"tool_name":"X"` and `"tool_name": "X"`
 # have to hit. A false match here would only mis-state a glyph for one turn.
 has() {
@@ -119,7 +130,8 @@ case "$event" in
     fi ;;
   UserPromptSubmit)
     state=running
-    mark_turn=1 ;;
+    mark_turn=1
+    [ "$agent" = codex ] && stamp_thread ;;
   Notification)
     case "$payload" in
       *permission_prompt*|*elicitation_dialog*) state=input ;;
@@ -134,7 +146,8 @@ case "$event" in
     # Once per session, off the hot path: record which conversation this is.
     # Parsed with parameter expansion rather than jq for the same reason `has`
     # uses `case` -- no subprocess, and a miss only costs the Move to... default.
-    [ "$event" = SessionStart ] && [ "$agent" = claude ] && stamp_session ;;
+    [ "$event" = SessionStart ] && [ "$agent" = claude ] && stamp_session
+    [ "$event" = SessionStart ] && [ "$agent" = codex ] && stamp_thread ;;
   SessionEnd)
     tmux set-option -pu -t "$TMUX_PANE" @muxnexus_agent 2>/dev/null
     tmux set-option -pu -t "$TMUX_PANE" @muxnexus_turn 2>/dev/null
