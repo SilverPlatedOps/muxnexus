@@ -28,6 +28,13 @@ describe("tokenize", () => {
   test("an unclosed quote refuses the line", () => {
     expect(tokenize(`mux say "open`)).toBeNull();
   });
+
+  test("a comment or a $'…' string refuses the line: sh would read them differently", () => {
+    for (const cmd of [`mux say fixed #12`, `mux say hi # note`, `mux say $'a\\nb'`, `mux say $"x"`]) {
+      expect(tokenize(cmd)).toBeNull();
+    }
+    expect(tokenize(`mux say "fixed #12" a#b`)).toEqual(["mux", "say", "fixed #12", "a#b"]);
+  });
 });
 
 describe("muxArgv", () => {
@@ -46,6 +53,12 @@ describe("muxArgv", () => {
 
   test("a heredoc gives its body as the text, untouched", () => {
     expect(muxArgv(`mux say <<'EOF'\nline 1 with $HOME and "quotes"\nline 2\nEOF`)).toEqual(["say", `line 1 with $HOME and "quotes"\nline 2`]);
+  });
+
+  test("a heredoc ends at its first delimiter line: anything after it refuses the line", () => {
+    expect(muxArgv("mux say <<EOF\nhi\nEOF\nrm -rf x\nEOF")).toBeNull();
+    expect(muxArgv(`mux say "$(cat <<'EOF'\nhi\nEOF\nrm -rf x\nEOF\n)"`)).toBeNull();
+    expect(muxArgv("mux say x #<<EOF\nrm -rf y\nEOF")).toBeNull();
   });
 
   test("the $(cat <<'EOF' …) idiom inside double quotes gives its body", () => {
@@ -91,6 +104,8 @@ describe("hook", () => {
     const run = Bun.spawnSync(["sh", "-c", JSON.parse(out!).hookSpecificOutput.updatedInput.command]);
     expect(run.stdout.toString()).toBe("NOT POSTED: this tab is not in a chat\n");
     expect(run.exitCode).toBe(1);
+    // A shell an agent keeps alive between commands must survive a refusal.
+    expect(JSON.parse(out!).hookSpecificOutput.updatedInput.command).not.toContain("exit");
     rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -137,6 +152,8 @@ describe("standalone", () => {
   test("mux run without the hook prints NOT POSTED and exits 1", () => {
     const run = Bun.spawnSync(["bun", MUX, "say", "hi"]);
     expect(run.stdout.toString()).toStartWith("NOT POSTED: the muxnexus hook didn't catch this call");
+    // The usual cause is a line the hook won't touch: say so before blaming the install.
+    expect(run.stdout.toString()).toContain("as a command of its own");
     expect(run.exitCode).toBe(1);
   });
 });

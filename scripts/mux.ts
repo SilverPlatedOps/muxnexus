@@ -24,9 +24,10 @@ const NOT_CAUGHT = "NOT POSTED: the muxnexus hook didn't catch this call";
 /**
  * A command line as POSIX sh would split it, for the one shape the hook
  * accepts: a single simple command. Anything that would run something else --
- * an operator, a substitution, a newline outside quotes -- returns null, so the
- * hook leaves the line alone and it fails on its own. `$` stays literal: the
- * text is delivered as the agent wrote it, never expanded.
+ * an operator, a substitution, a newline outside quotes -- or that sh would
+ * read differently -- a comment, a `$'…'` string -- returns null, so the hook
+ * leaves the line alone and it fails on its own. `$` stays literal: the text
+ * is delivered as the agent wrote it, never expanded.
  */
 export function tokenize(cmd: string): string[] | null {
   const words: string[] = [];
@@ -70,7 +71,7 @@ export function tokenize(cmd: string): string[] | null {
     } else if (c === " " || c === "\t") {
       end();
       i++;
-    } else if (";&|<>()`\n".includes(c) || (c === "$" && cmd[i + 1] === "(")) {
+    } else if (";&|<>()`\n".includes(c) || (c === "$" && "('\"".includes(cmd[i + 1] ?? "")) || (c === "#" && !inWord)) {
       return null;
     } else {
       word += c;
@@ -92,13 +93,22 @@ const CAT_HEREDOC = /"\$\(cat\s*<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[ \t]*\n
  */
 export function muxArgv(command: string): string[] | null {
   const bodies: string[] = [];
-  let line = command.trim().replace(CAT_HEREDOC, (_m, _q, _tag, body: string) => `__MUXBODY${bodies.push(body) - 1}__`);
+  // sh ends a heredoc at its first delimiter line; a body holding another one
+  // means more commands follow it, which the hook must leave alone.
+  let cut = false;
+  const ends = (body: string, tag: string) => body.split("\n").includes(tag);
+  let line = command.trim().replace(CAT_HEREDOC, (_m, _q, tag: string, body: string) => {
+    if (ends(body, tag)) cut = true;
+    return `__MUXBODY${bodies.push(body) - 1}__`;
+  });
   const doc = HEREDOC.exec(line);
   let trailing: string | null = null;
   if (doc) {
+    if (ends(doc[4]!, doc[3]!)) return null;
     line = doc[1]!;
     trailing = doc[4]!;
   }
+  if (cut) return null;
   const words = tokenize(line);
   if (!words || words.length === 0) return null;
   if (!/(^|\/)mux(\.ts)?$/.test(words[0]!)) return null;
@@ -159,7 +169,8 @@ export async function runHook(
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${crypto.randomUUID().slice(0, 8)}.out`);
   writeFileSync(file, `${reply.output}\n`);
-  return hookOutput(`cat ${q(file)}; rm -f ${q(file)}${reply.ok ? "" : "; exit 1"}`);
+  // `false`, not `exit`: some agents keep one shell alive between commands.
+  return hookOutput(`cat ${q(file)}; rm -f ${q(file)}${reply.ok ? "" : "; false"}`);
 }
 
 async function main(args: string[]): Promise<number> {
@@ -187,8 +198,9 @@ async function main(args: string[]): Promise<number> {
   }
   process.stdout.write(
     `${NOT_CAUGHT}.\n` +
-      "mux only works from a muxnexus chat member's tab, where muxnexus's hook carries it to the server.\n" +
-      "Check the hook is installed (bun run setup in muxnexus) and, in Codex, trusted under /hooks.\n",
+      "Run mux as a command of its own: no cd, &&, pipes, redirects or comments around it, and the text in quotes.\n" +
+      "If it was: mux only works from a muxnexus chat member's tab. Check the hook is installed\n" +
+      "(python3 scripts/install-agent-hook.py in muxnexus) and, in Codex, trusted under /hooks.\n",
   );
   return 1;
 }
