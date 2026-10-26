@@ -28,6 +28,9 @@ import type { VitalsSampler } from "./vitals";
 // would add the same flags again -- and Codex refuses --no-daemon twice.
 const AGENTS: Record<NewWindowAgent, string> = { codex: `command codex --no-daemon -c 'tui.alternate_screen="never"'` };
 
+/** What a Codex started from a chat is told first: enough to start its thread, nothing to do. */
+const CODEX_OPENING = "You've been added to a muxnexus group chat. Nothing to do yet: reply only with the word ready. Chat messages will arrive here, each headed [muxnexus · …].";
+
 export interface ServerOptions {
   /** Addresses to listen on, all sharing one port. The first is the one reported. */
   hosts: string[];
@@ -372,7 +375,9 @@ export function createServer(opts: ServerOptions): RunningServer {
         spawn: async (req) => {
           const where = isAbsolute(req.folder) ? await stat(req.folder).catch(() => null) : null;
           if (!where?.isDirectory()) throw new Error(`no such folder: ${req.folder}`);
-          let command = AGENTS.codex;
+          // Codex starts its thread on its first turn, and a chat can only queue to a
+          // thread: a spawned Codex gets one short opening turn so the chat can reach it.
+          let command = `${AGENTS.codex} ${shellQuote(CODEX_OPENING)}`;
           if (req.kind === "claude") {
             const dir = req.profile ? (opts.profiles?.() ?? []).find((d) => profileLabel(d) === req.profile) : undefined;
             command = dir ? `CLAUDE_CONFIG_DIR=${shellQuote(dir)} claude` : "claude";
