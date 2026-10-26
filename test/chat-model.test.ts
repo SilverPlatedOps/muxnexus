@@ -187,10 +187,14 @@ describe("summary", () => {
     expect(summary(c, () => undefined).glyph).toBe("seen");
   });
 
-  test("a paused chat says paused, a working one running", () => {
+  test("a stopped chat needs the user; one paused at the cap says paused; a working one running", () => {
     const c = chatWith("claude");
     stop(c, "claude1", "done", T);
-    expect(summary(c, () => undefined).glyph).toBe("paused");
+    expect(summary(c, () => undefined).glyph).toBe("input");
+    const p = chatWith("claude");
+    p.cap = 1;
+    post(p, "claude1", "one more thing", T);
+    expect(summary(p, () => undefined).glyph).toBe("paused");
     const d = chatWith("claude");
     expect(summary(d, () => "running")).toMatchObject({ glyph: "running", members: 1, name: "shop review", archived: false });
   });

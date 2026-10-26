@@ -163,7 +163,8 @@ function asksUser(chat: Chat): boolean {
 
 export function summary(chat: Chat, agentGlyph: (m: ChatMember) => string | undefined): ChatSummary {
   const live = active(chat);
-  const glyph = asksUser(chat)
+  // A stop hands the chat to the user, like a question would; only the cap is a pause.
+  const glyph = asksUser(chat) || chat.paused?.reason === "stop"
     ? "input"
     : chat.paused
       ? "paused"
