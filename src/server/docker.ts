@@ -1,11 +1,11 @@
-import { cpus as osCpus } from "node:os";
 import type { DockerContainer, DockerStats } from "../shared/protocol";
 
 /**
  * The containers for the system overview's Docker tab: what each one is,
  * whether it is up, and what it is costing. Read with the `docker` CLI, so the
  * engine shown is whichever one it points at -- Rancher Desktop, Docker
- * Desktop, colima.
+ * Desktop, colima, or another machine's through a docker context. Each reading
+ * names that context, so a list from elsewhere is not taken for the Mac's.
  *
  * Nothing here runs unless a browser has the tab open (server.ts). The engine
  * lives in a VM behind a socket, and while that VM starts or wedges the CLI can
@@ -26,8 +26,12 @@ export interface DockerReader {
   read(): Promise<DockerStats>;
 }
 
-/** Longer than `docker stats --no-stream` takes when well (about two seconds: it waits for a second sample). */
-const TIMEOUT_MS = 5_000;
+/**
+ * Longer than `docker stats --no-stream` takes when well: about two seconds (it
+ * waits for a second sample), and up to five through an `ssh://` context, which
+ * opens a session for every call.
+ */
+const TIMEOUT_MS = 10_000;
 
 /** Tab-separated: a label value can hold a comma ("Broadcom, Inc."), so `{{.Labels}}` cannot be split. */
 const PS_FORMAT = [
@@ -115,38 +119,46 @@ export function parseStats(text: string): Map<string, { cpu: number; mem: number
 }
 
 /**
- * `cores` puts each container on the overview's CPU scale: `docker stats`
- * counts one core as 100%, and the System tab's apps are a share of the whole
- * Mac, so the two tabs can be read against each other.
+ * `docker stats` counts one core as 100%; each container's CPU is put on the
+ * engine's own cores, as its memory is on the engine's own memory, so a
+ * container on another machine is a share of that machine and not of the Mac.
  */
-export function createDockerReader(opts: { run?: Runner; cores?: number } = {}): DockerReader {
+export function createDockerReader(opts: { run?: Runner } = {}): DockerReader {
   const exec = opts.run ?? run;
-  const cores = Math.max(1, opts.cores ?? osCpus().length);
   return {
     async read() {
+      // Read without the engine, so it is known even when the engine is not answering.
+      const named = exec(["docker", "context", "show"], TIMEOUT_MS).then(
+        (out) => (out.trim() ? { context: out.trim() } : {}),
+        () => ({}),
+      );
       let ps: string;
       try {
         ps = await exec(["docker", "ps", "-a", "--format", PS_FORMAT], TIMEOUT_MS);
       } catch (e) {
-        return { engine: e instanceof EngineUnavailable ? e.engine : "down", containers: [] };
+        return { engine: e instanceof EngineUnavailable ? e.engine : "down", containers: [], ...(await named) };
       }
       const containers = parsePs(ps);
       // With nothing running there is nothing to measure, and two seconds saved.
       // A `stats` or `info` that fails or times out still leaves the list worth showing.
-      const [usage, info] = await Promise.all([
+      const [usage, info, context] = await Promise.all([
         containers.some((c) => c.state === "running")
           ? exec(["docker", "stats", "--no-stream", "--format", STATS_FORMAT], TIMEOUT_MS).then(parseStats, () => undefined)
           : undefined,
-        exec(["docker", "info", "--format", "{{.MemTotal}}"], TIMEOUT_MS).catch(() => undefined),
+        exec(["docker", "info", "--format", "{{.MemTotal}}\t{{.NCPU}}"], TIMEOUT_MS).catch(() => undefined),
+        named,
       ]);
-      const vmMem = Number(info?.trim());
+      const [vmMem, cores] = (info?.trim() ?? "").split("\t").map(Number);
       return {
         engine: "up",
         containers: containers.map((c) => {
           const u = usage?.get(c.id);
-          return u ? { ...c, cpu: u.cpu / cores, mem: u.mem } : c;
+          // Without the engine's cores, CPU is left unknown rather than put on the wrong machine's scale.
+          if (!u) return c;
+          return cores > 0 ? { ...c, cpu: u.cpu / cores, mem: u.mem } : { ...c, mem: u.mem };
         }),
         ...(vmMem > 0 ? { vmMem } : {}),
+        ...context,
       };
     },
   };

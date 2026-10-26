@@ -1607,6 +1607,9 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .sys-tab { margin-right: 10px; padding: 0; background: none; border: 0; font-family: inherit; color: var(--dim); cursor: pointer; }
 .sys-tab:hover, .sys-tab.on { color: var(--fg-strong); }
 /* The Docker tab (docker.ts): containers under the compose project that started them. */
+/* A long context name is cut short rather than pushing the row wide. */
+.dock-context > .sys-label { width: auto; }
+.dock-context > .dock-context-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dock-list { max-height: 210px; overflow-y: auto; }
 .dock-group > .sys-app-name { color: var(--muted); }
 .dock-group > .sys-num { color: var(--dim); }

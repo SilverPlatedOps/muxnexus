@@ -3,10 +3,11 @@ import { formatBytes, formatCpu, gauge, pressure } from "./system";
 
 /**
  * The overview's Docker tab: each container under the compose project that
- * started it, what it costs while it runs, and how much of the engine's VM the
- * running ones fill. The server reads Docker only while this tab is the one
- * showing (`{t:"docker", on}`): `docker stats` takes two seconds and wakes the
- * VM, which is too dear for a list nobody is looking at.
+ * started it, what it costs while it runs, and how much of the engine's memory
+ * the running ones fill, under the docker context's name so another machine's
+ * engine is not taken for the Mac's. The server reads Docker only while this
+ * tab is the one showing (`{t:"docker", on}`): `docker stats` takes two seconds
+ * and wakes the VM, which is too dear for a list nobody is looking at.
  */
 
 export type OverviewTab = "system" | "docker";
@@ -75,12 +76,27 @@ export function groupContainers(containers: readonly DockerContainer[]): Contain
     (a.project ?? "").localeCompare(b.project ?? ""));
 }
 
-/** What the tab says in place of a list, or null when there is a list to show. */
+/**
+ * What the running containers use, in bytes, or undefined when none of them was
+ * measured: a `docker stats` that failed or timed out is not a reading of zero.
+ */
+export function containersMem(s: DockerStats): number | undefined {
+  const up = s.containers.filter(running);
+  if (up.length > 0 && up.every((c) => c.mem === undefined)) return undefined;
+  return up.reduce((sum, c) => sum + (c.mem ?? 0), 0);
+}
+
+/**
+ * What the tab says in place of a list, or null when there is a list to show.
+ * It names the context, so a remote engine gone quiet is not read as the Mac's;
+ * named, "down" is a failed connection as often as a stopped engine.
+ */
 export function engineNote(s: DockerStats): string | null {
-  if (s.engine === "down") return "Docker is not running";
-  if (s.engine === "slow") return "Docker is not answering";
+  const on = s.context ? ` on ${s.context}` : "";
+  if (s.engine === "down") return s.context ? `Docker${on} can't be reached` : "Docker is not running";
+  if (s.engine === "slow") return `Docker${on} is not answering`;
   if (s.engine === "missing") return "No docker command on the PATH";
-  return s.containers.length === 0 ? "No containers" : null;
+  return s.containers.length === 0 ? `No containers${on}` : null;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -121,13 +137,20 @@ export function createDockerPanel(body: HTMLElement): DockerPanel {
       return;
     }
     const parts: HTMLElement[] = [];
-    if (s.vmMem) {
-      // Inside the VM: the Mac holds the whole VM whatever its containers use,
-      // which is the figure the System tab lists it under.
-      const used = s.containers.reduce((sum, c) => sum + (c.mem ?? 0), 0);
-      const vm = gauge("VM", used, s.vmMem, pressure((used / s.vmMem) * 100));
-      vm.title = `The running containers use ${Math.round((used / s.vmMem) * 100)}% of the engine's VM; the Mac holds all of it`;
-      parts.push(vm);
+    if (s.context) {
+      const ctx = el("div", "sys-row dock-context");
+      ctx.append(el("span", "sys-label", "Context"), el("span", "sys-value dock-context-name", s.context));
+      ctx.title = `Read through docker context ${s.context}`;
+      parts.push(ctx);
+    }
+    const used = containersMem(s);
+    if (s.vmMem && used !== undefined) {
+      // The containers' share of the engine's machine: a VM the Mac holds whole
+      // whatever its containers use, or another computer, whose own processes
+      // outside Docker are not counted.
+      const mem = gauge("Mem", used, s.vmMem, pressure((used / s.vmMem) * 100));
+      mem.title = `The running containers use ${Math.round((used / s.vmMem) * 100)}% of the memory the engine has`;
+      parts.push(mem);
     }
     const head = el("div", "sys-app sys-app-head");
     head.append(el("span", "sys-app-name", "Container"), el("span", "sys-num", "CPU"), el("span", "sys-num", "Mem"));

@@ -3,7 +3,7 @@ import type { DockerContainer, DockerStats, ServerMessage } from "../src/shared/
 import { createServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { waitFor } from "./helpers";
-import { containerLabel, engineNote, groupContainers } from "../src/client/docker";
+import { containerLabel, containersMem, engineNote, groupContainers } from "../src/client/docker";
 import { createDockerReader, EngineUnavailable, parsePs, parseSize, parseStats, run } from "../src/server/docker";
 
 const PS = [
@@ -19,6 +19,9 @@ const STATS = [
   "bbb\t0.00%\t213.5MiB / 3.827GiB",
   "",
 ].join("\n");
+
+/** `docker info`: the engine's memory, then its cores. */
+const INFO = "4108935168\t4\n";
 
 const C = (over: Partial<DockerContainer> = {}): DockerContainer => ({
   id: "x", name: "x", image: "img", state: "running", status: "Up", ...over,
@@ -75,7 +78,6 @@ describe("reader", () => {
   function reader(outputs: Record<string, string | Error>) {
     const calls: string[] = [];
     const r = createDockerReader({
-      cores: 4,
       run: async (cmd) => {
         calls.push(cmd[1]);
         const out = outputs[cmd[1]];
@@ -86,18 +88,51 @@ describe("reader", () => {
     return { r, calls };
   }
 
-  test("running containers carry CPU on the whole Mac's scale, and memory; the VM its size", async () => {
-    const s = await reader({ ps: PS, stats: STATS, info: "4108935168\n" }).r.read();
+  test("running containers carry CPU on the engine's own cores, and memory; the engine its memory", async () => {
+    const s = await reader({ ps: PS, stats: STATS, info: INFO }).r.read();
     expect(s.engine).toBe("up");
-    expect(s.containers[0]).toMatchObject({ name: "shop-orders-kafka-1", cpu: 3 }); // 12% of one core of four
+    expect(s.containers[0]).toMatchObject({ name: "shop-orders-kafka-1", cpu: 3 }); // 12% of one core of the engine's four
     expect(s.containers[2].cpu).toBeUndefined();
     expect(s.vmMem).toBe(4108935168);
   });
 
+  test("an engine whose cores are not known leaves CPU unknown and the memory standing", async () => {
+    const s = await reader({ ps: PS, stats: STATS, info: new EngineUnavailable("slow") }).r.read();
+    expect(s.containers[0].cpu).toBeUndefined();
+    expect(s.containers[0].mem).toBe(545.2 * 1024 ** 2);
+    const memOnly = await reader({ ps: PS, stats: STATS, info: "4108935168\n" }).r.read();
+    expect(memOnly.vmMem).toBe(4108935168);
+    expect(memOnly.containers[0].cpu).toBeUndefined();
+  });
+
+  test("gives an engine reached over SSH time to answer: no command is cut off before ten seconds", async () => {
+    const limits: number[] = [];
+    await createDockerReader({ run: async (cmd, timeoutMs) => (limits.push(timeoutMs), cmd[1] === "ps" ? PS : "") }).read();
+    expect(limits.length).toBeGreaterThan(0);
+    expect(Math.min(...limits)).toBeGreaterThanOrEqual(10_000);
+  });
+
   test("with nothing running, no stats are asked for", async () => {
-    const { r, calls } = reader({ ps: PS.replaceAll("\trunning\t", "\texited\t"), info: "4108935168\n" });
+    const { r, calls } = reader({ ps: PS.replaceAll("\trunning\t", "\texited\t"), info: INFO });
     expect((await r.read()).vmMem).toBe(4108935168);
-    expect(calls.sort()).toEqual(["info", "ps"]);
+    expect(calls.sort()).toEqual(["context", "info", "ps"]);
+  });
+
+  test("names the context it read through, so another machine's engine is not taken for the Mac's", async () => {
+    const s = await reader({ ps: PS, stats: STATS, info: INFO, context: "remote-box\n" }).r.read();
+    expect(s.context).toBe("remote-box");
+  });
+
+  test("names it too when that engine does not answer", async () => {
+    expect(await reader({ ps: new EngineUnavailable("slow"), context: "remote-box\n" }).r.read())
+      .toEqual({ engine: "slow", containers: [], context: "remote-box" });
+  });
+
+  test("a context that cannot be read leaves the list standing", async () => {
+    const s = await reader({ ps: PS, stats: STATS, info: INFO, context: new Error("boom") }).r.read();
+    expect(s.engine).toBe("up");
+    expect(s.containers).toHaveLength(4);
+    expect(s.context).toBeUndefined();
   });
 
   test("stats that fail leave the list standing", async () => {
@@ -193,5 +228,18 @@ describe("panel", () => {
     expect(engineNote({ engine: "missing", containers: [] })).toBe("No docker command on the PATH");
     expect(engineNote({ engine: "up", containers: [] })).toBe("No containers");
     expect(engineNote({ engine: "up", containers: [C()] })).toBeNull();
+  });
+
+  test("what the running containers use is unknown, not nothing, when none of them was measured", () => {
+    expect(containersMem({ engine: "up", containers: [C(), C()] })).toBeUndefined();
+    expect(containersMem({ engine: "up", containers: [C({ mem: 300 }), C(), C({ state: "exited" })] })).toBe(300);
+    expect(containersMem({ engine: "up", containers: [C({ state: "exited" })] })).toBe(0);
+  });
+
+  test("names the context in what it says, so a silent remote engine is not taken for the Mac's", () => {
+    // A refused connection fails the CLI as fast as a stopped engine does, so "down" cannot say which.
+    expect(engineNote({ engine: "down", containers: [], context: "remote-box" })).toBe("Docker on remote-box can't be reached");
+    expect(engineNote({ engine: "slow", containers: [], context: "remote-box" })).toBe("Docker on remote-box is not answering");
+    expect(engineNote({ engine: "up", containers: [], context: "remote-box" })).toBe("No containers on remote-box");
   });
 });

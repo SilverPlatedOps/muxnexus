@@ -360,7 +360,11 @@ export interface DockerContainer {
   /** The compose project and service that started it; absent for a container started by hand. */
   project?: string;
   service?: string;
-  /** Running containers only: CPU on `SystemStats.cpu`'s scale (a share of the whole Mac), and bytes in use. */
+  /**
+   * Running containers only: CPU as a share of the engine's machine, 0-100 (its
+   * VM on this Mac, or another computer), absent when its cores are not known;
+   * and bytes in use.
+   */
   cpu?: number;
   mem?: number;
 }
@@ -373,8 +377,13 @@ export interface DockerContainer {
 export interface DockerStats {
   engine: "up" | "down" | "slow" | "missing";
   containers: DockerContainer[];
-  /** The memory the engine's VM has, in bytes, as `docker info` gives it. */
+  /**
+   * The memory the engine has, in bytes, as `docker info` gives it: its VM's
+   * on this Mac, or the whole machine's for an engine on another one.
+   */
   vmMem?: number;
+  /** The docker context read through, as `docker context show` names it; absent when it could not be read. */
+  context?: string;
 }
 
 /** Agents a new window can start with. */
