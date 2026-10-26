@@ -113,7 +113,11 @@ export function post(chat: Chat, from: string, text: string, now: string, opts: 
       }
     } else {
       chat.agentRun++;
-      if (!chat.paused && chat.agentRun >= chat.cap) chat.paused = { reason: "cap" };
+      if (!chat.paused && chat.agentRun >= chat.cap) {
+        // Nobody else is woken: what was still waiting waits for the user too.
+        chat.paused = { reason: "cap" };
+        setPending(chat, "queued", "held", now);
+      }
       // Talking to the user, or to the room at large, is talking to the user.
       if (to.includes("user") || to.length === 0) chat.lastSpokeToUser = from;
     }
@@ -164,7 +168,8 @@ export function discardHeld(chat: Chat, now: string = new Date().toISOString()):
  */
 export function missedFor(chat: Chat, handle: string, uptoId: number, cap: number = DEFAULT_CATCHUP): { lines: ChatMessage[]; older: number } {
   const seen = chat.members.find((m) => m.handle === handle)?.lastSeq ?? 0;
-  const unseen = chat.messages.filter((m) => m.id > seen && m.id < uptoId && m.from !== handle);
+  // The room's own lines (joins, leaves) are in the join message and `mux who`.
+  const unseen = chat.messages.filter((m) => m.id > seen && m.id < uptoId && m.from !== handle && !m.system);
   const lines = unseen.slice(-cap);
   const first = lines[0]?.id ?? uptoId;
   const older = chat.messages.filter((m) => m.id < first).length;

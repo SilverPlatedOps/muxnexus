@@ -66,6 +66,39 @@ export interface WindowAgentInfo {
   daemon?: boolean;
 }
 
+const WINDOW_AGENT_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}";
+
+/**
+ * A window's agent from its `list-panes` rows (`WINDOW_AGENT_FORMAT`): the
+ * first stamped pane, or -- with none -- a pane running codex, which is a Codex
+ * tab in the shared daemon. Its hooks never stamp, and a chat can't reach it.
+ */
+export function parseWindowAgent(rows: readonly string[]): WindowAgentInfo | null {
+  let daemon: WindowAgentInfo | null = null;
+  for (const row of rows) {
+    const [paneId, command, cwd, thread, session, raw] = row.split("\t");
+    const stamp = parseStamp(raw ?? "");
+    if (!stamp) {
+      if (/(^|\/)codex$/i.test(command ?? "")) daemon ??= { paneId: paneId!, kind: "codex", daemon: true, ...(cwd ? { cwd } : {}) };
+      continue;
+    }
+    const kind = stamp.configDir && /\/\.codex[^/]*$/.test(stamp.configDir) ? "codex" : "claude";
+    const t = /^(\S+)(?:\s+(.+))?$/.exec((thread ?? "").trim());
+    const conversation = kind === "claude" ? parseSession(session ?? "") : null;
+    return {
+      paneId: paneId!,
+      kind,
+      pid: stamp.pid,
+      state: stamp.state,
+      ...(cwd ? { cwd } : {}),
+      ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
+      ...(kind === "codex" && t ? { thread: { id: t[1]!, ...(t[2] ? { path: t[2] } : {}) } } : {}),
+      ...(conversation ? { conversation } : {}),
+    };
+  }
+  return daemon;
+}
+
 /** A pane's root process (`#{pane_pid}`), and the window it belongs to. */
 export interface PaneRoot {
   windowId: string;
@@ -1047,6 +1080,18 @@ export class Tmux {
     }
   }
 
+  /**
+   * A new tab in `session`, in `folder`, running `command` and then a login
+   * shell, as `newWindow` does: the window id, so a chat can follow the agent
+   * that starts in it.
+   */
+  async spawnWindow(session: string, folder: string, command: string): Promise<string> {
+    const target = `${await this.target(session)}:`;
+    const shell = (await this.run(["show-options", "-gv", "default-shell"])).trim() || "/bin/sh";
+    const out = await this.run(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", target, "-c", folder, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
+    return out.trim();
+  }
+
   /** The window and session a pane belongs to: how a chat hook's pane becomes a member. */
   async windowOfPane(paneId: string): Promise<{ windowId: string; session: string } | null> {
     if (!/^%\d+$/.test(paneId)) return null;
@@ -1063,30 +1108,8 @@ export class Tmux {
    */
   async agentOfWindow(windowId: string): Promise<WindowAgentInfo | null> {
     if (!/^@\d+$/.test(windowId)) return null;
-    const out = await this.run(["list-panes", "-t", windowId, "-F",
-      "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}"]).catch(() => "");
-    let daemon: WindowAgentInfo | null = null;
-    for (const row of out.split("\n").filter(Boolean)) {
-      const [paneId, command, cwd, thread, session, raw] = row.split("\t");
-      const stamp = parseStamp(raw ?? "");
-      if (!stamp) {
-        if (/codex/i.test(command ?? "")) daemon ??= { paneId: paneId!, kind: "codex", daemon: true, cwd };
-        continue;
-      }
-      const kind = stamp.configDir && /\/\.codex[^/]*$/.test(stamp.configDir) ? "codex" : "claude";
-      const t = /^(\S+)(?:\s+(.+))?$/.exec((thread ?? "").trim());
-      return {
-        paneId: paneId!,
-        kind,
-        pid: stamp.pid,
-        state: stamp.state,
-        cwd,
-        ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
-        ...(kind === "codex" && t ? { thread: { id: t[1]!, ...(t[2] ? { path: t[2] } : {}) } } : {}),
-        ...(kind === "claude" ? (() => { const c = parseSession(session ?? ""); return c ? { conversation: c } : {}; })() : {}),
-      };
-    }
-    return daemon;
+    const out = await this.run(["list-panes", "-t", windowId, "-F", WINDOW_AGENT_FORMAT]).catch(() => "");
+    return parseWindowAgent(out.split("\n").filter(Boolean));
   }
 
   /** Kill the whole server on this socket. Never throws (used by tests). */

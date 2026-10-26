@@ -40,6 +40,10 @@ export interface ChatMember {
   lastSeq?: number;
   /** The join message has gone out with a delivery. */
   welcomed?: boolean;
+  /** A message the chat woke it with, delivered and not yet answered by a post of its own. */
+  awaiting?: number;
+  /** Its turn was seen running since `awaiting` was delivered. */
+  sawRunning?: boolean;
   left?: boolean;
   /** An agent started from the chat, before its tab came up, or after it failed to. */
   spawn?: "pending" | "failed";

@@ -85,6 +85,14 @@ describe("posting", () => {
     expect(states(c, third.id)).toEqual({ codex1: "held" });
   });
 
+  test("reaching the cap also holds what was still waiting", () => {
+    const c = chatWith("claude", "codex");
+    c.cap = 2;
+    const waiting = post(c, "claude1", "@codex1 look", T);
+    post(c, "codex1", "@claude1 ok", T);
+    expect(states(c, waiting.id)).toEqual({ codex1: "held" });
+  });
+
   test("a user message resets the count and releases what was held", () => {
     const c = chatWith("claude", "codex");
     c.cap = 1;
@@ -153,6 +161,13 @@ describe("catching up", () => {
     const got = missedFor(c, "codex1", now.id, 4);
     expect(got.lines.map((l) => l.text)).toEqual(["line 3", "line 4", "line 5", "line 6"]);
     expect(got.older).toBe(3);
+  });
+
+  test("the room's own lines are not missed", () => {
+    const c = chatWith("claude", "codex");
+    post(c, "claude1", "claude1 joined", T, { system: true });
+    const now = post(c, "user", "@codex1 go", T);
+    expect(missedFor(c, "codex1", now.id).lines).toEqual([]);
   });
 
   test("an agent's own posts and lines it already has are not missed", () => {

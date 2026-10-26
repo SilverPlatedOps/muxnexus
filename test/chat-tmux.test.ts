@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Tmux } from "../src/server/tmux";
+import { parseWindowAgent, Tmux } from "../src/server/tmux";
 
 const tmux = new Tmux("mxn-chat-tmux-test");
 
@@ -51,5 +51,22 @@ describe("chat lookups", () => {
     const p = await pane("shop");
     expect(await tmux.agentOfWindow(p.window)).toBeNull();
     expect(await tmux.agentOfWindow("@9999")).toBeNull();
+  });
+
+  test("an unstamped pane running codex is a daemon-run Codex tab", () => {
+    expect(parseWindowAgent(["%3\tcodex\t/w\t\t\t"])).toEqual({ paneId: "%3", kind: "codex", daemon: true, cwd: "/w" });
+    expect(parseWindowAgent(["%3\tzsh\t/w\t\t\t"])).toBeNull();
+  });
+
+  test("a stamped pane wins over a daemon-looking one", () => {
+    expect(parseWindowAgent(["%3\tcodex\t/w\t\t\t", "%4\tnode\t/w\tth /r.jsonl\t\tdone 1790000000 9 /Users/me/.codex"])).toMatchObject({ paneId: "%4", kind: "codex", thread: { id: "th", path: "/r.jsonl" } });
+  });
+
+  test("a spawned tab opens in its folder and names its window", async () => {
+    await pane("shop");
+    const id = await tmux.spawnWindow("shop", "/tmp", "sleep 30");
+    expect(id).toMatch(/^@\d+$/);
+    const cwd = (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_path}"])).trim();
+    expect(cwd.endsWith("/tmp")).toBe(true);
   });
 });
