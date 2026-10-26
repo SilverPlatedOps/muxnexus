@@ -71,6 +71,18 @@ describe("codex", () => {
     expect(await adapter.send({ kind: "codex", pid: 1, thread: "t" }, "x")).toEqual({ ok: false, reason: "unavailable", detail: "no such thread" });
   });
 
+  test("codex queue runs under the recipient's own CODEX_HOME", async () => {
+    const homes: (string | undefined)[] = [];
+    const adapter = codexAdapter({ run: async (_argv, opts) => { homes.push(opts.home); return { code: 0, out: "" }; } });
+    await adapter.send({ kind: "codex", pid: 1, thread: "t", configDir: "/Users/me/.codex-work" }, "x");
+    expect(homes).toEqual(["/Users/me/.codex-work"]);
+  });
+
+  test("a codex queue that never answers is unavailable after the deadline, not waited on for ever", async () => {
+    const adapter = codexAdapter({ run: () => new Promise(() => {}), timeoutMs: 20 });
+    expect(await adapter.send({ kind: "codex", pid: 1, thread: "t" }, "x")).toEqual({ ok: false, reason: "unavailable", detail: "codex queue didn't answer in time" });
+  });
+
   test("a tab with no thread yet is unavailable", async () => {
     const adapter = codexAdapter({ run: async () => ({ code: 0, out: "" }) });
     expect(await adapter.send({ kind: "codex", pid: 1 }, "x")).toEqual({ ok: false, reason: "unavailable", detail: "no thread yet" });
@@ -84,5 +96,13 @@ describe("receipts", () => {
     expect(await hasTag(path, "· #42 ·")).toBe(true);
     expect(await hasTag(path, "· #43 ·")).toBe(false);
     expect(await hasTag(join(dir, "missing.jsonl"), "· #42 ·")).toBe(false);
+  });
+
+  test("from an offset, only what was written after it counts", async () => {
+    const path = join(dir, "o.jsonl");
+    const before = `{"content":"[muxnexus · a · #1 · from @user]"}\n`;
+    writeFileSync(path, `${before}{"other":1}\n`);
+    expect(await hasTag(path, "[muxnexus · a · #1 ·", Buffer.byteLength(before))).toBe(false);
+    expect(await hasTag(path, "[muxnexus · a · #1 ·", 0)).toBe(true);
   });
 });

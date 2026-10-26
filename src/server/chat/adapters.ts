@@ -80,47 +80,67 @@ export function claudeAdapter(): Adapter {
   };
 }
 
-type Runner = (argv: string[]) => Promise<{ code: number; out: string }>;
+type Runner = (argv: string[], opts: { home?: string; timeoutMs: number }) => Promise<{ code: number; out: string }>;
 
-/** `codex` with the server's tmux variables removed, so nothing it starts can stamp the server's own pane. */
-const runCodex: Runner = async (argv) => {
+/**
+ * `codex` with the server's tmux variables removed, so nothing it starts can
+ * stamp the server's own pane, under the recipient's CODEX_HOME, whose queue
+ * its tab reads, and killed if it hangs.
+ */
+const runCodex: Runner = async (argv, opts) => {
   const bin = Bun.which("codex");
   if (!bin) return { code: 127, out: "codex is not on the server's PATH" };
   const env = { ...process.env };
   delete env.TMUX;
   delete env.TMUX_PANE;
+  if (opts.home) env.CODEX_HOME = opts.home;
   const p = Bun.spawn([bin, ...argv], { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  return { code: await p.exited, out: (out + err).trim() };
+  const timer = setTimeout(() => p.kill(), opts.timeoutMs);
+  try {
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    return { code: await p.exited, out: (out + err).trim() };
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
-export function codexAdapter(opts: { run?: Runner } = {}): Adapter {
+/** A `codex queue` call that hasn't answered in this long never will. */
+const CODEX_TIMEOUT_MS = 15_000;
+
+export function codexAdapter(opts: { run?: Runner; timeoutMs?: number } = {}): Adapter {
   const run = opts.run ?? runCodex;
+  const timeoutMs = opts.timeoutMs ?? CODEX_TIMEOUT_MS;
   return {
     kind: "codex",
     async send(target, text) {
       if (!target.thread) return { ok: false, reason: "unavailable", detail: "no thread yet" };
       // Arguments, never a shell line: the text is whatever an agent wrote.
-      const r = await run(["queue", "--thread", target.thread, "--message", text]);
+      const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs + 1000));
+      const r = await Promise.race([run(["queue", "--thread", target.thread, "--message", text], { ...(target.configDir ? { home: target.configDir } : {}), timeoutMs }), late]);
+      if (!r) return { ok: false, reason: "unavailable", detail: "codex queue didn't answer in time" };
       return r.code === 0 ? { ok: true } : { ok: false, reason: "unavailable", detail: r.out || `codex queue exited ${r.code}` };
     },
   };
 }
 
-/** The last stretch of a transcript holds the message once the agent has it. */
+/** With no offset, the last stretch of a transcript holds the message once the agent has it. */
 const TAIL = 256 * 1024;
+/** From an offset, this much is read: the message lands soon after it goes. */
+const SPAN = 8 * 1024 * 1024;
 
 /**
- * Whether `tag` appears near the end of a transcript or rollout. Both are
- * JSON lines, so the tag is also looked for as JSON would escape it.
+ * Whether `tag` appears in a transcript or rollout: after `from`, where it
+ * stood when the message went, or else near its end. Both are JSON lines, so
+ * the tag is also looked for as JSON would escape it.
  */
-export async function hasTag(path: string, tag: string): Promise<boolean> {
+export async function hasTag(path: string, tag: string, from?: number): Promise<boolean> {
   let fh;
   try {
     fh = await open(path, "r");
     const { size } = await fh.stat();
-    const start = Math.max(0, size - TAIL);
-    const buf = Buffer.alloc(size - start);
+    // A file shorter than the offset was replaced: all of it is new.
+    const start = from === undefined ? Math.max(0, size - TAIL) : from <= size ? from : 0;
+    const buf = Buffer.alloc(Math.min(size - start, from === undefined ? TAIL : SPAN));
     await fh.read(buf, 0, buf.length, start);
     const text = buf.toString("utf8");
     const escaped = JSON.stringify(tag).slice(1, -1);
