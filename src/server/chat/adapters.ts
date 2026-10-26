@@ -115,8 +115,9 @@ export function codexAdapter(opts: { run?: Runner; timeoutMs?: number } = {}): A
     async send(target, text) {
       if (!target.thread) return { ok: false, reason: "unavailable", detail: "no thread yet" };
       // Arguments, never a shell line: the text is whatever an agent wrote.
-      const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs + 1000));
-      const r = await Promise.race([run(["queue", "--thread", target.thread, "--message", text], { ...(target.configDir ? { home: target.configDir } : {}), timeoutMs }), late]);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs + 1000); });
+      const r = await Promise.race([run(["queue", "--thread", target.thread, "--message", text], { ...(target.configDir ? { home: target.configDir } : {}), timeoutMs }), late]).finally(() => clearTimeout(timer));
       if (!r) return { ok: false, reason: "unavailable", detail: "codex queue didn't answer in time" };
       return r.code === 0 ? { ok: true } : { ok: false, reason: "unavailable", detail: r.out || `codex queue exited ${r.code}` };
     },

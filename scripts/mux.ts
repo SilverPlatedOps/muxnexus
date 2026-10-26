@@ -83,8 +83,8 @@ export function tokenize(cmd: string): string[] | null {
   return words;
 }
 
-const HEREDOC = /^([^\n]*?)\s*<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[ \t]*\n([\s\S]*?)\n\3[ \t]*\n?$/;
-const CAT_HEREDOC = /"\$\(cat\s*<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[ \t]*\n([\s\S]*?)\n\2[ \t]*\n?\)"/g;
+const HEREDOC = /^([^\n]*?)\s*<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\3[ \t]*\n([\s\S]*?)\n\4[ \t]*\n?$/;
+const CAT_HEREDOC = /"\$\(cat\s*<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[ \t]*\n([\s\S]*?)\n\3[ \t]*\n?\)"/g;
 
 /**
  * The arguments of a line that is exactly one `mux` call, or null. A heredoc
@@ -93,20 +93,21 @@ const CAT_HEREDOC = /"\$\(cat\s*<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[ \t]*\n
  */
 export function muxArgv(command: string): string[] | null {
   const bodies: string[] = [];
-  // sh ends a heredoc at its first delimiter line; a body holding another one
-  // means more commands follow it, which the hook must leave alone.
+  // sh ends a heredoc at its first delimiter line (tab-indented, after <<-);
+  // a body holding another one means more commands follow it, which the hook
+  // must leave alone.
   let cut = false;
-  const ends = (body: string, tag: string) => body.split("\n").includes(tag);
-  let line = command.trim().replace(CAT_HEREDOC, (_m, _q, tag: string, body: string) => {
-    if (ends(body, tag)) cut = true;
+  const ends = (body: string, tag: string, dash: string) => body.split("\n").some((l) => (dash ? l.replace(/^\t+/, "") : l) === tag);
+  let line = command.trim().replace(CAT_HEREDOC, (_m, dash: string, _q, tag: string, body: string) => {
+    if (ends(body, tag, dash)) cut = true;
     return `__MUXBODY${bodies.push(body) - 1}__`;
   });
   const doc = HEREDOC.exec(line);
   let trailing: string | null = null;
   if (doc) {
-    if (ends(doc[4]!, doc[3]!)) return null;
+    if (ends(doc[5]!, doc[4]!, doc[2]!)) return null;
     line = doc[1]!;
-    trailing = doc[4]!;
+    trailing = doc[5]!;
   }
   if (cut) return null;
   const words = tokenize(line);

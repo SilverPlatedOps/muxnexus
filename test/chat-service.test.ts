@@ -318,12 +318,40 @@ describe("what is in flight never sticks", () => {
     await svc.handle({ t: "chat-post", id, text: "@codex1 one" });
     await svc.tick();
     gone = true;
+    // A tab that can't be read for a moment is given half a minute.
+    clock += 10;
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.find((m) => m.id === 2)!.deliveries.codex1).toMatchObject({ state: "queued", reason: "sent" });
+    clock += 25;
     await svc.tick();
     expect((await svc.view(id))!.chat.messages.find((m) => m.id === 2)!.deliveries.codex1).toMatchObject({ state: "failed", reason: "not confirmed: its agent went away before reading it" });
     gone = false;
     await svc.handle({ t: "chat-post", id, text: "@codex1 two" });
     await svc.tick();
     expect(sends.map((s) => s.text.includes("two"))).toEqual([false, true]);
+  });
+
+  test("a receipt is still found in the transcript it went to while the tab can't be read", async () => {
+    let gone = false;
+    const svc = service({ agentOfWindow: async (w) => (w === panes.claude!.window && gone ? null : tmux.agentOfWindow(w)) });
+    const id = await newChat(svc, "claude");
+    await svc.handle({ t: "chat-post", id, text: "@claude1 one" });
+    await svc.tick();
+    gone = true;
+    seen.add("#2 ·");
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.find((m) => m.id === 2)!.deliveries.claude1!.state).toBe("delivered");
+  });
+
+  test("a server stopped mid-send leaves the member unwelcomed, so the next delivery still carries the join message", async () => {
+    const hang = service({ adapters: { codex: { kind: "codex", send: () => new Promise(() => {}) } } });
+    const id = await newChat(hang, "codex");
+    await hang.handle({ t: "chat-post", id, text: "@codex1 one" });
+    void hang.tick();
+    await Bun.sleep(150);
+    const after = (await service().view(id))!.chat;
+    expect(after.messages.find((m) => m.id === 2)!.deliveries.codex1).toMatchObject({ state: "queued", reason: "sent" });
+    expect(after.members.find((m) => m.handle === "codex1")!.welcomed).toBeUndefined();
   });
 
   test("five idle minutes with no receipt is not confirmed", async () => {

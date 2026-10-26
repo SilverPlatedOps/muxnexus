@@ -59,6 +59,9 @@ describe("muxArgv", () => {
     expect(muxArgv("mux say <<EOF\nhi\nEOF\nrm -rf x\nEOF")).toBeNull();
     expect(muxArgv(`mux say "$(cat <<'EOF'\nhi\nEOF\nrm -rf x\nEOF\n)"`)).toBeNull();
     expect(muxArgv("mux say x #<<EOF\nrm -rf y\nEOF")).toBeNull();
+    // <<- ends at a tab-indented delimiter too.
+    expect(muxArgv("mux say <<-EOF\nhi\n\tEOF\nrm -rf x\nEOF")).toBeNull();
+    expect(muxArgv(`mux say "$(cat <<-'EOF'\nhi\n\tEOF\nrm -rf x\nEOF\n)"`)).toBeNull();
   });
 
   test("the $(cat <<'EOF' …) idiom inside double quotes gives its body", () => {

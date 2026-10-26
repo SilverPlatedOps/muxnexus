@@ -139,7 +139,8 @@ describe("the message box", () => {
     s = prefillChips(s, c);
     expect(s).toEqual({ chips: ["codex1"], draft: "", offered: "codex1" });
     expect(prefillChips({ chips: [], draft: "", offered: null }, c).chips).toEqual(["codex1"]);
-    expect(prefillChips({ chips: [], draft: "typing", offered: null }, c).chips).toEqual([]);
+    // Not offered while the user types: it is offered once the box is empty again.
+    expect(prefillChips({ chips: [], draft: "typing", offered: null }, c)).toEqual({ chips: [], draft: "typing", offered: null });
   });
 
   test("held messages are counted for the pause strip", () => {

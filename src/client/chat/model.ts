@@ -118,13 +118,14 @@ export function prefill(chat: Chat): string | null {
 
 /**
  * The message box's chips after the chat changed. The prefill is offered once
- * per agent that speaks to the user: a chip the user took off stays off until
- * another agent speaks to them, or they send (which clears `offered`).
+ * per agent that speaks to the user, when the box is empty: a chip the user
+ * took off stays off until another agent speaks to them, or they send (which
+ * clears `offered`).
  */
 export function prefillChips(s: { chips: string[]; draft: string; offered: string | null }, chat: Chat): { chips: string[]; draft: string; offered: string | null } {
   const p = prefill(chat);
-  if (p === s.offered) return s;
-  return { ...s, offered: p, chips: !s.draft.trim() && !s.chips.length && p ? [p] : s.chips };
+  if (p === s.offered || s.draft.trim() || s.chips.length) return s;
+  return { ...s, offered: p, chips: p ? [p] : [] };
 }
 
 export function heldCount(chat: Chat): number {

@@ -103,6 +103,8 @@ type Result = { ok: true; chatId?: string } | { ok: false; error: string };
 const SPAWN_TIMEOUT_MS = 90_000;
 /** A message handed to an idle agent with no sign of it after this long was not read. */
 const UNCONFIRMED_MS = 5 * 60_000;
+/** A tab that can't be read for this long after a message went to it is gone, not between reads. */
+const GONE_MS = 30_000;
 /** The longest chat line: a delivery is one argument to `codex queue`, and a review fits well inside. */
 export const MAX_TEXT = 32_000;
 const tooLong = (n: number) => `too long: ${n.toLocaleString("en-US")} characters, and a chat line holds ${MAX_TEXT.toLocaleString("en-US")}. Put it in a file and point to it.`;
@@ -480,8 +482,10 @@ export function createChatService(deps: ChatServiceDeps) {
           const m = chat.members.find((x) => x.handle === handle);
           if (!m?.windowId) continue;
           const info = await infoOf(m.windowId);
-          const path = sameAgent(m, info) ? transcriptOf(info) : undefined;
           const p = d.probe;
+          // The transcript it went to holds the proof even while the tab can't be read.
+          const path = (sameAgent(m, info) ? transcriptOf(info) : undefined) ?? p?.path;
+          const since = Date.parse(now()) - Date.parse(d.at);
           if (path && (await receipt(path, p?.tag ?? tagOf(chat, msg.id), p && p.path === path ? p.offset : undefined))) {
             msg.deliveries[handle] = { state: "delivered", at: now() };
             // An answer that beat the receipt is already in: nothing to wait for.
@@ -491,9 +495,10 @@ export function createChatService(deps: ChatServiceDeps) {
             }
             changed.add(chat.id);
           } else if (!reachable(m, info)) {
+            if (since <= GONE_MS) continue;
             msg.deliveries[handle] = { state: "failed", reason: "not confirmed: its agent went away before reading it", at: now() };
             changed.add(chat.id);
-          } else if (Date.parse(now()) - Date.parse(d.at) > UNCONFIRMED_MS && idle(m, info)) {
+          } else if (since > UNCONFIRMED_MS && idle(m, info)) {
             msg.deliveries[handle] = { state: "failed", reason: "not confirmed: no sign it was read in 5 minutes", at: now() };
             changed.add(chat.id);
           }
@@ -552,11 +557,9 @@ export function createChatService(deps: ChatServiceDeps) {
       const to = await target(member, info);
       const text = deliveryText(chat, member, msg, missedFor(chat, member.handle, msg.id), { home, several: chatsOf(member.windowId!).length > 1 });
       // Marked and saved before it goes: a crash in between leaves a message
-      // that is never confirmed, never one that is sent twice.
-      const was = { welcomed: member.welcomed, lastSeq: member.lastSeq };
+      // that is never confirmed, never one that is sent twice. What the member
+      // has seen moves only once it has gone.
       msg.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe: { tag: tagOf(chat, msg.id), ...(to.transcript ? { path: to.transcript } : {}), offset: await sizeOf(to.transcript) } };
-      member.welcomed = true;
-      member.lastSeq = Math.max(member.lastSeq ?? 0, msg.id);
       await save(chat);
       let res: SendResult;
       try {
@@ -564,11 +567,12 @@ export function createChatService(deps: ChatServiceDeps) {
       } catch (e) {
         res = { ok: false, reason: "unavailable", detail: e instanceof Error ? e.message : String(e) };
       }
-      if (res.ok) continue;
-      if (was.welcomed === undefined) delete member.welcomed;
-      else member.welcomed = was.welcomed;
-      if (was.lastSeq === undefined) delete member.lastSeq;
-      else member.lastSeq = was.lastSeq;
+      if (res.ok) {
+        member.welcomed = true;
+        member.lastSeq = Math.max(member.lastSeq ?? 0, msg.id);
+        await save(chat);
+        continue;
+      }
       msg.deliveries[s.handle] = res.reason === "offline"
         ? { state: "queued", reason: "offline", at: now() }
         : { state: "failed", reason: res.detail ? `${res.reason}: ${res.detail}` : res.reason, at: now() };
