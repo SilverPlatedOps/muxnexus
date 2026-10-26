@@ -46,12 +46,13 @@ describe("nextSends", () => {
     expect(nextSends([c], view({ "@2": { idle: false } })).send).toEqual([]);
   });
 
-  test("an offline member's queued message fails, and is never sent", () => {
+  test("an offline member's queued message waits, marked offline, and is never sent", () => {
     const c = chat("a", ["claude", "@1"], ["codex", "@2"]);
     const m = post(c, "user", "@claude1 @codex1 go", T);
     const plan = nextSends([c], view({ "@1": { online: false }, "@2": { online: false } }));
     expect(plan.send).toEqual([]);
-    expect(plan.fail).toEqual([
+    expect(plan.fail).toEqual([]);
+    expect(plan.wait).toEqual([
       { chatId: "a", msgId: m.id, handle: "claude1", reason: "offline" },
       { chatId: "a", msgId: m.id, handle: "codex1", reason: "offline" },
     ]);

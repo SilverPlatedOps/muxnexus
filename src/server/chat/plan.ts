@@ -27,9 +27,15 @@ export interface Send {
  * the rest cancellable. An agent is its tab: two chats with the same window
  * share one queue.
  */
-export function nextSends(chats: readonly Chat[], view: (chat: Chat, m: ChatMember) => AgentView): { send: Send[]; fail: (Send & { reason: string })[] } {
+export function nextSends(
+  chats: readonly Chat[],
+  view: (chat: Chat, m: ChatMember) => AgentView,
+): { send: Send[]; fail: (Send & { reason: string })[]; wait: (Send & { reason: string })[] } {
   const send: Send[] = [];
   const fail: (Send & { reason: string })[] = [];
+  // Offline is a wait, not a failure: a tab that comes back, or a stamp that
+  // lagged a moment, gets what was waiting for it.
+  const wait: (Send & { reason: string })[] = [];
   const pending: { chat: Chat; member: ChatMember; msgId: number; at: string }[] = [];
   const inFlight = new Set<string>();
 
@@ -51,7 +57,7 @@ export function nextSends(chats: readonly Chat[], view: (chat: Chat, m: ChatMemb
     const v = view(p.chat, p.member);
     const item = { chatId: p.chat.id, msgId: p.msgId, handle: p.member.handle };
     if (!v.online) {
-      fail.push({ ...item, reason: "offline" });
+      wait.push({ ...item, reason: "offline" });
       continue;
     }
     if (v.kind === "codex") {
@@ -65,5 +71,5 @@ export function nextSends(chats: readonly Chat[], view: (chat: Chat, m: ChatMemb
     }
     send.push(item);
   }
-  return { send, fail };
+  return { send, fail, wait };
 }

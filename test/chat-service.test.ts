@@ -38,6 +38,7 @@ function service(over: { agentOfWindow?: typeof tmux.agentOfWindow } = {}) {
     },
     socketOf: async (_dir, pid) => `/tmp/cc-socks/${pid}.sock`,
     receipt: async (_path, tag) => [...seen].some((s) => tag.includes(s)),
+    alive: () => true,
     now,
     home: homedir(),
   });
@@ -135,16 +136,24 @@ describe("the user's example, end to end", () => {
 });
 
 describe("honest delivery", () => {
-  test("a member whose tab closed fails offline and is never delivered", async () => {
+  test("a member whose tab closed waits as offline, and gets it once it's back", async () => {
     const svc = service();
     const id = await newChat(svc, "claude", "codex");
-    live.delete(panes.codex!.window);
-    await svc.handle({ t: "chat-post", id, text: "@codex1 review please" });
-    await svc.tick();
-    const chat = (await svc.view(id))!.chat;
-    expect(chat.messages.at(-1)!.deliveries.codex1).toMatchObject({ state: "failed", reason: "offline" });
+    const gone = await tmux.agentOfWindow(panes.codex!.window);
+    let back = false;
+    const svc2 = service({ agentOfWindow: async (w) => (w === panes.codex!.window ? (back ? gone : null) : tmux.agentOfWindow(w)) });
+    await svc2.handle({ t: "chat-post", id, text: "@codex1 review please" });
+    await svc2.tick();
+    let chat = (await svc2.view(id))!.chat;
+    expect(chat.messages.at(-1)!.deliveries.codex1).toMatchObject({ state: "queued", reason: "offline" });
     expect(sends).toHaveLength(0);
-    expect((await svc.view(id))!.agents.codex1!.online).toBe(false);
+    expect((await svc2.view(id))!.agents.codex1!.online).toBe(false);
+    back = true;
+    await svc2.tick();
+    expect(sends.at(-1)).toMatchObject({ kind: "codex" });
+    chat = (await svc2.view(id))!.chat;
+    expect(chat.messages.at(-1)!.deliveries.codex1).toMatchObject({ state: "queued", reason: "sent" });
+    void svc;
   });
 
   test("a sent message with no receipt stays queued, never delivered", async () => {

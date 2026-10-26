@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { AgentKind, Chat, ChatMember, ChatSummary } from "../../shared/chat";
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
-import type { WindowAgentInfo } from "../tmux";
+import { processAlive, type WindowAgentInfo } from "../tmux";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget } from "./adapters";
 import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
@@ -88,6 +88,8 @@ export interface ChatServiceDeps {
   spawn?: (req: SpawnRequest) => Promise<string>;
   socketOf?: (configDir: string, pid: number) => Promise<string | null>;
   receipt?: (path: string, tag: string) => Promise<boolean>;
+  /** Whether an agent process still runs; tests stand in for it. */
+  alive?: (pid: number) => boolean;
   now?: () => string;
   home?: string;
 }
@@ -108,6 +110,14 @@ export function createChatService(deps: ChatServiceDeps) {
   const home = deps.home ?? homedir();
   const socketOf = deps.socketOf ?? ((dir: string, pid: number) => claudeSocket(dir, pid));
   const receipt = deps.receipt ?? hasTag;
+  const alive = deps.alive ?? processAlive;
+  /**
+   * Whether a member's agent can be reached, from the fresh read of its
+   * window: a stamp whose process runs, or a Codex tab that hasn't started a
+   * conversation. The server's cached state can lag a stamp by a second; this can't.
+   */
+  const reachable = (info: WindowAgentInfo | null | undefined) =>
+    !!info && !info.daemon && (info.fresh === true || (info.pid !== undefined && alive(info.pid)));
   const chats = new Map<string, Chat>();
   let loaded: Promise<void> | null = null;
   const ready = () => (loaded ??= deps.store.list().then((list) => { for (const c of list) chats.set(c.id, c); }));
@@ -418,10 +428,11 @@ export function createChatService(deps: ChatServiceDeps) {
       const info = m.windowId ? infos.get(m.windowId) : undefined;
       // A Codex tab with no conversation yet has no thread to queue to: its messages wait.
       const threadless = info?.kind === "codex" && !info.daemon && !info.thread;
+      const state = l?.state ?? info?.state;
       return {
         kind: m.kind as AgentKind,
-        online: l?.state !== undefined || info?.fresh === true,
-        idle: !threadless && (l?.state === undefined || l.state === "done"),
+        online: reachable(info),
+        idle: !threadless && (state === undefined || state === "done"),
         ...(info?.daemon ? { daemon: true } : {}),
       };
     };
@@ -432,8 +443,9 @@ export function createChatService(deps: ChatServiceDeps) {
         for (const [handle, d] of Object.entries(msg.deliveries)) {
           if (d.state !== "queued" || d.reason === "sent") continue;
           const m = chat.members.find((x) => x.handle === handle);
-          const info = m?.windowId ? infos.get(m.windowId) : undefined;
-          const why = info?.kind === "codex" && !info.daemon && !info.thread ? "no conversation yet" : undefined;
+          if (!m) continue;
+          const info = m.windowId ? infos.get(m.windowId) : undefined;
+          const why = !view(chat, m).online ? "offline" : info?.kind === "codex" && !info.thread ? "no conversation yet" : undefined;
           if (d.reason !== why) {
             if (why) d.reason = why;
             else delete d.reason;
@@ -464,8 +476,10 @@ export function createChatService(deps: ChatServiceDeps) {
         msg.deliveries[s.handle] = { state: "queued", reason: "sent", at: now() };
         member.welcomed = true;
         member.lastSeq = Math.max(member.lastSeq ?? 0, msg.id);
+      } else if (res.reason === "offline") {
+        msg.deliveries[s.handle] = { state: "queued", reason: "offline", at: now() };
       } else {
-        msg.deliveries[s.handle] = { state: "failed", reason: res.reason, at: now() };
+        msg.deliveries[s.handle] = { state: "failed", reason: res.detail ? `${res.reason}: ${res.detail}` : res.reason, at: now() };
       }
       changed.add(chat.id);
     }
@@ -501,9 +515,10 @@ export function createChatService(deps: ChatServiceDeps) {
       if (m.kind === "user") continue;
       const l = live(m, states);
       const info = m.windowId && !m.left ? await deps.tmux.agentOfWindow(m.windowId) : null;
+      const state = l?.state ?? info?.state;
       agents[m.handle] = {
-        online: l?.state !== undefined || info?.fresh === true,
-        ...(l?.state ? { state: l.state } : {}),
+        online: reachable(info),
+        ...(state ? { state } : {}),
         ...(l?.session ? { session: l.session } : {}),
         ...(info?.daemon ? { daemon: true } : {}),
       };
