@@ -416,15 +416,32 @@ export function createChatService(deps: ChatServiceDeps) {
     const view = (_c: Chat, m: ChatMember): AgentView => {
       const l = live(m, states);
       const info = m.windowId ? infos.get(m.windowId) : undefined;
+      // A Codex tab with no conversation yet has no thread to queue to: its messages wait.
+      const threadless = info?.kind === "codex" && !info.daemon && !info.thread;
       return {
         kind: m.kind as AgentKind,
-        online: l?.state !== undefined,
-        idle: l?.state === undefined || l.state === "done",
+        online: l?.state !== undefined || info?.fresh === true,
+        idle: !threadless && (l?.state === undefined || l.state === "done"),
         ...(info?.daemon ? { daemon: true } : {}),
       };
     };
     for (const chat of active) for (const m of chat.members) if (m.windowId && !m.left && m.kind !== "user") await infoOf(m.windowId);
     const plan = nextSends(active, view);
+    for (const chat of active) {
+      for (const msg of chat.messages) {
+        for (const [handle, d] of Object.entries(msg.deliveries)) {
+          if (d.state !== "queued" || d.reason === "sent") continue;
+          const m = chat.members.find((x) => x.handle === handle);
+          const info = m?.windowId ? infos.get(m.windowId) : undefined;
+          const why = info?.kind === "codex" && !info.daemon && !info.thread ? "no conversation yet" : undefined;
+          if (d.reason !== why) {
+            if (why) d.reason = why;
+            else delete d.reason;
+            changed.add(chat.id);
+          }
+        }
+      }
+    }
     for (const f of plan.fail) {
       const chat = chats.get(f.chatId)!;
       chat.messages.find((x) => x.id === f.msgId)!.deliveries[f.handle] = { state: "failed", reason: f.reason, at: now() };
@@ -485,7 +502,7 @@ export function createChatService(deps: ChatServiceDeps) {
       const l = live(m, states);
       const info = m.windowId && !m.left ? await deps.tmux.agentOfWindow(m.windowId) : null;
       agents[m.handle] = {
-        online: l?.state !== undefined,
+        online: l?.state !== undefined || info?.fresh === true,
         ...(l?.state ? { state: l.state } : {}),
         ...(l?.session ? { session: l.session } : {}),
         ...(info?.daemon ? { daemon: true } : {}),

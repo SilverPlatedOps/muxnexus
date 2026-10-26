@@ -64,22 +64,28 @@ export interface WindowAgentInfo {
   conversation?: ConversationInfo;
   /** A Codex tab without `--no-daemon`: no stamp, unreachable by a chat. */
   daemon?: boolean;
+  /** A `--no-daemon` Codex tab that hasn't started a conversation, so has no stamp or thread yet. */
+  fresh?: boolean;
 }
 
-const WINDOW_AGENT_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}";
+const WINDOW_AGENT_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}\t#{pane_pid}";
 
 /**
  * A window's agent from its `list-panes` rows (`WINDOW_AGENT_FORMAT`): the
  * first stamped pane, or -- with none -- a pane running codex, which is a Codex
  * tab in the shared daemon. Its hooks never stamp, and a chat can't reach it.
  */
-export function parseWindowAgent(rows: readonly string[]): WindowAgentInfo | null {
+export function parseWindowAgent(rows: readonly string[], codexArgs: Readonly<Record<string, string>> = {}): WindowAgentInfo | null {
   let daemon: WindowAgentInfo | null = null;
   for (const row of rows) {
     const [paneId, command, cwd, thread, session, raw] = row.split("\t");
     const stamp = parseStamp(raw ?? "");
     if (!stamp) {
-      if (/(^|\/)codex$/i.test(command ?? "")) daemon ??= { paneId: paneId!, kind: "codex", daemon: true, ...(cwd ? { cwd } : {}) };
+      if (/(^|\/)codex$/i.test(command ?? "")) {
+        // `--no-daemon` with no stamp: Codex stamps on its first turn, not at launch.
+        const fresh = /(^|\s)--no-daemon(\s|$)/.test(codexArgs[paneId!] ?? "");
+        daemon ??= { paneId: paneId!, kind: "codex", ...(fresh ? { fresh: true } : { daemon: true }), ...(cwd ? { cwd } : {}) };
+      }
       continue;
     }
     const kind = stamp.configDir && /\/\.codex[^/]*$/.test(stamp.configDir) ? "codex" : "claude";
@@ -97,6 +103,22 @@ export function parseWindowAgent(rows: readonly string[]): WindowAgentInfo | nul
     };
   }
   return daemon;
+}
+
+/** The command line of the codex process at or under `root`, or "". One `ps`. */
+async function codexArgsUnder(root: number): Promise<string> {
+  if (!Number.isInteger(root) || root <= 0) return "";
+  const p = Bun.spawn(["ps", "-A", "-o", "pid=,ppid=,args="], { stdout: "pipe", stderr: "ignore" });
+  const out = await new Response(p.stdout).text();
+  await p.exited;
+  const procs = out.split("\n").map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), args: m[3]! }));
+  const seen = new Set<number>([root]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const p of procs) if (!seen.has(p.pid) && seen.has(p.ppid)) { seen.add(p.pid); grew = true; }
+  }
+  return procs.find((p) => seen.has(p.pid) && /(^|\/)codex(\s|$)/.test(p.args))?.args ?? "";
 }
 
 /** A pane's root process (`#{pane_pid}`), and the window it belongs to. */
@@ -1109,7 +1131,14 @@ export class Tmux {
   async agentOfWindow(windowId: string): Promise<WindowAgentInfo | null> {
     if (!/^@\d+$/.test(windowId)) return null;
     const out = await this.run(["list-panes", "-t", windowId, "-F", WINDOW_AGENT_FORMAT]).catch(() => "");
-    return parseWindowAgent(out.split("\n").filter(Boolean));
+    const rows = out.split("\n").filter(Boolean);
+    // Only an unstamped codex pane needs its process's arguments read.
+    const args: Record<string, string> = {};
+    for (const row of rows) {
+      const f = row.split("\t");
+      if (!parseStamp(f[5] ?? "") && /(^|\/)codex$/i.test(f[1] ?? "")) args[f[0]!] = await codexArgsUnder(Number(f[6]));
+    }
+    return parseWindowAgent(rows, args);
   }
 
   /** Kill the whole server on this socket. Never throws (used by tests). */

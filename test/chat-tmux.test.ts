@@ -55,7 +55,12 @@ describe("chat lookups", () => {
 
   test("an unstamped pane running codex is a daemon-run Codex tab", () => {
     expect(parseWindowAgent(["%3\tcodex\t/w\t\t\t"])).toEqual({ paneId: "%3", kind: "codex", daemon: true, cwd: "/w" });
+    expect(parseWindowAgent(["%3\tcodex\t/w\t\t\t"], { "%3": "codex -c x=1" })).toEqual({ paneId: "%3", kind: "codex", daemon: true, cwd: "/w" });
     expect(parseWindowAgent(["%3\tzsh\t/w\t\t\t"])).toBeNull();
+  });
+
+  test("an unstamped --no-daemon codex is a Codex tab that hasn't started a conversation yet", () => {
+    expect(parseWindowAgent(["%3\tcodex\t/w\t\t\t"], { "%3": "codex --no-daemon -c tui.alternate_screen=never" })).toEqual({ paneId: "%3", kind: "codex", fresh: true, cwd: "/w" });
   });
 
   test("a stamped pane wins over a daemon-looking one", () => {

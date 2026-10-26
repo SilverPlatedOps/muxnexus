@@ -188,6 +188,24 @@ describe("membership", () => {
     expect(r).toEqual({ ok: false, error: "That Codex tab runs in the shared daemon: restart it with --no-daemon to join." });
   });
 
+  test("a Codex tab with no conversation yet joins, and its messages wait for one", async () => {
+    const fresh = { paneId: "%98", kind: "codex" as const, fresh: true, cwd: "/w" };
+    let info: Awaited<ReturnType<typeof tmux.agentOfWindow>> = fresh;
+    const svc = service({ agentOfWindow: async (w) => (w === "@98" ? info : tmux.agentOfWindow(w)) });
+    const r = await svc.handle({ t: "chat-create", members: [{ windowId: "@98" }] });
+    expect(r.ok).toBe(true);
+    const id = r.ok ? r.chatId! : "";
+    await svc.handle({ t: "chat-post", id, text: "@codex1 hi" });
+    await svc.tick();
+    expect(sends).toHaveLength(0);
+    expect((await svc.view(id))!.chat.messages.at(-1)!.deliveries.codex1).toMatchObject({ state: "queued", reason: "no conversation yet" });
+    expect((await svc.view(id))!.agents.codex1!.online).toBe(true);
+    info = { paneId: "%98", kind: "codex", pid: 5, state: "done", thread: { id: "th-9" } };
+    live.set("@98", { state: "done", session: "shop" });
+    await svc.tick();
+    expect(sends.at(-1)).toMatchObject({ kind: "codex", target: { thread: "th-9" } });
+  });
+
   test("a tab with no agent can't join", async () => {
     await window("shell", "");
     const r = await service().handle({ t: "chat-create", members: [{ windowId: panes.shell!.window }] });
