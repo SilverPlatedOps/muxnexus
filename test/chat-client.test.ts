@@ -11,6 +11,7 @@ import {
   messageRows,
   pickerGroups,
   prefill,
+  prefillChips,
   sideTab,
   tabChats,
 } from "../src/client/chat/model";
@@ -94,6 +95,8 @@ describe("the conversation", () => {
     ]);
     m.deliveries.claude1 = { state: "failed", reason: "unavailable: no such thread", at: T };
     expect(messageRows(c).find((r) => r.id === m.id)!.exceptions[0]).toBe("✕ not delivered to claude1 · unavailable: no such thread");
+    m.deliveries.claude1 = { state: "failed", reason: "not confirmed: its agent went away before reading it", at: T };
+    expect(messageRows(c).find((r) => r.id === m.id)!.exceptions[0]).toBe("✕ not confirmed for claude1 · its agent went away before reading it");
   });
 
   test("turnStart marks a change of speaker only", () => {
@@ -127,6 +130,18 @@ describe("the message box", () => {
     expect(prefill(c)).toBeNull();
   });
 
+  test("a chip the user removed stays removed until another agent speaks to them, or they send", () => {
+    const c = chat();
+    post(c, "claude1", "@user which one?", T);
+    let s = prefillChips({ chips: [], draft: "", offered: "claude1" }, c);
+    expect(s.chips).toEqual([]);
+    post(c, "codex1", "@user and me?", T);
+    s = prefillChips(s, c);
+    expect(s).toEqual({ chips: ["codex1"], draft: "", offered: "codex1" });
+    expect(prefillChips({ chips: [], draft: "", offered: null }, c).chips).toEqual(["codex1"]);
+    expect(prefillChips({ chips: [], draft: "typing", offered: null }, c).chips).toEqual([]);
+  });
+
   test("held messages are counted for the pause strip", () => {
     const c = chat();
     c.cap = 1;
@@ -153,6 +168,7 @@ describe("members", () => {
     expect(memberStatus(c, codex, { online: false })).toEqual({ text: "offline · 1 waiting", fix: "reconnect" });
     expect(memberStatus(c, { ...codex, spawn: "failed", spawnError: "no such folder" }, { online: false })).toEqual({ text: "didn't start: no such folder", fix: "retry", alarm: true });
     expect(memberStatus(c, { ...codex, spawn: "pending" }, { online: false })).toEqual({ text: "starting…" });
+    expect(memberStatus(c, codex, { online: false, replaced: true })).toEqual({ text: "another agent runs in its tab · 1 waiting", fix: "reconnect" });
   });
 
   test("the header warns once: someone needs you, and how many are offline", () => {

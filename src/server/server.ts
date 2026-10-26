@@ -371,6 +371,10 @@ export function createServer(opts: ServerOptions): RunningServer {
         store: createChatStore(opts.chatsDir),
         tmux,
         states: chatStates,
+        windows: async () => {
+          await chatStates();
+          return lastSessions.flatMap((s) => s.windows.map((w) => w.id));
+        },
         adapters: { claude: claudeAdapter(), codex: codexAdapter() },
         spawn: async (req) => {
           const where = isAbsolute(req.folder) ? await stat(req.folder).catch(() => null) : null;

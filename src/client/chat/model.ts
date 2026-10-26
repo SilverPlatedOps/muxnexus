@@ -66,6 +66,7 @@ export interface Row {
 }
 
 function exception(handle: string, state: string, reason?: string): string | null {
+  if (state === "failed" && reason?.startsWith("not confirmed: ")) return `✕ not confirmed for ${handle} · ${reason.slice("not confirmed: ".length)}`;
   if (state === "failed") return `✕ not delivered to ${handle} · ${reason ?? "failed"}`;
   if (state === "queued" && reason === "offline") return `✕ not delivered to ${handle} · offline, it gets it when its tab is back`;
   if (state === "queued" && reason === "no conversation yet") return `◷ queued for ${handle} · it hasn't started a conversation yet`;
@@ -115,6 +116,17 @@ export function prefill(chat: Chat): string | null {
   return h && chat.members.some((m) => m.handle === h && !m.left) ? h : null;
 }
 
+/**
+ * The message box's chips after the chat changed. The prefill is offered once
+ * per agent that speaks to the user: a chip the user took off stays off until
+ * another agent speaks to them, or they send (which clears `offered`).
+ */
+export function prefillChips(s: { chips: string[]; draft: string; offered: string | null }, chat: Chat): { chips: string[]; draft: string; offered: string | null } {
+  const p = prefill(chat);
+  if (p === s.offered) return s;
+  return { ...s, offered: p, chips: !s.draft.trim() && !s.chips.length && p ? [p] : s.chips };
+}
+
 export function heldCount(chat: Chat): number {
   let n = 0;
   for (const m of chat.messages) for (const d of Object.values(m.deliveries)) if (d.state === "held") n++;
@@ -151,7 +163,7 @@ export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | u
       const d = msg.deliveries[m.handle];
       if (d && (d.state === "queued" || d.state === "held") && d.reason !== "sent") waiting++;
     }
-    return { text: `offline · ${waiting} waiting`, fix: "reconnect" };
+    return { text: `${live?.replaced ? "another agent runs in its tab" : "offline"} · ${waiting} waiting`, fix: "reconnect" };
   }
   if (live.state === "input") return { text: "needs attention", fix: "open", alarm: true };
   return { text: STATE[live.state ?? ""] ?? "idle" };

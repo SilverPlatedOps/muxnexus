@@ -14,6 +14,7 @@ import {
   mentionChoices,
   messageRows,
   prefill,
+  prefillChips,
   sideTab,
   tabChats,
   type ChatRow,
@@ -238,6 +239,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   /** Recipients picked as chips; the draft holds the rest. */
   let chips: string[] = [];
+  /** The agent the box last pre-filled: taken off, it isn't put back for the same agent. */
+  let offered: string | null = null;
 
   function paintChat() {
     if (!chat) {
@@ -342,6 +345,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     host.send({ t: "chat-post", id: chat.id, text });
     input.value = "";
     chips = [];
+    offered = null;
     remember(chat.id, { draft: "", chips: [] });
     paintCompose();
     autosize();
@@ -589,11 +593,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
 
   function reconnect(m: ChatMember) {
-    // The tabs whose conversation is this member's: the server checks it too.
-    const hits = host.sessions().flatMap((s) => s.windows.filter((w) => w.conversation?.sessionId === m.agentId).map((w) => w.id));
-    const target = hits[0];
-    if (!target) { host.toast(`No open tab holds ${m.handle}'s conversation. Resume it in a tab, then Reconnect.`); return; }
-    host.send({ t: "chat-reconnect", id: chat!.id, handle: m.handle, windowId: target });
+    // The server looks for the tab holding this member's conversation, of either kind.
+    host.send({ t: "chat-reconnect", id: chat!.id, handle: m.handle });
   }
 
   function settingsMenu(): HTMLElement {
@@ -672,11 +673,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         const r = remembered(c.id);
         input.value = r.draft ?? "";
         chips = (r.chips?.length ? r.chips : [prefill(c)].filter((x): x is string => !!x)).filter((h) => c.members.some((m) => m.handle === h && !m.left));
+        offered = prefill(c);
         autosize();
         if (r.member && showing && !host.onPhone()) openSide(r.member);
-      } else if (!input.value.trim() && !chips.length) {
-        const p = prefill(c);
-        if (p) chips = [p];
+      } else {
+        ({ chips, offered } = prefillChips({ chips, draft: input.value, offered }, c));
       }
       paintChat();
     },

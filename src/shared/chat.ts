@@ -16,6 +16,11 @@ export interface Delivery {
   state: DeliveryState;
   reason?: string;
   at: string;
+  /**
+   * In flight: the header line that proves the agent has it, and where its
+   * transcript stood when it went, so a rename or an older line can't stand in.
+   */
+  probe?: { tag: string; path?: string; offset: number };
 }
 
 export interface ChatMember {
@@ -34,8 +39,15 @@ export interface ChatMember {
   /** The Claude profile (`personal`, `work`) or `codex`. */
   profile?: string;
   folder?: string;
-  /** The Claude session id or Codex thread id it held when added. */
+  /** The Claude session id or Codex thread id it holds. */
   agentId?: string;
+  /**
+   * The agent process and the tmux server it ran under when it joined. A window
+   * id is reused after tmux restarts and a tab can start another agent: neither
+   * may receive this member's messages or post as it.
+   */
+  pid?: number;
+  server?: string;
   /** The newest message this member has seen: one it sent, or one delivered to it. */
   lastSeq?: number;
   /** The join message has gone out with a delivery. */

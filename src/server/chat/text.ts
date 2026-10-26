@@ -12,6 +12,8 @@ import type { Chat, ChatMember, ChatMessage } from "../../shared/chat";
 interface Opts {
   /** Replaced by `~` in folders; the real home unless a test names one. */
   home?: string;
+  /** The receiver's tab is in more than one chat, so its reply must name this one. */
+  several?: boolean;
 }
 
 const KIND: Record<string, string> = { claude: "Claude", codex: "Codex", user: "the human" };
@@ -90,7 +92,9 @@ export function deliveryText(
   missed: { lines: ChatMessage[]; older: number },
   opts: Opts = {},
 ): string {
-  const out = [header(chat, msg), "Reply with mux say; your tab's answer is invisible to the chat."];
+  // A name with shell quoting in it is given by id, which `--chat` takes too.
+  const ref = /^[^"$`\\]+$/.test(chat.name) ? `"${chat.name}"` : chat.id;
+  const out = [header(chat, msg), `Reply with mux say${opts.several ? ` --chat ${ref}` : ""}; your tab's answer is invisible to the chat.`];
   if (!to.welcomed) out.push("", joinMessage(chat, to, opts), "");
   if (missed.lines.length) out.push(...block("Missed:", missed.lines.map(line)));
   out.push(...block("Now:", [line(msg)]));

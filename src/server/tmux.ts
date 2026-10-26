@@ -66,9 +66,11 @@ export interface WindowAgentInfo {
   daemon?: boolean;
   /** A `--no-daemon` Codex tab that hasn't started a conversation, so has no stamp or thread yet. */
   fresh?: boolean;
+  /** The tmux server, as `<pid>-<start time>`: a window id means nothing under another. */
+  server?: string;
 }
 
-const WINDOW_AGENT_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}\t#{pane_pid}";
+const WINDOW_AGENT_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{@muxnexus_thread}\t#{@muxnexus_session}\t#{@muxnexus_agent}\t#{pane_pid}\t#{pid}-#{start_time}";
 
 /**
  * A window's agent from its `list-panes` rows (`WINDOW_AGENT_FORMAT`): the
@@ -78,13 +80,13 @@ const WINDOW_AGENT_FORMAT = "#{pane_id}\t#{pane_current_command}\t#{pane_current
 export function parseWindowAgent(rows: readonly string[], codexArgs: Readonly<Record<string, string>> = {}): WindowAgentInfo | null {
   let daemon: WindowAgentInfo | null = null;
   for (const row of rows) {
-    const [paneId, command, cwd, thread, session, raw] = row.split("\t");
+    const [paneId, command, cwd, thread, session, raw, , server] = row.split("\t");
     const stamp = parseStamp(raw ?? "");
     if (!stamp) {
       if (/(^|\/)codex$/i.test(command ?? "")) {
         // `--no-daemon` with no stamp: Codex stamps on its first turn, not at launch.
         const fresh = /(^|\s)--no-daemon(\s|$)/.test(codexArgs[paneId!] ?? "");
-        daemon ??= { paneId: paneId!, kind: "codex", ...(fresh ? { fresh: true } : { daemon: true }), ...(cwd ? { cwd } : {}) };
+        daemon ??= { paneId: paneId!, kind: "codex", ...(fresh ? { fresh: true } : { daemon: true }), ...(cwd ? { cwd } : {}), ...(server ? { server } : {}) };
       }
       continue;
     }
@@ -100,6 +102,7 @@ export function parseWindowAgent(rows: readonly string[], codexArgs: Readonly<Re
       ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
       ...(kind === "codex" && t ? { thread: { id: t[1]!, ...(t[2] ? { path: t[2] } : {}) } } : {}),
       ...(conversation ? { conversation } : {}),
+      ...(server ? { server } : {}),
     };
   }
   return daemon;

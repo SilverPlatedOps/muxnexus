@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTarget } from "../src/server/chat/adapters";
+import type { Adapter, AgentTarget } from "../src/server/chat/adapters";
 import { createChatService, isLoopback, type WindowLive } from "../src/server/chat/service";
 import { createChatStore } from "../src/server/chat/store";
 import { Tmux } from "../src/server/tmux";
@@ -27,14 +27,16 @@ async function window(name: string, stamp: string, extra: Record<string, string>
   live.set(win!, { state: "done", session: "shop" });
 }
 
-function service(over: { agentOfWindow?: typeof tmux.agentOfWindow } = {}) {
+function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: Partial<Record<"claude" | "codex", Adapter>> } = {}) {
   return createChatService({
     store: createChatStore(dir),
     tmux: { windowOfPane: (p) => tmux.windowOfPane(p), agentOfWindow: over.agentOfWindow ?? ((w) => tmux.agentOfWindow(w)) },
     states: async () => live,
+    windows: async () => Object.values(panes).map((p) => p.window),
     adapters: {
       claude: { kind: "claude", send: async (target, text) => { sends.push({ kind: "claude", target, text }); return { ok: true }; } },
       codex: { kind: "codex", send: async (target, text) => { sends.push({ kind: "codex", target, text }); return { ok: true }; } },
+      ...over.adapters,
     },
     socketOf: async (_dir, pid) => `/tmp/cc-socks/${pid}.sock`,
     receipt: async (_path, tag) => [...seen].some((s) => tag.includes(s)),
@@ -178,6 +180,21 @@ describe("honest delivery", () => {
     expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ system: true, text: "claude1 finished without replying" });
   });
 
+  test("a reply that beats the receipt is not reported as finished without replying", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    await svc.handle({ t: "chat-post", id, text: "@claude1 hi" });
+    await svc.tick();
+    await say(svc, "claude", "say", "done");
+    seen.add("#2 ·");
+    await svc.tick();
+    setState("claude", "running");
+    await svc.tick();
+    setState("claude", "done");
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.some((m) => m.text.includes("finished without replying"))).toBe(false);
+  });
+
   test("archiving cancels what is waiting and leaves the summary archived", async () => {
     const svc = service();
     const id = await newChat(svc, "codex");
@@ -225,6 +242,161 @@ describe("membership", () => {
     const svc = service();
     const r = await svc.handle({ t: "chat-create", members: [{ windowId: panes.claude!.window }, { windowId: panes.codex!.window }] });
     expect((await svc.view(r.ok ? r.chatId! : ""))!.chat.name).toBe("claude1 + codex1 · shop");
+  });
+});
+
+describe("an agent is the one that joined", () => {
+  test("a tab now running another agent gets nothing, and can't post as the member", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    await tmux.run(["set-option", "-p", "-t", panes.claude!.pane, "@muxnexus_agent", "done 1790000000 5555 /Users/me/.claude"]);
+    await svc.handle({ t: "chat-post", id, text: "@claude1 implement option 1" });
+    await svc.tick();
+    expect(sends).toHaveLength(0);
+    const v = (await svc.view(id))!;
+    expect(v.chat.messages.at(-1)!.deliveries.claude1).toMatchObject({ state: "queued", reason: "offline" });
+    expect(v.agents.claude1).toMatchObject({ online: false, replaced: true });
+    const r = await say(svc, "claude", "say", "hello");
+    expect(r.ok).toBe(false);
+    expect(r.output).toContain("isn't the one that joined");
+  });
+
+  test("a tab on a restarted tmux server is not the member's, even with the same window id", async () => {
+    const real = (w: string) => tmux.agentOfWindow(w);
+    let other = false;
+    const svc = service({ agentOfWindow: async (w) => { const i = await real(w); return i && other ? { ...i, server: "1-1" } : i; } });
+    const id = await newChat(svc, "claude");
+    other = true;
+    await svc.handle({ t: "chat-post", id, text: "@claude1 hi" });
+    await svc.tick();
+    expect(sends).toHaveLength(0);
+  });
+
+  test("the same agent in a new conversation keeps its place and gets the join message again", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    await svc.handle({ t: "chat-post", id, text: "@claude1 one" });
+    await svc.tick();
+    seen.add("#2 ·");
+    await svc.tick();
+    await tmux.run(["set-option", "-p", "-t", panes.claude!.pane, "@muxnexus_session", "sid-new /tmp/c2.jsonl"]);
+    await svc.handle({ t: "chat-post", id, text: "@claude1 two" });
+    await svc.tick();
+    const chat = (await svc.view(id))!.chat;
+    expect(chat.members.find((m) => m.handle === "claude1")!.agentId).toBe("sid-new");
+    expect(sends.at(-1)!.text).toContain("You've joined muxnexus chat");
+  });
+});
+
+describe("receipts", () => {
+  test("a rename while a message is in flight still finds its receipt", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    await svc.handle({ t: "chat-post", id, text: "@claude1 hi" });
+    await svc.tick();
+    await svc.handle({ t: "chat-settings", id, name: "renamed" });
+    seen.add("shop review · #2 ·");
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.find((m) => m.id === 2)!.deliveries.claude1!.state).toBe("delivered");
+  });
+
+  test("no two chats share a name, so no two share a receipt", async () => {
+    const svc = service();
+    const a = await newChat(svc, "claude");
+    const b = await newChat(svc, "claude");
+    expect((await svc.view(b))!.chat.name).toBe("shop review 2");
+    await svc.handle({ t: "chat-settings", id: a, name: "Shop Review 2" });
+    expect((await svc.view(a))!.chat.name).toBe("Shop Review 2 2");
+  });
+});
+
+describe("what is in flight never sticks", () => {
+  test("a message handed to a tab that then closed is not confirmed, and the agent's queue moves on", async () => {
+    let gone = false;
+    const svc = service({ agentOfWindow: async (w) => (w === panes.codex!.window && gone ? null : tmux.agentOfWindow(w)) });
+    const id = await newChat(svc, "codex");
+    await svc.handle({ t: "chat-post", id, text: "@codex1 one" });
+    await svc.tick();
+    gone = true;
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.find((m) => m.id === 2)!.deliveries.codex1).toMatchObject({ state: "failed", reason: "not confirmed: its agent went away before reading it" });
+    gone = false;
+    await svc.handle({ t: "chat-post", id, text: "@codex1 two" });
+    await svc.tick();
+    expect(sends.map((s) => s.text.includes("two"))).toEqual([false, true]);
+  });
+
+  test("five idle minutes with no receipt is not confirmed", async () => {
+    const svc = service();
+    const id = await newChat(svc, "codex");
+    await svc.handle({ t: "chat-post", id, text: "@codex1 one" });
+    await svc.tick();
+    clock += 301;
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.find((m) => m.id === 2)!.deliveries.codex1).toMatchObject({ state: "failed", reason: "not confirmed: no sign it was read in 5 minutes" });
+  });
+
+  test("a send that throws fails that delivery only; the rest still go", async () => {
+    const svc = service({ adapters: { codex: { kind: "codex", send: async () => { throw new Error("E2BIG"); } } } });
+    const id = await newChat(svc, "claude", "codex");
+    await svc.handle({ t: "chat-post", id, text: "@codex1 @claude1 go" });
+    await svc.tick();
+    const d = (await svc.view(id))!.chat.messages.at(-1)!.deliveries;
+    expect(d.codex1).toMatchObject({ state: "failed", reason: "unavailable: E2BIG" });
+    expect(d.claude1).toMatchObject({ state: "queued", reason: "sent" });
+  });
+
+  test("a line too long for a chat is refused at both doors", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    const long = "x".repeat(40_000);
+    expect((await svc.handle({ t: "chat-post", id, text: long })).ok).toBe(false);
+    const r = await say(svc, "claude", "say", long);
+    expect(r.ok).toBe(false);
+    expect(r.output).toStartWith("NOT POSTED: too long");
+  });
+});
+
+describe("an agent in two chats", () => {
+  test("it is told which chat to answer, and its reply names the chat", async () => {
+    const svc = service();
+    const a = await newChat(svc, "claude");
+    await newChat(svc, "claude");
+    await svc.handle({ t: "chat-post", id: a, text: "@claude1 hi" });
+    await svc.tick();
+    expect(sends[0]!.text.split("\n")[1]).toBe(`Reply with mux say --chat "shop review"; your tab's answer is invisible to the chat.`);
+    expect(await say(svc, "claude", "say", "--chat", "shop review", "hello")).toEqual({ ok: true, output: `posted to "shop review" as #3 · context only: nobody was mentioned` });
+  });
+});
+
+describe("reconnect", () => {
+  test("it finds the member's conversation in another tab and moves the member there", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    await tmux.run(["kill-window", "-t", panes.claude!.window]);
+    delete panes.claude;
+    await window("resumed", "done 1790000000 6000 /Users/me/.claude", { "@muxnexus_session": "sid-c /tmp/c.jsonl" });
+    expect(await svc.handle({ t: "chat-reconnect", id, handle: "claude1" })).toMatchObject({ ok: true });
+    const m = (await svc.view(id))!.chat.members.find((x) => x.handle === "claude1")!;
+    expect([m.windowId, m.pid]).toEqual([panes.resumed!.window, 6000]);
+  });
+
+  test("it refuses a tab of another kind, and says so when no tab holds the conversation", async () => {
+    const svc = service();
+    const id = await newChat(svc, "codex");
+    expect(await svc.handle({ t: "chat-reconnect", id, handle: "codex1", windowId: panes.claude!.window })).toMatchObject({ ok: false });
+    await tmux.run(["set-option", "-p", "-t", panes.codex!.pane, "@muxnexus_thread", "th-other /tmp/r2.jsonl"]);
+    expect(await svc.handle({ t: "chat-reconnect", id, handle: "codex1" })).toEqual({ ok: false, error: "No open tab holds codex1's conversation. Resume it in a tab, then Reconnect." });
+  });
+
+  test("a Codex that joined before its first turn takes its thread id once it has one", async () => {
+    let info: Awaited<ReturnType<typeof tmux.agentOfWindow>> = { paneId: "%98", kind: "codex", fresh: true, cwd: "/w" };
+    const svc = service({ agentOfWindow: async (w) => (w === "@98" ? info : tmux.agentOfWindow(w)) });
+    const r = await svc.handle({ t: "chat-create", members: [{ windowId: "@98" }] });
+    const id = r.ok ? r.chatId! : "";
+    info = { paneId: "%98", kind: "codex", pid: 5, state: "done", thread: { id: "th-9" } };
+    await svc.tick();
+    expect((await svc.view(id))!.chat.members.find((m) => m.handle === "codex1")).toMatchObject({ agentId: "th-9", pid: 5 });
   });
 });
 

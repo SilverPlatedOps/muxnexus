@@ -218,7 +218,7 @@ export type ClientMessage =
   | { t: "chat-archive"; id: string; archived: boolean }
   | { t: "chat-discard-held"; id: string }
   /** Point a member whose tab closed at the tab its conversation was resumed in. */
-  | { t: "chat-reconnect"; id: string; handle: string; windowId: string }
+  | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }
   | { t: "ping" };
 
 /** An agent already running in a tab, joining a chat. */
@@ -243,6 +243,8 @@ export interface ChatMemberLive {
   online: boolean;
   /** A Codex tab in the shared daemon: a chat can't reach it. */
   daemon?: boolean;
+  /** Its tab now runs another agent than the one that joined. */
+  replaced?: boolean;
   session?: string;
 }
 
