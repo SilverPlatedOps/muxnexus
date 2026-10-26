@@ -87,7 +87,8 @@ tell you what your agents are up to.
 | `bun run start -- --host 127.0.0.1` | Bind somewhere other than the tailnet; repeatable |
 | `bun run start -- --socket <path>` | Drive a specific tmux server |
 | `bun run start -- --allow-host <name>` | Answer to another hostname; repeatable |
-| `bun run dev` | Binds 127.0.0.1, restarts on change |
+| `bun run dev` | Like `start`, and restarts on change |
+| `bun run dev:local` | Binds 127.0.0.1 only, restarts on change |
 | `bun run setup` | The install script again |
 | `bun test` | Tests |
 
