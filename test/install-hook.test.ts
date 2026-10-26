@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,5 +48,64 @@ describe("install-agent-hook.py, for Codex", () => {
     writeFileSync(join(home, ".claude", "settings.json"), "{}");
     install();
     expect(readdirSync(home)).not.toContain(".codex");
+  });
+});
+
+describe("install-agent-hook.py, for chats", () => {
+  const profile = () => {
+    mkdirSync(join(home, ".claude", "projects"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), "{}");
+  };
+
+  test("wires the chat hook for Claude: PreToolUse on Bash, run synchronously", () => {
+    profile();
+    install();
+    const pre = read(join(home, ".claude", "settings.json")).hooks.PreToolUse;
+    const chat = pre.find((e: { hooks: { command: string }[] }) => e.hooks[0]!.command.includes("chat-hook.sh"));
+    expect(chat.matcher).toBe("Bash");
+    expect(chat.hooks[0]).toEqual({ type: "command", command: expect.stringMatching(/chat-hook\.sh" claude$/) });
+  });
+
+  test("wires the chat hook for Codex", () => {
+    mkdirSync(join(home, ".codex"));
+    install();
+    const pre = read(join(home, ".codex", "hooks.json")).hooks.PreToolUse;
+    expect(pre.some((e: { hooks: { command: string }[] }) => /chat-hook\.sh" codex$/.test(e.hooks[0]!.command))).toBe(true);
+  });
+
+  test("a second run adds nothing to a Claude profile", () => {
+    profile();
+    install();
+    const first = readFileSync(join(home, ".claude", "settings.json"), "utf8");
+    expect(install()).toContain("already wired");
+    expect(readFileSync(join(home, ".claude", "settings.json"), "utf8")).toBe(first);
+  });
+
+  test("links mux into ~/.local/bin", () => {
+    profile();
+    install();
+    expect(readlinkSync(join(home, ".local", "bin", "mux"))).toMatch(/scripts\/mux\.ts$/);
+  });
+
+  test("adds the peer rule once, to Codex's AGENTS.md and the shared CLAUDE.md", () => {
+    profile();
+    mkdirSync(join(home, ".codex"));
+    mkdirSync(join(home, ".claude-shared"));
+    writeFileSync(join(home, ".claude-shared", "CLAUDE.md"), "# mine\n");
+    const out = install();
+    install();
+    for (const f of [join(home, ".codex", "AGENTS.md"), join(home, ".claude-shared", "CLAUDE.md")]) {
+      const text = readFileSync(f, "utf8");
+      expect(text.split("<!-- muxnexus peer rule -->").length - 1).toBe(1);
+      expect(text).toContain("peer, not the user]");
+    }
+    expect(readFileSync(join(home, ".claude-shared", "CLAUDE.md"), "utf8")).toStartWith("# mine\n");
+    expect(out).toContain("peer rule");
+  });
+
+  test("with no shared CLAUDE.md the rule goes in the profile's own", () => {
+    profile();
+    install();
+    expect(readFileSync(join(home, ".claude", "CLAUDE.md"), "utf8")).toContain("<!-- muxnexus peer rule -->");
   });
 });
