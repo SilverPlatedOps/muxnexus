@@ -7,8 +7,11 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
-import { Tmux } from "./tmux";
+import { shellQuote, Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
+import { claudeAdapter, codexAdapter } from "./chat/adapters";
+import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
+import { createChatStore, isChatId } from "./chat/store";
 import type { DockerReader } from "./docker";
 import type { MemoryReader, MemoryReading } from "./memory";
 import type { VitalsSampler } from "./vitals";
@@ -24,6 +27,9 @@ import type { VitalsSampler } from "./vitals";
 // would be nothing to scroll. `command` skips scripts/codex-tmux.zsh, which
 // would add the same flags again -- and Codex refuses --no-daemon twice.
 const AGENTS: Record<NewWindowAgent, string> = { codex: `command codex --no-daemon -c 'tui.alternate_screen="never"'` };
+
+/** What a Codex started from a chat is told first: enough to start its thread, nothing to do. */
+const CODEX_OPENING = "You've been added to a muxnexus group chat. Nothing to do yet: reply only with the word ready. Chat messages will arrive here, each headed [muxnexus · …].";
 
 export interface ServerOptions {
   /** Addresses to listen on, all sharing one port. The first is the one reported. */
@@ -79,6 +85,12 @@ export interface ServerOptions {
   hint?: () => Promise<string | null>;
   /** Where window notes are kept; `~/.local/share/muxnexus/notes` when absent. */
   notesDir?: string;
+  /**
+   * Where group chats are kept. Absent, chats are off: no hook endpoint, no
+   * delivery timer -- the tests create servers constantly and must not read
+   * or deliver anything of the user's.
+   */
+  chatsDir?: string;
 }
 
 export interface RunningServer {
@@ -110,6 +122,12 @@ interface ConnData {
   memory: boolean;
   /** This client has the overview's Docker tab open. */
   docker: boolean;
+  /** This client shows the chat list, and which chat it has open. */
+  chats: boolean;
+  chatOpen: string | null;
+  /** What it was last sent of each, so a change goes out once. */
+  sentChats: string | null;
+  sentChat: string | null;
 }
 
 type Socket = ServerWebSocket<ConnData>;
@@ -306,6 +324,8 @@ export function createServer(opts: ServerOptions): RunningServer {
   async function readState(): Promise<void> {
     const read = await tmux.listState().catch(() => ({ sessions: [] as SessionInfo[], tmuxServer: null }));
     tmuxServerId = read.tmuxServer;
+    lastSessions = read.sessions;
+    lastSessionsAt = Date.now();
     const sessions = await label(read.sessions);
     followRenames(sessions);
     const json = JSON.stringify({
@@ -318,6 +338,115 @@ export function createServer(opts: ServerOptions): RunningServer {
       ws.data.sentState = json;
       ws.sendText(json);
     }
+    // A member's state shows in its chat: what changed here may change a chat view.
+    void pushChats();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Group chats. The room is the chat service; this is its plumbing: the
+  // agents' states it waits on, the timer that delivers whether or not a
+  // browser is open, and what each browser is sent.
+
+  /** The last state read, so delivery doesn't read tmux twice in a second. */
+  let lastSessions: SessionInfo[] = [];
+  let lastSessionsAt = 0;
+
+  async function chatStates(): Promise<Map<string, WindowLive>> {
+    if (Date.now() - lastSessionsAt > 1000) {
+      const read = await tmux.listState().catch(() => null);
+      if (read) {
+        lastSessions = read.sessions;
+        lastSessionsAt = Date.now();
+      }
+    }
+    const out = new Map<string, WindowLive>();
+    for (const s of lastSessions) {
+      for (const w of s.windows) out.set(w.id, { ...(w.agent ? { state: w.agent.state } : {}), session: s.name });
+    }
+    return out;
+  }
+
+  const chat: ChatService | null = opts.chatsDir
+    ? createChatService({
+        store: createChatStore(opts.chatsDir),
+        tmux,
+        states: chatStates,
+        windows: async () => {
+          await chatStates();
+          return lastSessions.flatMap((s) => s.windows.map((w) => w.id));
+        },
+        adapters: { claude: claudeAdapter(), codex: codexAdapter() },
+        spawn: async (req) => {
+          const where = isAbsolute(req.folder) ? await stat(req.folder).catch(() => null) : null;
+          if (!where?.isDirectory()) throw new Error(`no such folder: ${req.folder}`);
+          // Codex starts its thread on its first turn, and a chat can only queue to a
+          // thread: a spawned Codex gets one short opening turn so the chat can reach it.
+          let command = `${AGENTS.codex} ${shellQuote(CODEX_OPENING)}`;
+          if (req.kind === "claude") {
+            const dir = req.profile ? (opts.profiles?.() ?? []).find((d) => profileLabel(d) === req.profile) : undefined;
+            command = dir ? `CLAUDE_CONFIG_DIR=${shellQuote(dir)} claude` : "claude";
+          }
+          return tmux.spawnWindow(req.session, req.folder, command);
+        },
+      })
+    : null;
+
+  /** Send each chat subscriber the list, and each open chat its view, when they changed. */
+  async function pushChats(): Promise<void> {
+    if (!chat) return;
+    const want = [...clients].filter((ws) => ws.readyState === WebSocket.OPEN && (ws.data.chats || ws.data.chatOpen));
+    if (want.length === 0) return;
+    const list = JSON.stringify({ t: "chats", chats: await chat.summaries() } satisfies ServerMessage);
+    const views = new Map<string, string>();
+    for (const ws of want) {
+      if (ws.data.chats && ws.data.sentChats !== list) {
+        ws.data.sentChats = list;
+        ws.sendText(list);
+      }
+      const id = ws.data.chatOpen;
+      if (!id) continue;
+      if (!views.has(id)) {
+        const v = await chat.view(id);
+        views.set(id, v ? JSON.stringify({ t: "chat", ...v } satisfies ServerMessage) : "");
+      }
+      const json = views.get(id)!;
+      if (json && ws.data.sentChat !== json) {
+        ws.data.sentChat = json;
+        ws.sendText(json);
+      }
+    }
+  }
+
+  let chatTicking = false;
+  /** One delivery pass, unless one is running or (unforced) there is nothing to do. */
+  async function chatTick(force = false): Promise<void> {
+    if (!chat || chatTicking || (!force && !chat.busy())) return;
+    chatTicking = true;
+    try {
+      const changed = await chat.tick();
+      if (changed.length) await pushChats();
+    } catch (e) {
+      console.warn(`chat delivery: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      chatTicking = false;
+    }
+  }
+  // Agents talk while no browser is open, so delivery has its own timer; it
+  // reads nothing while nothing waits. A restart picks up where it left off.
+  const chatTimer = chat ? setInterval(() => void chatTick(), 1500) : undefined;
+  if (chat) void chat.ready().then(() => chatTick(true));
+
+  /** The tab hook's door: loopback only, never a browser page. */
+  async function chatHook(req: Request, ip: { address: string } | null): Promise<Response> {
+    if (!chat) return new Response("Not found", { status: 404 });
+    if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    if (req.headers.get("origin") !== null || !isLoopback(ip?.address)) return new Response("Forbidden", { status: 403 });
+    const body = parseHookRequest(await req.json().catch(() => null));
+    if (!body) return new Response("Bad request", { status: 400 });
+    const r = await chat.hook(body);
+    void chatTick(true);
+    void pushChats();
+    return Response.json(r);
   }
 
   let polling: Promise<void> | null = null;
@@ -561,6 +690,35 @@ export function createServer(opts: ServerOptions): RunningServer {
           await tmux.killSession(m.session);
           await mirrorStep(ws, (mirror) => mirror.sessionKilled(m.session, wsId));
           break;
+        }
+        case "chats":
+          ws.data.chats = m.on === true;
+          ws.data.sentChats = null;
+          if (ws.data.chats) await pushChats();
+          return;
+        case "chat-open":
+          ws.data.chatOpen = isChatId(m.id) ? m.id : null;
+          ws.data.sentChat = null;
+          await pushChats();
+          return;
+        case "chat-create":
+        case "chat-post":
+        case "chat-add":
+        case "chat-remove":
+        case "chat-role":
+        case "chat-settings":
+        case "chat-archive":
+        case "chat-discard-held":
+        case "chat-reconnect": {
+          if (!chat) return send(ws, { t: "error", message: "Chats are off on this server." });
+          const parsed = parseChatMessage(m as unknown as { t: string } & Record<string, unknown>);
+          if (!parsed) return send(ws, { t: "error", message: `invalid ${m.t}` });
+          const r = await chat.handle(parsed);
+          if (!r.ok) return send(ws, { t: "error", message: r.error });
+          if (m.t === "chat-create" && r.chatId) send(ws, { t: "chat-created", id: r.chatId });
+          await pushChats();
+          void chatTick(true);
+          return;
         }
         case "new-window": {
           if (m.agent !== undefined && !Object.hasOwn(AGENTS, m.agent)) {
@@ -898,6 +1056,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         if (site !== null && site !== "same-origin" && site !== "none") return new Response("Forbidden: cross-site", { status: 403 });
         return linkedFile(url);
       }
+      if (url.pathname === "/api/chat/hook") return chatHook(req, srv.requestIP(req));
       if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
         // policy, so any page open in the user's browser could otherwise
@@ -917,7 +1076,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, list: false, memory: false, docker: false } });
+        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, list: false, memory: false, docker: false, chats: false, chatOpen: null, sentChats: null, sentChat: null } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });
@@ -987,6 +1146,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       offVitals?.();
       opts.vitals?.stop();
       clearInterval(dockerTimer);
+      clearInterval(chatTimer);
       for (const ws of clients) {
         ws.data.attachSeq++; // invalidate any in-flight attach
         detach(ws);

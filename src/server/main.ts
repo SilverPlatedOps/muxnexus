@@ -4,6 +4,7 @@ import { join } from "node:path";
 import index from "../client/index.html";
 import { createCmuxMirror } from "./cmux";
 import { createSnapshotter, pendingRestore, restoreHint, snapshotDir } from "./restore";
+import { CHATS_DIR } from "./chat/store";
 import { createServer } from "./server";
 import { Tmux } from "./tmux";
 import { createUsageReader, localProfiles } from "./usage";
@@ -153,6 +154,7 @@ if (import.meta.main) {
     vitals: createVitalsSampler(),
     memory: (tmux) => createMemoryReader({ panes: () => tmux.listPaneRoots(), footprint: footprintReader() }),
     docker: createDockerReader(),
+    chatsDir: CHATS_DIR,
   });
   for (const h of hosts) console.log(`muxnexus listening on http://${h}:${running.port}`);
   if (hosts.some((h) => h === "0.0.0.0" || h === "::")) {

@@ -24,6 +24,7 @@ import { diffWorlds } from "./transitions";
 import { sessionName, type WorldActions } from "./world-actions";
 import { createViewHost } from "./view-host";
 import { createDebugView } from "./views/debug";
+import { createChatUI, type ChatUI } from "./chat/ui";
 
 const SESSION_KEY = "muxnexus.session";
 const PHONE = "(max-width: 720px)";
@@ -60,6 +61,9 @@ const findNextBtn = document.getElementById("find-next")!;
 const findCloseBtn = document.getElementById("find-close")!;
 const viewEl = document.getElementById("view")!;
 const viewToggle = document.getElementById("view-toggle")!;
+const chatEl = document.getElementById("chat")!;
+/** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
+let chatUI: ChatUI | null = null;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
@@ -120,12 +124,14 @@ function showTerminal(on: boolean) {
   }
 }
 
-/** What the main area shows: a view while one is up, else the terminal or the empty prompt. */
+/** What the main area shows: a chat while one is open, a view while one is up, else the terminal or the empty prompt. */
 function paintMain() {
-  const viewing = views.showing();
-  wrapEl.hidden = viewing || !terminalOn;
-  emptyEl.hidden = viewing || terminalOn;
-  topbar.hidden = !(viewing || terminalOn);
+  const chatting = chatUI?.isShowing() ?? false;
+  const viewing = !chatting && views.showing();
+  chatEl.hidden = !chatting;
+  wrapEl.hidden = chatting || viewing || !terminalOn;
+  emptyEl.hidden = chatting || viewing || terminalOn;
+  topbar.hidden = chatting || !(viewing || terminalOn);
   viewToggle.hidden = views.chosen() === "terminal";
   viewToggle.setAttribute("aria-pressed", String(viewing));
   // Nothing typed may reach tmux while a view is up: xterm takes keys only while focused.
@@ -167,7 +173,7 @@ function updateChip() {
  * something elsewhere needs you.
  */
 function updateAttention() {
-  const n = needsYouCount(sessions);
+  const n = needsYouCount(sessions) + (chatUI?.asking().length ?? 0);
   hamburger.dataset.count = n > 0 ? String(n) : "";
   hamburger.setAttribute(
     "aria-label",
@@ -176,7 +182,8 @@ function updateAttention() {
   // Live whenever ⌘J would go somewhere, counted only when someone elsewhere
   // is blocked: the one on screen says so on its own chip. A view is on no
   // one session, so there every one counts.
-  const elsewhere = needsYouCount(views.showing() ? sessions : sessions.filter((s) => s.name !== current));
+  const chatting = chatUI?.isShowing() ?? false;
+  const elsewhere = needsYouCount(views.showing() || chatting ? sessions : sessions.filter((s) => s.name !== current)) + (chatUI?.asking().length ?? 0);
   nextBtn.disabled = !nextJump();
   nextCount.hidden = elsewhere === 0;
   nextCount.textContent = String(elsewhere);
@@ -189,12 +196,17 @@ function updateAttention() {
  * somewhere arbitrary.
  */
 function nextJump(): (() => void) | null {
-  if (views.showing()) {
+  const chatting = chatUI?.isShowing() ?? false;
+  if (views.showing() && !chatting) {
     const ref = nextWaiting(sessions, current);
-    return ref ? () => views.reveal(ref) : null;
+    if (ref) return () => views.reveal(ref);
+  } else {
+    const next = nextAttention(visualOrder(sessions, sessionLabel), chatting ? null : current);
+    if (next) return () => attach(next);
   }
-  const next = nextAttention(visualOrder(sessions, sessionLabel), current);
-  return next ? () => attach(next) : null;
+  // Then a chat with a question for you.
+  const ask = chatUI?.asking()[0];
+  return ask ? () => { chatUI?.setTab("chats"); chatUI?.open(ask.id); } : null;
 }
 
 /**
@@ -285,6 +297,8 @@ function hideReconnect() {
 }
 
 function attach(session: string) {
+  // A workspace picked while a chat is open leaves the chat (it can be gone back to).
+  chatUI?.leaveForWorkspace();
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
@@ -635,6 +649,7 @@ const conn = new Connection(wsUrl, {
   onOpen() {
     hideReconnect();
     notes.reconnected();
+    chatUI?.connected();
     // A new socket starts with the overview off on the server's side.
     systemSent = false;
     listSent = false;
@@ -739,6 +754,17 @@ const conn = new Connection(wsUrl, {
       case "note-deleted":
         notes.deleted(m.noteId);
         break;
+      case "chats":
+        chatUI?.setChats(m.chats);
+        if (chatUI) tabs.setChatMarks(chatUI.tabChats(), (anchor, list, windowId) => chatUI?.tabMenu(anchor, list, windowId));
+        updateAttention();
+        break;
+      case "chat":
+        chatUI?.setChat(m.chat, m.agents);
+        break;
+      case "chat-created":
+        chatUI?.created(m.id);
+        break;
       case "notice":
       case "error":
         sidebar.toast(m.message);
@@ -825,6 +851,10 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" && !wrapEl.hidden) {
     e.preventDefault();
     openFind();
+  } else if (e.key === "1" || e.key === "2") {
+    e.preventDefault();
+    if (onPhone()) setDrawer(true);
+    chatUI?.setTab(e.key === "1" ? "chats" : "workspaces");
   } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
     // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
     // ⌘J for itself -- it costs one clause and saves finding out the hard way.
@@ -837,5 +867,28 @@ document.addEventListener("keydown", (e) => {
 
 // The chosen view is what this browser wants to see first.
 if (views.chosen() !== "terminal") views.show(true);
+
+chatUI = createChatUI({
+  tabsBar: document.getElementById("side-tabs")!,
+  tabChats: document.getElementById("side-tab-chats") as HTMLButtonElement,
+  tabWorkspaces: document.getElementById("side-tab-workspaces") as HTMLButtonElement,
+  tabDot: document.getElementById("side-tab-dot")!,
+  sessions: sessionsEl,
+  list: document.getElementById("chats")!,
+  main: chatEl,
+  back: document.getElementById("chat-back") as HTMLButtonElement,
+  search: document.getElementById("side-search-input") as HTMLInputElement,
+}, {
+  send: (m) => conn.send(m),
+  wsUrl,
+  sessions: () => sessions,
+  profiles: () => profileLabels,
+  currentSession: () => current,
+  openWorkspace: (session, windowId) => openWindow(session, windowId),
+  changed: () => { paintMain(); updateAttention(); if (terminalOn && !chatUI?.isShowing() && !views.showing()) term.fit(); },
+  toast: (message) => sidebar.toast(message),
+  onPhone,
+});
+chatUI.init();
 
 conn.connect();

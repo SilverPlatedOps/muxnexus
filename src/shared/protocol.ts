@@ -1,3 +1,5 @@
+import type { AgentKind, Chat, ChatSummary } from "./chat";
+
 export interface WindowInfo {
   /**
    * tmux's own window id (`@3`). Stable for the window's life, unlike `index`,
@@ -203,7 +205,48 @@ export type ClientMessage =
   | { t: "swap-ack"; episode: number }
   /** Whether this browser shows the overview's Docker tab: answered with `docker` every few seconds while on. */
   | { t: "docker"; on: boolean }
+  /** Whether this browser wants the chat list: answered with `chats` now and on every change. */
+  | { t: "chats"; on: boolean }
+  /** The chat this browser shows, or none: answered with `chat` now and on every change. */
+  | { t: "chat-open"; id: string | null }
+  | { t: "chat-create"; name?: string; members: ChatJoin[]; spawn?: ChatSpawn[] }
+  | { t: "chat-post"; id: string; text: string }
+  | { t: "chat-add"; id: string; members: ChatJoin[]; spawn?: ChatSpawn[] }
+  | { t: "chat-remove"; id: string; handle: string }
+  | { t: "chat-role"; id: string; handle: string; role: string }
+  | { t: "chat-settings"; id: string; name?: string; cap?: number }
+  | { t: "chat-archive"; id: string; archived: boolean }
+  | { t: "chat-discard-held"; id: string }
+  /** Point a member whose tab closed at the tab its conversation was resumed in. */
+  | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }
   | { t: "ping" };
+
+/** An agent already running in a tab, joining a chat. */
+export interface ChatJoin {
+  windowId: string;
+  role?: string;
+}
+
+/** A new agent a chat starts: a tab opened in `session`, in `folder`. */
+export interface ChatSpawn {
+  kind: AgentKind;
+  folder: string;
+  session: string;
+  role?: string;
+  /** A Claude profile as the quota panel names it (`personal`, `work`); absent, the session's own. */
+  profile?: string;
+}
+
+/** What the chat view shows about a member beyond the chat itself. */
+export interface ChatMemberLive {
+  state?: AgentState;
+  online: boolean;
+  /** A Codex tab in the shared daemon: a chat can't reach it. */
+  daemon?: boolean;
+  /** Its tab now runs another agent than the one that joined. */
+  replaced?: boolean;
+  session?: string;
+}
 
 /** A note as the explorer lists it. */
 export interface NoteSummary {
@@ -430,4 +473,8 @@ export type ServerMessage =
    * connects, so it reaches a phone that was not open when the laptop rebooted.
    */
   | { t: "notice"; message: string }
+  | { t: "chats"; chats: ChatSummary[] }
+  | { t: "chat"; chat: Chat; agents: Record<string, ChatMemberLive> }
+  /** Sent to the browser that created a chat, so it can open it. */
+  | { t: "chat-created"; id: string }
   | { t: "error"; message: string };

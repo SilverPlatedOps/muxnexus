@@ -56,6 +56,12 @@
         </button>
       </header>
 
+      <!-- Chats beside Workspaces: one list at a time, quota under both. -->
+      <div id="side-tabs" role="tablist" aria-label="Sidebar">
+        <button id="side-tab-chats" class="side-tab" type="button" role="tab" title="Chats (&#8984;1)">Chats<span id="side-tab-dot" class="tab-dot" hidden></span></button>
+        <button id="side-tab-workspaces" class="side-tab" type="button" role="tab" title="Workspaces (&#8984;2)">Workspaces</button>
+      </div>
+
       <div id="side-search">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"></circle><line x1="10.4" y1="10.4" x2="13.5" y2="13.5"></line></svg>
         <input id="side-search-input" type="search" placeholder="Sessions and windows" aria-label="Search sessions and windows" autocomplete="off" spellcheck="false" />
@@ -69,6 +75,7 @@
         <kbd>&#8984;J</kbd>
       </button>
       <div id="sessions"></div>
+      <div id="chats" hidden></div>
       <!-- A sibling of the footer, not a child: the footer is rebuilt on every
            session render and would take the panel with it. -->
       <div id="usage" aria-label="Quota"></div>
@@ -86,6 +93,7 @@
             </svg>
           </button>
           <span class="chip"><span id="chip-dot" class="glyph none"></span><span id="chip-name"></span></span>
+          <button id="chat-back" class="btn chat-back" type="button" hidden></button>
         </div>
         <button id="view-toggle" class="icon-btn" type="button" aria-label="Switch between the terminal and the view" aria-pressed="false" title="Terminal / view" hidden>
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -121,6 +129,9 @@
       <!-- An alternative view of every agent, in place of the terminal; the
            terminal stays attached underneath. -->
       <div id="view" hidden></div>
+
+      <!-- A group chat: the conversation, with a member's terminal beside it on request. -->
+      <div id="chat" hidden></div>
 
       <div id="wrap" hidden>
         <div id="tabs" hidden></div>

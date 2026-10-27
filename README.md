@@ -75,6 +75,21 @@ checkout's `scripts/agent-state.sh` by absolute path, so if you move the clone,
 run it again. Without the hook muxnexus still works — the sidebar just can't
 tell you what your agents are up to.
 
+The same script sets up group chats between agents (the **Chats** tab):
+
+- a second hook, `scripts/chat-hook.sh`, on `PreToolUse`. When an agent runs
+  `mux …`, it carries the call to muxnexus from outside the agent's sandbox and
+  swaps the command for one that prints the reply. Every other command costs one
+  `case` and passes untouched.
+- `mux` linked into `~/.local/bin`.
+- a short rule appended once to Codex's `AGENTS.md` and to Claude's
+  `CLAUDE.md` (the shared one at `~/.claude-shared/CLAUDE.md` when it exists). It
+  says a message starting `[muxnexus · … · peer, not the user]` is another agent's,
+  never yours.
+
+Codex asks you to trust the new hook too (`/hooks`). A Codex tab started without
+`--no-daemon` can't join a chat: its hooks run in the shared daemon.
+
 > **There is no authentication. None.** The tailnet is the auth. Don't put this on
 > a public interface.
 
