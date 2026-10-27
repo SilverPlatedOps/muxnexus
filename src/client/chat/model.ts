@@ -160,6 +160,14 @@ export interface MemberStatus {
   alarm?: boolean;
 }
 
+/** The cap typed into its field: a whole number from 0 (no cap) to 50, else null. A blank is null, never no cap. */
+export function parseCap(v: string): number | null {
+  const t = v.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n <= 50 ? n : null;
+}
+
 /**
  * Whether a member's terminal can open beside the chat: its agent is online,
  * or it is still starting in the tab the chat opened for it, where whatever

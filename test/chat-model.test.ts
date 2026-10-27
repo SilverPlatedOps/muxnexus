@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, stop, summary } from "../src/server/chat/model";
+import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, setCap, stop, summary } from "../src/server/chat/model";
 import type { Chat } from "../src/shared/chat";
 
 const T = "2026-10-26T12:00:00.000Z";
@@ -83,6 +83,28 @@ describe("posting", () => {
     const third = post(c, "claude1", "@codex1 fixed", T);
     expect(c.paused?.reason).toBe("cap");
     expect(states(c, third.id)).toEqual({ codex1: "held" });
+  });
+
+  test("with no cap the chat never pauses on its own", () => {
+    const c = chatWith("claude", "codex");
+    c.cap = 0;
+    for (let i = 0; i < 20; i++) post(c, i % 2 ? "codex1" : "claude1", i % 2 ? "@claude1 again" : "@codex1 again", T);
+    expect(c.paused).toBeUndefined();
+    expect(states(c, c.messages.at(-1)!.id)).toEqual({ claude1: "queued" });
+  });
+
+  test("a chat paused at its cap goes on when the cap is lifted or raised past the run, not when it still holds", () => {
+    for (const [cap, goesOn] of [[0, true], [5, true], [2, false]] as const) {
+      const c = chatWith("claude", "codex");
+      c.cap = 2;
+      post(c, "claude1", "@codex1 look", T);
+      const held = post(c, "codex1", "@claude1 ok", T);
+      expect(c.paused?.reason).toBe("cap");
+      setCap(c, cap, T);
+      expect(c.cap).toBe(cap);
+      expect(c.paused === undefined).toBe(goesOn);
+      expect(states(c, held.id)).toEqual({ claude1: goesOn ? "queued" : "held" });
+    }
   });
 
   test("reaching the cap also holds what was still waiting", () => {
