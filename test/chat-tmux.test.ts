@@ -75,4 +75,23 @@ describe("chat lookups", () => {
     const cwd = (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_path}"])).trim();
     expect(cwd.endsWith("/tmp")).toBe(true);
   });
+
+  test("with no folder, a spawned tab opens in its workspace's folder, not the server's", async () => {
+    await tmux.newSession("shop", "/tmp");
+    const id = await tmux.spawnWindow("shop", null, "sleep 30");
+    const cwd = (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_path}"])).trim();
+    expect(cwd.endsWith("/tmp")).toBe(true);
+  });
+
+  test("a folder with a # in it is taken as it is", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const dir = mkdtempSync("/tmp/mxn-#{pane_id}-");
+    try {
+      await pane("shop");
+      const id = await tmux.spawnWindow("shop", dir, "sleep 30");
+      expect((await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_path}"])).trim().endsWith(dir.split("/").pop()!)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

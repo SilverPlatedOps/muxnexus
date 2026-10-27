@@ -201,6 +201,19 @@ async function serveFile(path: string | null): Promise<Response> {
   });
 }
 
+/**
+ * Where an agent started from a chat opens: a full path, or `~` for home; null
+ * for its workspace's own folder, the way a new tab opens.
+ */
+export async function spawnFolder(folder: string, home: string = homedir()): Promise<string | null> {
+  const f = folder.trim();
+  if (!f) return null;
+  const path = f === "~" || f.startsWith("~/") ? join(home, f.slice(2)) : f;
+  if (!isAbsolute(path)) throw new Error(`not a folder: ${f}. Use a full path like ~/github/shop-orders, or leave it empty for the workspace's own folder`);
+  if (!(await stat(path).catch(() => null))?.isDirectory()) throw new Error(`no such folder: ${path}`);
+  return path;
+}
+
 export function createServer(opts: ServerOptions): RunningServer {
   const tmux = new Tmux(opts.socketName, opts.socketPath);
 
@@ -377,8 +390,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         },
         adapters: { claude: claudeAdapter(), codex: codexAdapter() },
         spawn: async (req) => {
-          const where = isAbsolute(req.folder) ? await stat(req.folder).catch(() => null) : null;
-          if (!where?.isDirectory()) throw new Error(`no such folder: ${req.folder}`);
+          const folder = await spawnFolder(req.folder);
           // Codex starts its thread on its first turn, and a chat can only queue to a
           // thread: a spawned Codex gets one short opening turn so the chat can reach it.
           let command = `${AGENTS.codex} ${shellQuote(CODEX_OPENING)}`;
@@ -386,7 +398,7 @@ export function createServer(opts: ServerOptions): RunningServer {
             const dir = req.profile ? (opts.profiles?.() ?? []).find((d) => profileLabel(d) === req.profile) : undefined;
             command = dir ? `CLAUDE_CONFIG_DIR=${shellQuote(dir)} claude` : "claude";
           }
-          return tmux.spawnWindow(req.session, req.folder, command);
+          return tmux.spawnWindow(req.session, folder, command);
         },
       })
     : null;

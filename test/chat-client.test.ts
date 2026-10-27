@@ -9,10 +9,12 @@ import {
   memberStatus,
   mentionChoices,
   messageRows,
+  knownFolders,
   pickerGroups,
   prefill,
   prefillChips,
   sideTab,
+  stagedFolder,
   tabChats,
 } from "../src/client/chat/model";
 import { addMember, leave, newChat, post } from "../src/server/chat/model";
@@ -180,7 +182,8 @@ describe("members", () => {
     expect(memberStatus(c, claude, { online: true, state: "input" })).toEqual({ text: "needs attention", fix: "open", alarm: true });
     expect(memberStatus(c, claude, { online: true, state: "running" })).toEqual({ text: "working" });
     expect(memberStatus(c, codex, { online: false })).toEqual({ text: "offline · 1 waiting", fix: "reconnect" });
-    expect(memberStatus(c, { ...codex, spawn: "failed", spawnError: "no such folder" }, { online: false })).toEqual({ text: "didn't start: no such folder", fix: "retry", alarm: true });
+    expect(memberStatus(c, { ...codex, windowId: undefined, spawn: "failed", spawnError: "no such folder" }, { online: false })).toEqual({ text: "didn't start: no such folder", fix: "retry", alarm: true });
+    expect(memberStatus(c, { ...codex, spawn: "failed", spawnError: "it may be waiting on a prompt in its tab" }, { online: false })).toEqual({ text: "hasn't started: it may be waiting on a prompt in its tab", fix: "open", alarm: true });
     expect(memberStatus(c, { ...codex, spawn: "pending" }, { online: false })).toEqual({ text: "starting…" });
     expect(memberStatus(c, codex, { online: false, replaced: true })).toEqual({ text: "another agent runs in its tab · 1 waiting", fix: "reconnect" });
   });
@@ -207,6 +210,18 @@ describe("the new chat picker", () => {
       ["shop", [["@1", "claude", "personal", "/Users/me/shop", false], ["@2", "codex", "codex", "/Users/me/shop", false]]],
       ["notes", [["@4", "codex", null, null, true]]],
     ]);
+  });
+
+  test("a new agent starts beside the agent picked, else beside one in its workspace, else in the workspace's own folder", () => {
+    const picked = pickerGroups(sessions, new Set())[0]!.agents[0]!;
+    expect(stagedFolder(sessions, "shop", picked)).toBe("/Users/me/shop");
+    expect(stagedFolder(sessions, "shop")).toBe("/Users/me/shop");
+    expect(stagedFolder(sessions, "notes", picked)).toBe("");
+    expect(stagedFolder(sessions, "notes")).toBe("");
+  });
+
+  test("the folder list offers each folder an agent works in, once", () => {
+    expect(knownFolders(sessions)).toEqual(["/Users/me/shop"]);
   });
 
   test("agents already in the chat are left out", () => {
