@@ -1,3 +1,4 @@
+import { splitCategory } from "../../shared/category";
 import { MEMBER_COLOURS, mentionParts, resolveMentions, type Chat, type ChatGlyph, type ChatMember, type ChatSummary } from "../../shared/chat";
 import type { ChatMemberLive, SessionInfo } from "../../shared/protocol";
 
@@ -199,12 +200,25 @@ export interface PickerAgent {
 
 /**
  * Where a new agent in `session` starts: beside the agent picked when it is in
- * that workspace, else beside one of the workspace's agents, else "" -- the
- * workspace's own folder.
+ * that workspace, else in ~, belonging to no project. You can type any folder.
  */
-export function stagedFolder(sessions: readonly SessionInfo[], session: string, picked?: { session: string; folder?: string }): string {
-  if (picked?.folder && picked.session === session) return picked.folder;
-  return sessions.find((s) => s.name === session)?.windows.find((w) => w.agent?.checkout)?.agent?.checkout ?? "";
+export function stagedFolder(session: string, picked?: { session: string; folder?: string }): string {
+  return picked?.folder && picked.session === session ? picked.folder : "~";
+}
+
+/**
+ * The profile a new Claude runs as, which is what its box shows. A workspace
+ * named for a profile, `[Work] …`, starts its tabs as that profile, so its
+ * name comes first; else the picked agent's when it is in that workspace;
+ * else the box's first. With one profile there is no box: unset, and the
+ * workspace decides.
+ */
+export function stagedProfile(session: string, profiles: readonly string[], picked?: { session: string; profile?: string }): string | undefined {
+  if (profiles.length < 2) return undefined;
+  const named = splitCategory(session)?.category.toLowerCase();
+  if (named && profiles.includes(named)) return named;
+  if (picked?.profile && picked.session === session && profiles.includes(picked.profile)) return picked.profile;
+  return profiles[0];
 }
 
 /** Where a new agent goes when nothing is picked: a workspace, a folder, and the profile a new Claude takes. */
@@ -248,7 +262,7 @@ export interface StagedAgent {
  */
 export function retryStaged(m: ChatMember, sessions: readonly SessionInfo[], fallback: string): StagedAgent {
   const session = m.session && sessions.some((s) => s.name === m.session) ? m.session : fallback;
-  const folder = m.folder && /^(\/|~(\/|$))/.test(m.folder) ? m.folder : stagedFolder(sessions, session);
+  const folder = m.folder && /^(\/|~(\/|$))/.test(m.folder) ? m.folder : stagedFolder(session);
   return { kind: m.kind === "codex" ? "codex" : "claude", session, folder, ...(m.profile ? { profile: m.profile } : {}), role: m.role ?? "" };
 }
 

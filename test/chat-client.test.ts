@@ -18,6 +18,7 @@ import {
   shutdownList,
   sideTab,
   stagedFolder,
+  stagedProfile,
   tabChats,
 } from "../src/client/chat/model";
 import { addMember, leave, newChat, post } from "../src/server/chat/model";
@@ -215,12 +216,24 @@ describe("the new chat picker", () => {
     ]);
   });
 
-  test("a new agent starts beside the agent picked, else beside one in its workspace, else in the workspace's own folder", () => {
+  test("a new agent starts beside the agent picked in its workspace, else in ~, belonging to no project", () => {
     const picked = pickerGroups(sessions, new Set())[0]!.agents[0]!;
-    expect(stagedFolder(sessions, "shop", picked)).toBe("/Users/me/shop");
-    expect(stagedFolder(sessions, "shop")).toBe("/Users/me/shop");
-    expect(stagedFolder(sessions, "notes", picked)).toBe("");
-    expect(stagedFolder(sessions, "notes")).toBe("");
+    expect(stagedFolder("shop", picked)).toBe("/Users/me/shop");
+    expect(stagedFolder("shop")).toBe("~");
+    expect(stagedFolder("notes", picked)).toBe("~");
+  });
+
+  test("a new Claude runs as the profile its box shows: its workspace's when named for one, else the picked agent's beside it, else the first", () => {
+    const profiles = ["personal", "work"];
+    expect(stagedProfile("[Work] Shop orders", profiles)).toBe("work");
+    expect(stagedProfile("[Personal] Notes", profiles, { session: "[Personal] Notes", profile: "work" })).toBe("personal");
+    expect(stagedProfile("[Archived] Old shop", profiles, { session: "[Archived] Old shop", profile: "work" })).toBe("work");
+    expect(stagedProfile("notes", profiles, { session: "[Archived] Old shop", profile: "work" })).toBe("personal");
+    expect(stagedProfile("notes", profiles, { session: "notes", profile: "codex" })).toBe("personal");
+  });
+
+  test("with one profile there is no box, and the workspace decides", () => {
+    expect(stagedProfile("[Personal] Notes", ["personal"])).toBeUndefined();
   });
 
   test("the folder list offers each folder an agent works in, once", () => {
@@ -263,7 +276,7 @@ describe("adding to a chat", () => {
   test("Retry stages the same agent again, keeping its folder only when it was a path", () => {
     const c = twoAgents();
     const bad = addMember(c, { kind: "codex", session: "shop", folder: "Shop orders", spawn: "failed", spawnError: "no such folder: Shop orders", role: "reviewer" }, T);
-    expect(retryStaged(bad, sessions, "notes")).toEqual({ kind: "codex", session: "shop", folder: "/Users/me/shop", role: "reviewer" });
+    expect(retryStaged(bad, sessions, "notes")).toEqual({ kind: "codex", session: "shop", folder: "~", role: "reviewer" });
     const typo = addMember(c, { kind: "claude", session: "gone", folder: "~/github/shop-ordres", profile: "work", spawn: "failed" }, T);
     expect(retryStaged(typo, sessions, "notes")).toEqual({ kind: "claude", session: "notes", folder: "~/github/shop-ordres", profile: "work", role: "" });
   });
