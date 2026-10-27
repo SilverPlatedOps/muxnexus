@@ -14,6 +14,7 @@ import {
   mentionChoices,
   messageRows,
   parseCap,
+  canOpen,
   nearAgent,
   prefill,
   prefillChips,
@@ -450,10 +451,13 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   function openSide(handle: string) {
     const m = chat?.members.find((x) => x.handle === handle);
     const session = agents[handle]?.session ?? m?.session;
-    if (!chat || !m?.windowId || !session || m.left) return;
-    if (!agents[handle]?.online) { host.toast(`${handle} is offline`); return; }
+    if (!chat || !m) return;
+    if (!canOpen(m, agents[handle]) || !session) {
+      host.toast(m.left ? `${handle} has left` : m.windowId ? `${handle} is offline` : `${handle} has no tab: it didn't start`);
+      return;
+    }
     sideHandle = handle;
-    sideWindow = m.windowId;
+    sideWindow = m.windowId ?? null;
     remember(chat.id, { member: handle });
     side.hidden = false;
     divider.hidden = false;

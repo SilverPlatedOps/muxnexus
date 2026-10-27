@@ -168,12 +168,21 @@ export function parseCap(v: string): number | null {
   return n <= 50 ? n : null;
 }
 
+/**
+ * Whether a member's terminal can open beside the chat: its agent is online,
+ * or it is still starting in the tab the chat opened for it, where whatever
+ * holds it up (a trust prompt, say) is waiting to be answered.
+ */
+export function canOpen(m: ChatMember, live: ChatMemberLive | undefined): boolean {
+  return !m.left && !!m.windowId && (live?.online === true || !!m.spawn);
+}
+
 /** What a member's row says, and the one action that puts it right. */
 export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | undefined): MemberStatus {
   // With a tab, it is still starting there and its tab shows why; without one, it never opened.
   if (m.spawn === "failed" && m.windowId) return { text: `hasn't started: ${m.spawnError ?? "unknown"}`, fix: "open", alarm: true };
   if (m.spawn === "failed") return { text: `didn't start: ${m.spawnError ?? "unknown"}`, fix: "retry", alarm: true };
-  if (m.spawn === "pending") return { text: "starting…" };
+  if (m.spawn === "pending") return { text: "starting…", fix: "open" };
   if (!live?.online) {
     let waiting = 0;
     for (const msg of chat.messages) {
@@ -274,14 +283,14 @@ export function retryStaged(m: ChatMember, sessions: readonly SessionInfo[], fal
   return { kind: m.kind === "codex" ? "codex" : "claude", session, folder, ...(m.profile ? { profile: m.profile } : {}), role: m.role ?? "" };
 }
 
-/** Whom Delete can shut down: its agents running now or still starting, less those also in another open chat. */
+/** Whom Delete can shut down: whoever's terminal can open (running now, or still starting), less those also in another open chat. */
 export function shutdownList(chat: Chat, chats: readonly ChatSummary[], agents: Record<string, ChatMemberLive>): { down: string[]; kept: string[] } {
   const elsewhere = new Set(chats.filter((c) => c.id !== chat.id && !c.archived).flatMap((c) => c.windows));
   const down: string[] = [];
   const kept: string[] = [];
   for (const m of chat.members) {
-    if (m.kind === "user" || m.left || !m.windowId || !(agents[m.handle]?.online || m.spawn === "pending")) continue;
-    (elsewhere.has(m.windowId) ? kept : down).push(m.handle);
+    if (m.kind === "user" || !canOpen(m, agents[m.handle])) continue;
+    (elsewhere.has(m.windowId!) ? kept : down).push(m.handle);
   }
   return { down, kept };
 }
