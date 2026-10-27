@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canOpen,
   chatsAsking,
   chatRows,
   composerState,
@@ -242,6 +243,21 @@ describe("the new chat picker", () => {
 
   test("agents already in the chat are left out", () => {
     expect(pickerGroups(sessions, new Set(["@1", "@2"])).map((g) => g.session)).toEqual(["notes"]);
+  });
+});
+
+describe("a member's terminal", () => {
+  test("opens for an agent online, and for one still starting in the tab the chat opened for it", () => {
+    const c = chat();
+    const starting = addMember(c, { kind: "claude", windowId: "@9", session: "shop", spawn: "failed", spawnError: "nothing has started in its tab yet" }, T);
+    const never = addMember(c, { kind: "codex", session: "shop", spawn: "failed", spawnError: "not a folder" }, T);
+    const [claude1, codex1] = c.members.filter((m) => m.kind !== "user");
+    expect(canOpen(claude1!, { online: true })).toBe(true);
+    expect(canOpen(codex1!, { online: false })).toBe(false);
+    expect(canOpen(starting, { online: false })).toBe(true);
+    expect(canOpen(never, undefined)).toBe(false);
+    leave(c, "claude1", T);
+    expect(canOpen(claude1!, { online: true })).toBe(false);
   });
 });
 

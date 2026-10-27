@@ -160,6 +160,15 @@ export interface MemberStatus {
   alarm?: boolean;
 }
 
+/**
+ * Whether a member's terminal can open beside the chat: its agent is online,
+ * or it is still starting in the tab the chat opened for it, where whatever
+ * holds it up (a trust prompt, say) is waiting to be answered.
+ */
+export function canOpen(m: ChatMember, live: ChatMemberLive | undefined): boolean {
+  return !m.left && !!m.windowId && (live?.online === true || !!m.spawn);
+}
+
 /** What a member's row says, and the one action that puts it right. */
 export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | undefined): MemberStatus {
   // With a tab, it is still starting there and its tab shows why; without one, it never opened.

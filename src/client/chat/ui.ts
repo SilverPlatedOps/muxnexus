@@ -13,6 +13,7 @@ import {
   memberStatus,
   mentionChoices,
   messageRows,
+  canOpen,
   nearAgent,
   prefill,
   prefillChips,
@@ -449,7 +450,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const m = chat?.members.find((x) => x.handle === handle);
     const session = agents[handle]?.session ?? m?.session;
     if (!chat || !m?.windowId || !session || m.left) return;
-    if (!agents[handle]?.online) { host.toast(`${handle} is offline`); return; }
+    if (!canOpen(m, agents[handle])) { host.toast(`${handle} is offline`); return; }
     sideHandle = handle;
     sideWindow = m.windowId;
     remember(chat.id, { member: handle });
