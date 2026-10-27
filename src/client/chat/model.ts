@@ -160,6 +160,14 @@ export interface MemberStatus {
   alarm?: boolean;
 }
 
+/** The cap typed into its field: a whole number from 0 (no cap) to 50, else null. A blank is null, never no cap. */
+export function parseCap(v: string): number | null {
+  const t = v.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n <= 50 ? n : null;
+}
+
 /** What a member's row says, and the one action that puts it right. */
 export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | undefined): MemberStatus {
   // With a tab, it is still starting there and its tab shows why; without one, it never opened.

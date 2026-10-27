@@ -111,7 +111,7 @@ describe("delivery text", () => {
     const c = chat();
     c.cap = 0;
     const text = joinMessage(c, addMember(c, { kind: "claude", windowId: "@3" }, T), { home: HOME });
-    expect(text).toContain("- No cap: the chat never pauses on its own. If the exchange goes in circles, mux stop.");
+    expect(text).toContain(`- No cap: the chat never pauses on its own. If the exchange goes in circles, mux stop "<reason>".`);
     expect(text).not.toContain("After 0 agent posts");
   });
 });

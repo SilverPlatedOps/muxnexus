@@ -6,7 +6,7 @@ import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../..
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
-import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, stop, summary } from "./model";
+import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, setCap, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
 import type { ChatStore } from "./store";
 import { deliveryText, readText, whoText } from "./text";
@@ -345,7 +345,7 @@ export function createChatService(deps: ChatServiceDeps) {
         if (m.name !== undefined && m.name.trim()) chat.name = uniqueName(m.name.trim(), chat.id);
         if (m.cap !== undefined) {
           if (!Number.isInteger(m.cap) || m.cap < 0 || m.cap > 50) return { ok: false, error: "The cap is a whole number from 1 to 50, or 0 for no cap." };
-          chat.cap = m.cap;
+          setCap(chat, m.cap, now());
         }
         break;
       case "chat-archive":

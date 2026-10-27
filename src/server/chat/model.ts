@@ -131,6 +131,18 @@ export function leave(chat: Chat, handle: string, now: string): void {
 }
 
 /** Drops every held message; the pause stays until the user writes. */
+/**
+ * A new cap, 0 for none. A chat paused at the old one goes on when the new one
+ * is no cap or isn't reached yet: what was held goes.
+ */
+export function setCap(chat: Chat, cap: number, now: string): void {
+  chat.cap = cap;
+  if (chat.paused?.reason === "cap" && (cap === 0 || chat.agentRun < cap)) {
+    delete chat.paused;
+    setPending(chat, "held", "queued", now);
+  }
+}
+
 export function discardHeld(chat: Chat, now: string = new Date().toISOString()): number {
   return setPending(chat, "held", "cancelled", now, "discarded");
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   chatsAsking,
+  parseCap,
   chatRows,
   composerState,
   headerSummary,
@@ -242,6 +243,13 @@ describe("the new chat picker", () => {
 
   test("agents already in the chat are left out", () => {
     expect(pickerGroups(sessions, new Set(["@1", "@2"])).map((g) => g.session)).toEqual(["notes"]);
+  });
+});
+
+describe("the cap field", () => {
+  test("takes a whole number from 0, no cap, to 50; a blank is nothing, never no cap", () => {
+    expect(["0", " 3 ", "50"].map(parseCap)).toEqual([0, 3, 50]);
+    expect(["", "  ", "51", "2.5", "-1", "x"].map(parseCap)).toEqual([null, null, null, null, null, null]);
   });
 });
 
