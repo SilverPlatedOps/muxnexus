@@ -189,7 +189,7 @@ describe("members", () => {
     expect(memberStatus(c, codex, { online: false })).toEqual({ text: "offline · 1 waiting", fix: "reconnect" });
     expect(memberStatus(c, { ...codex, windowId: undefined, spawn: "failed", spawnError: "no such folder" }, { online: false })).toEqual({ text: "didn't start: no such folder", fix: "retry", alarm: true });
     expect(memberStatus(c, { ...codex, spawn: "failed", spawnError: "it may be waiting on a prompt in its tab" }, { online: false })).toEqual({ text: "hasn't started: it may be waiting on a prompt in its tab", fix: "open", alarm: true });
-    expect(memberStatus(c, { ...codex, spawn: "pending" }, { online: false })).toEqual({ text: "starting…" });
+    expect(memberStatus(c, { ...codex, spawn: "pending" }, { online: false })).toEqual({ text: "starting…", fix: "open" });
     expect(memberStatus(c, codex, { online: false, replaced: true })).toEqual({ text: "another agent runs in its tab · 1 waiting", fix: "reconnect" });
   });
 
@@ -249,15 +249,17 @@ describe("the new chat picker", () => {
 describe("a member's terminal", () => {
   test("opens for an agent online, and for one still starting in the tab the chat opened for it", () => {
     const c = chat();
-    const starting = addMember(c, { kind: "claude", windowId: "@9", session: "shop", spawn: "failed", spawnError: "nothing has started in its tab yet" }, T);
+    const [joined] = c.members.filter((m) => m.kind === "claude");
+    const pending = addMember(c, { kind: "claude", windowId: "@8", session: "shop", spawn: "pending" }, T);
+    const stuck = addMember(c, { kind: "claude", windowId: "@9", session: "shop", spawn: "failed", spawnError: "nothing has started in its tab yet" }, T);
     const never = addMember(c, { kind: "codex", session: "shop", spawn: "failed", spawnError: "not a folder" }, T);
-    const [claude1, codex1] = c.members.filter((m) => m.kind !== "user");
-    expect(canOpen(claude1!, { online: true })).toBe(true);
-    expect(canOpen(codex1!, { online: false })).toBe(false);
-    expect(canOpen(starting, { online: false })).toBe(true);
-    expect(canOpen(never, undefined)).toBe(false);
-    leave(c, "claude1", T);
-    expect(canOpen(claude1!, { online: true })).toBe(false);
+    expect(canOpen(joined!, { online: true })).toBe(true);
+    expect(canOpen(joined!, { online: false })).toBe(false);
+    expect(canOpen(pending, { online: false })).toBe(true);
+    expect(canOpen(stuck, { online: false })).toBe(true);
+    expect(canOpen(never, { online: false })).toBe(false);
+    leave(c, joined!.handle, T);
+    expect(canOpen(joined!, { online: true })).toBe(false);
   });
 });
 
@@ -301,8 +303,9 @@ describe("adding to a chat", () => {
     const c = twoAgents();
     addMember(c, { kind: "claude", windowId: "@3", session: "shop" }, T);
     addMember(c, { kind: "claude", windowId: "@4", session: "shop", spawn: "pending" }, T);
-    const live = { claude1: { online: true }, codex1: { online: true }, claude2: { online: false }, claude3: { online: false } };
+    addMember(c, { kind: "claude", windowId: "@5", session: "shop", spawn: "failed", spawnError: "nothing has started in its tab yet" }, T);
+    const live = { claude1: { online: true }, codex1: { online: true }, claude2: { online: false }, claude3: { online: false }, claude4: { online: false } };
     const others = [summary({ id: "c2", windows: ["@2"] }), summary({ id: "c3", archived: true, windows: ["@1"] })];
-    expect(shutdownList(c, [summary({ id: "c1", windows: ["@1", "@2", "@3"] }), ...others], live)).toEqual({ down: ["claude1", "claude3"], kept: ["codex1"] });
+    expect(shutdownList(c, [summary({ id: "c1", windows: ["@1", "@2", "@3"] }), ...others], live)).toEqual({ down: ["claude1", "claude3", "claude4"], kept: ["codex1"] });
   });
 });
