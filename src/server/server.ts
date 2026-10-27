@@ -202,6 +202,20 @@ async function serveFile(path: string | null): Promise<Response> {
 }
 
 /**
+ * How a chat starts a Claude as `profile`. None chosen inherits the
+ * workspace's: a `[Work]` workspace sets its tabs' CLAUDE_CONFIG_DIR. The
+ * default profile is started with the variable unset, never pointed at
+ * ~/.claude: its config is ~/.claude.json, outside that folder, and a Claude
+ * pointed there finds none and starts as a fresh install.
+ */
+export function claudeCommand(profile: string | undefined, dirs: readonly string[], home: string = homedir()): string {
+  if (!profile) return "claude";
+  const dir = dirs.find((d) => profileLabel(d) === profile);
+  if (!dir) throw new Error(`no Claude profile named ${profile}`);
+  return dir === join(home, ".claude") ? "env -u CLAUDE_CONFIG_DIR claude" : `CLAUDE_CONFIG_DIR=${shellQuote(dir)} claude`;
+}
+
+/**
  * Where an agent started from a chat opens: a full path, or `~` for home; null
  * for its workspace's own folder, the way a new tab opens.
  */
@@ -401,10 +415,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           // Codex starts its thread on its first turn, and a chat can only queue to a
           // thread: a spawned Codex gets one short opening turn so the chat can reach it.
           let command = `${AGENTS.codex} ${shellQuote(CODEX_OPENING)}`;
-          if (req.kind === "claude") {
-            const dir = req.profile ? (opts.profiles?.() ?? []).find((d) => profileLabel(d) === req.profile) : undefined;
-            command = dir ? `CLAUDE_CONFIG_DIR=${shellQuote(dir)} claude` : "claude";
-          }
+          if (req.kind === "claude") command = claudeCommand(req.profile, opts.profiles?.() ?? []);
           return tmux.spawnWindow(req.session, folder, command);
         },
       })

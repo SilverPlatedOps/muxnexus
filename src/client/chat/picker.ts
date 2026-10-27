@@ -1,6 +1,6 @@
 import type { ChatMember } from "../../shared/chat";
 import type { ChatJoin, ChatSpawn, SessionInfo } from "../../shared/protocol";
-import { knownFolders, pickerGroups, stagedFolder, type Near, type PickerAgent, type StagedAgent } from "./model";
+import { knownFolders, pickerGroups, stagedFolder, stagedProfile, type Near, type PickerAgent, type StagedAgent } from "./model";
 
 /**
  * New chat, and Add an agent: pick agents from any workspace, or stage new
@@ -42,12 +42,17 @@ const tilde = (path: string) => path.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "
 interface Staged extends StagedAgent {
   /** The folder was typed: a change of workspace leaves it alone. */
   typed?: boolean;
+  /** The profile was chosen: a change of workspace leaves it alone. */
+  chosen?: boolean;
 }
 
 export function openPicker(o: PickerOpts) {
   const groups = pickerGroups(o.sessions, o.inChat);
   const picked = new Map<string, { agent: PickerAgent; role: string }>();
-  const staged: Staged[] = (o.stage ?? []).map((s) => ({ ...s, folder: tilde(s.folder) }));
+  const staged: Staged[] = (o.stage ?? []).map((s) => {
+    const profile = s.profile ?? (s.kind === "claude" ? stagedProfile(s.session, o.profiles, o.near ?? undefined) : undefined);
+    return { ...s, folder: tilde(s.folder), ...(profile ? { profile } : {}), chosen: s.profile !== undefined };
+  });
   let query = "";
   let folded = true;
   let name = "";
@@ -135,22 +140,29 @@ export function openPicker(o: PickerOpts) {
         folder.setAttribute("list", "chat-folders");
         folder.setAttribute("aria-label", "Folder it starts in");
         folder.oninput = () => { s.folder = folder.value; s.typed = true; };
-        ws.onchange = () => {
-          s.session = ws.value;
-          if (!s.typed) folder.value = s.folder = tilde(stagedFolder(o.sessions, s.session, beside()));
-        };
         sub.append(`opens on ${o.mode === "create" ? "Create" : "Add"} in `, ws, " ", folder);
+        let prof: HTMLSelectElement | null = null;
         if (s.kind === "claude" && o.profiles.length > 1) {
-          const prof = el("select", "chat-staged-profile");
+          prof = el("select", "chat-staged-profile");
           for (const p of o.profiles) {
             const opt = el("option", "", p);
             opt.value = p;
             if (p === s.profile) opt.selected = true;
             prof.append(opt);
           }
-          prof.onchange = () => { s.profile = prof.value; };
+          prof.onchange = () => { s.profile = prof!.value; s.chosen = true; };
           sub.append(" ", prof);
         }
+        ws.onchange = () => {
+          s.session = ws.value;
+          if (!s.typed) folder.value = s.folder = tilde(stagedFolder(s.session, beside()));
+          if (s.kind === "claude" && !s.chosen) {
+            const p = stagedProfile(s.session, o.profiles, beside());
+            if (p) s.profile = p;
+            else delete s.profile;
+            if (prof && s.profile) prof.value = s.profile;
+          }
+        };
         const rm = btn("chat-chip-x", "✕");
         rm.onclick = () => { staged.splice(i, 1); paint(); };
         sub.append(" ", rm);
@@ -166,13 +178,8 @@ export function openPicker(o: PickerOpts) {
     const first = beside();
     const add = (kind: "claude" | "codex") => {
       const session = first?.session ?? o.currentSession ?? o.sessions[0]?.name ?? "";
-      staged.push({
-        kind,
-        folder: tilde(stagedFolder(o.sessions, session, first)),
-        session,
-        ...(kind === "claude" && first?.profile && first.profile !== "codex" ? { profile: first.profile } : {}),
-        role: "",
-      });
+      const profile = kind === "claude" ? stagedProfile(session, o.profiles, first) : undefined;
+      staged.push({ kind, folder: tilde(stagedFolder(session, first)), session, ...(profile ? { profile } : {}), role: "" });
       paint();
     };
     const ac = btn("chat-btn", "+ Claude");
