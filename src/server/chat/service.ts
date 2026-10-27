@@ -516,12 +516,18 @@ export function createChatService(deps: ChatServiceDeps) {
           const doneSince = sameAgent(m, info) && info.state === "done" && !!m.wake && (info.since ?? 0) >= Math.floor(Date.parse(m.wake.sent) / 1000);
           if (state === "running" || state === "input") m.sawRunning = true;
           else if ((state === "done" && m.sawRunning) || doneSince) {
-            delete m.awaiting;
-            delete m.sawRunning;
-            const line = post(chat, m.handle, `${m.handle} finished without replying`, now(), { system: true });
-            if (m.wake) addTab(line, (await said(m.kind as AgentKind, m.wake.path, { ...(m.wake.from !== undefined ? { from: m.wake.from } : {}), tag: m.wake.tag }))?.text);
-            delete m.wake;
-            changed.add(chat.id);
+            // Claude Code can queue a message behind the turn it is in and
+            // read it as the next: until it has been read, that turn is not
+            // its answer. Half an hour on, it is called unanswered regardless.
+            const s = m.wake ? await said(m.kind as AgentKind, m.wake.path, { ...(m.wake.from !== undefined ? { from: m.wake.from } : {}), tag: m.wake.tag }) : null;
+            if (s || !m.wake || Date.parse(now()) - Date.parse(m.wake.sent) > TURN_MS) {
+              delete m.awaiting;
+              delete m.sawRunning;
+              const line = post(chat, m.handle, `${m.handle} finished without replying`, now(), { system: true });
+              addTab(line, s?.text);
+              delete m.wake;
+              changed.add(chat.id);
+            }
           }
         }
       }

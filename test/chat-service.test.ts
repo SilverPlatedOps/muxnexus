@@ -60,7 +60,8 @@ beforeEach(async () => {
   sends = [];
   seen = new Set();
   saidCalls = [];
-  saidReply = () => null;
+  // As a transcript would read: the message was taken in, and nothing said.
+  saidReply = () => ({ text: "", ended: true, start: 0 });
   dead = new Set();
   clock = 0;
   await tmux.killServer();
@@ -527,6 +528,26 @@ describe("what an agent said in its tab", () => {
     await svc.tick();
     expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ system: true, text: "claude1 finished without replying", tabText: "Nothing wrong in math.js, so I didn't post." });
     expect(saidCalls.at(-1)).toMatchObject({ kind: "claude", path: "/tmp/c.jsonl", where: { tag: "[muxnexus · shop review · #2 ·" } });
+  });
+
+  test("a message still queued behind the turn that ended is waited for, not called unanswered", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    let read = false;
+    saidReply = (_k, where) => ("tag" in where && read ? { text: "Read it in my next turn.", ended: true, start: 100 } : null);
+    await svc.handle({ t: "chat-post", id, text: "@claude1 anything else?" });
+    await svc.tick();
+    seen.add("#2 ·");
+    await svc.tick();
+    setState("claude", "running");
+    await svc.tick();
+    setState("claude", "done");
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.at(-1)!.id).toBe(2);
+    expect(svc.busy()).toBe(true);
+    read = true;
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ system: true, text: "claude1 finished without replying", tabText: "Read it in my next turn." });
   });
 
   test("a turn too short to be seen running still ends once its stamp says so after the message went", async () => {

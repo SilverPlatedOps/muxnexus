@@ -29,6 +29,8 @@ interface Row {
   next: number;
   open?: boolean;
   close?: boolean;
+  /** A message the agent took in: a prompt, or one read between tool calls. */
+  read?: boolean;
   text?: string;
   tag?: boolean;
 }
@@ -43,7 +45,8 @@ const blocks = (content: unknown, type: string): string =>
 /**
  * Claude Code: `turn_duration` closes a turn, and nothing else divides one. A
  * prompt is no boundary: a peer's message or the user's typing can arrive in
- * the middle of a turn and be read between its tool calls.
+ * the middle of a turn and be read between its tool calls (a `queued_command`
+ * attachment), or wait for the turn to end and become the next one's prompt.
  */
 const claude: Classify = (r) => {
   if (r.isSidechain) return null;
@@ -52,6 +55,8 @@ const claude: Classify = (r) => {
     const text = blocks(r.message?.content, "text");
     return text ? { text } : null;
   }
+  if (r.type === "user" && r.origin?.kind) return { read: true };
+  if (r.type === "attachment" && r.attachment?.type === "queued_command") return { read: true };
   return null;
 };
 
@@ -63,12 +68,13 @@ const codex: Classify = (r) => {
     const text = blocks(p.content, "output_text");
     return text ? { text } : null;
   }
+  if (r.type === "response_item" && p.type === "message" && p.role === "user") return { read: true };
   return null;
 };
 
 /** Each kind's rows, and a cheap test for lines worth parsing. */
 const KINDS: Record<AgentKind, { classify: Classify; hint: RegExp }> = {
-  claude: { classify: claude, hint: /"type":"(user|assistant|system)"/ },
+  claude: { classify: claude, hint: /"type":"(user|assistant|system|attachment)"/ },
   codex: { classify: codex, hint: /"type":"(event_msg|response_item)"/ },
 };
 
@@ -116,7 +122,9 @@ export async function said(kind: AgentKind, path: string, where: Where): Promise
       if (row || tag) rows.push({ pos, next: base + i, ...row, ...(tag ? { tag: true } : {}) });
     }
 
-    const t = tagged ? rows.findIndex((r) => r.tag) : rows.findLastIndex((r) => r.pos < (where as { at: number }).at);
+    // A tagged message counts where the agent took it in, not where it was
+    // queued: until then, there is no turn for it.
+    const t = tagged ? rows.findIndex((r) => r.tag && r.read) : rows.findLastIndex((r) => r.pos < (where as { at: number }).at);
     if (t === -1) return null;
     // The turn's first row, and where in the file it begins. A post is always
     // inside a turn: if the last row before it closed one, its own turn hadn't

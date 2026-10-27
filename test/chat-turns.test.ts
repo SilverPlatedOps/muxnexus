@@ -91,6 +91,36 @@ describe("Claude: what it said in one turn", () => {
     expect((await said("claude", path, { at: after[15]! }))?.start).toBe(after[5]!);
   });
 
+  test("a message queued behind a running turn belongs to the turn that reads it, not the one it arrived in", async () => {
+    const q = (operation: string, extra: object = {}) => ({ type: "queue-operation", operation, ...extra });
+    const msg = `${TAG} from @user · the human, via muxnexus]\n@claude1 anything else?`;
+    const head = [
+      { type: "user", isSidechain: false, origin: { kind: "human" }, message: { role: "user", content: "add sub" } },
+      cText("Working on sub."),
+      q("enqueue", { content: msg }),
+      cText("Done with sub."),
+      cEnd,
+    ];
+    let { path } = transcript(head);
+    expect(await said("claude", path, { tag: TAG })).toBeNull();
+    ({ path } = transcript([...head, q("dequeue"), { type: "user", isSidechain: false, isMeta: true, origin: { kind: "peer" }, message: { role: "user", content: msg } }, cText("Nothing else."), cEnd]));
+    expect(await said("claude", path, { tag: TAG })).toMatchObject({ text: "Nothing else.", ended: true });
+  });
+
+  test("a message read between tool calls belongs to the turn it was read in", async () => {
+    const msg = `${TAG} from @user · the human, via muxnexus]\n@claude1 also check add`;
+    const { path } = transcript([
+      { type: "user", isSidechain: false, origin: { kind: "human" }, message: { role: "user", content: "fix sub" } },
+      cText("Fixing sub."),
+      { type: "queue-operation", operation: "enqueue", content: msg },
+      { type: "queue-operation", operation: "remove", content: msg },
+      { type: "attachment", isSidechain: false, attachment: { type: "queued_command", prompt: msg } },
+      cText("Also checked add: fine."),
+      cEnd,
+    ]);
+    expect(await said("claude", path, { tag: TAG })).toMatchObject({ text: "Fixing sub.\n\nAlso checked add: fine.", ended: true });
+  });
+
   test("no transcript, or no tag in it, gives nothing", async () => {
     expect(await said("claude", join(dir, "missing.jsonl"), { at: 10 })).toBeNull();
     const { path } = transcript(claudeRows);
