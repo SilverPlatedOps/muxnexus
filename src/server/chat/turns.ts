@@ -116,7 +116,10 @@ export async function said(kind: AgentKind, path: string, where: Where): Promise
       if (row || tag) rows.push({ pos, ...row, ...(tag ? { tag: true } : {}) });
     }
 
-    let t = tagged ? rows.findIndex((r) => r.tag) : rows.findLastIndex((r) => r.pos < (where as { at: number }).at);
+    // Claude Code logs a message's arrival (`queue-operation`) before the
+    // prompt it becomes: the tagged row that opens a turn is the one.
+    let t = tagged ? rows.findIndex((r) => r.tag && r.open) : rows.findLastIndex((r) => r.pos < (where as { at: number }).at);
+    if (tagged && t === -1) t = rows.findIndex((r) => r.tag);
     if (t === -1) return null;
     // A post is always inside a turn: if the last row before it closed one,
     // its own turn hadn't reached the file yet, and is the next.

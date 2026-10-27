@@ -33,6 +33,7 @@ const claudeRows = [
   cResult("ok"),
   cText("Done: sub(a, b) is in math.js. add() has no tests yet."),
   cEnd,
+  { type: "queue-operation", operation: "enqueue", content: `${TAG} from @user · the human, via muxnexus]\n@claude1 please review` },
   { type: "user", isSidechain: false, isMeta: true, origin: { kind: "peer" }, message: { role: "user", content: `${TAG} from @user · the human, via muxnexus]\n@claude1 please review` } },
   { type: "assistant", isSidechain: false, message: { role: "assistant", content: [{ type: "thinking", thinking: "hmm" }] } },
   { type: "user", isSidechain: false, isMeta: true, message: { role: "user", content: [{ type: "text", text: "Base directory for this skill: /Users/me/skills/x" }] } },
@@ -47,7 +48,7 @@ const claudeRows = [
 describe("Claude: what it said in one turn", () => {
   test("the turn under way at a post, from its prompt to its end, prose only", async () => {
     const { path, after } = transcript(claudeRows);
-    expect(await said("claude", path, { at: after[11]! })).toEqual({
+    expect(await said("claude", path, { at: after[12]! })).toEqual({
       text: "Reviewing the diff. Two problems: sub swaps its arguments, and add() has no tests. The swap matters more.\n\nPosted my review.",
       ended: true,
     });
@@ -61,8 +62,8 @@ describe("Claude: what it said in one turn", () => {
   });
 
   test("a turn still running has not ended, and gives what it has so far", async () => {
-    const { path, after } = transcript(claudeRows.slice(0, 12));
-    expect(await said("claude", path, { at: after[11]! })).toEqual({
+    const { path, after } = transcript(claudeRows.slice(0, 13));
+    expect(await said("claude", path, { at: after[12]! })).toEqual({
       text: "Reviewing the diff. Two problems: sub swaps its arguments, and add() has no tests. The swap matters more.",
       ended: false,
     });

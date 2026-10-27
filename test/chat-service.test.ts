@@ -527,6 +527,23 @@ describe("what an agent said in its tab", () => {
     expect(saidCalls.at(-1)).toMatchObject({ kind: "claude", path: "/tmp/c.jsonl", where: { tag: "[muxnexus · shop review · #2 ·" } });
   });
 
+  test("a turn too short to be seen running still ends once its stamp says so after the message went", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    saidReply = (_k, where) => ("tag" in where ? { text: "I changed math.js today.", ended: true } : null);
+    await svc.handle({ t: "chat-post", id, text: "@claude1 which file did you change? Answer in your tab." });
+    await svc.tick();
+    seen.add("#2 ·");
+    clock += 1;
+    await svc.tick();
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.at(-1)!.id).toBe(2);
+    clock += 1;
+    await stamp("claude", "done", epoch());
+    await svc.tick();
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ system: true, text: "claude1 finished without replying", tabText: "I changed math.js today." });
+  });
+
   test("two posts in one turn: the turn goes under the last", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");

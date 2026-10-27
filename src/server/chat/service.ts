@@ -514,11 +514,14 @@ export function createChatService(deps: ChatServiceDeps) {
             changed.add(chat.id);
           }
         }
-        // A turn the chat started that ended with nothing said back.
+        // A turn the chat started that ended with nothing said back: seen
+        // running and then done, or -- a turn too short to be seen -- stamped
+        // done after the message went.
         if (m.awaiting !== undefined) {
           const state = live(m, states)?.state;
+          const doneSince = sameAgent(m, info) && info.state === "done" && !!m.wake && (info.since ?? 0) >= Math.floor(Date.parse(m.wake.sent) / 1000);
           if (state === "running" || state === "input") m.sawRunning = true;
-          else if (state === "done" && m.sawRunning) {
+          else if ((state === "done" && m.sawRunning) || doneSince) {
             delete m.awaiting;
             delete m.sawRunning;
             const line = post(chat, m.handle, `${m.handle} finished without replying`, now(), { system: true });
@@ -545,7 +548,7 @@ export function createChatService(deps: ChatServiceDeps) {
             if (!chat.messages.some((x) => x.from === handle && x.id > msg.id && !x.system)) {
               m.awaiting = msg.id;
               m.sawRunning = false;
-              m.wake = { path, tag: p?.tag ?? tagOf(chat, msg.id), ...(p && p.path === path ? { from: p.offset } : {}) };
+              m.wake = { path, tag: p?.tag ?? tagOf(chat, msg.id), sent: d.at, ...(p && p.path === path ? { from: p.offset } : {}) };
             }
             changed.add(chat.id);
           } else if (!reachable(m, info)) {

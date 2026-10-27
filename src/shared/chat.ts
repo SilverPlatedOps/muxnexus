@@ -56,8 +56,8 @@ export interface ChatMember {
   awaiting?: number;
   /** Its turn was seen running since `awaiting` was delivered. */
   sawRunning?: boolean;
-  /** Where the message it is `awaiting` landed: what it said there shows if it never posts. */
-  wake?: { path: string; from?: number; tag: string };
+  /** Where and when the message it is `awaiting` went: what it said there shows if it never posts. */
+  wake?: { path: string; from?: number; tag: string; sent: string };
   /** Its last post, until that turn ends: then what it said in its tab that turn goes under it. */
   turn?: { msgId: number; path: string; at: number; since: string };
   left?: boolean;
