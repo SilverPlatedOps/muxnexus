@@ -271,11 +271,13 @@ export function createChatService(deps: ChatServiceDeps) {
 
   /**
    * Close the tabs of a deleted chat's agents: only an agent that is still the
-   * one that joined, and in no other open chat. What it did, for the user.
+   * one that joined, or one the chat started that may still join, and in no
+   * other open chat. What it did, for the user.
    */
   async function shutDown(chat: Chat): Promise<string> {
     const down: string[] = [];
     const kept: string[] = [];
+    const failed: string[] = [];
     for (const m of chat.members) {
       if (m.kind === "user" || m.left || !m.windowId) continue;
       const other = chatsOf(m.windowId)[0];
@@ -284,14 +286,20 @@ export function createChatService(deps: ChatServiceDeps) {
         continue;
       }
       const info = await deps.tmux.agentOfWindow(m.windowId);
-      if (!info) kept.push(`${m.handle}, no agent has started in its tab`);
-      else if (!sameAgent(m, info)) kept.push(`${m.handle}, its tab now runs another agent`);
-      else if (info.pid === undefined || alive(info.pid)) {
-        await deps.closeWindow?.(m.windowId);
-        down.push(m.handle);
+      // Its tab, opened by the chat, before its agent has stamped it: at a trust prompt, say.
+      const starting = !info && !!m.spawn && Date.parse(now()) - Date.parse(m.joinedAt) <= LATE_JOIN_MS;
+      if (info && !sameAgent(m, info)) kept.push(`${m.handle}, its tab now runs another agent`);
+      else if (!info && !starting) kept.push(`${m.handle}, no agent has started in its tab`);
+      else if (starting || info!.pid === undefined || alive(info!.pid)) {
+        try {
+          await deps.closeWindow?.(m.windowId);
+          down.push(m.handle);
+        } catch (e) {
+          failed.push(`Couldn't close ${m.handle}'s tab: ${e instanceof Error ? e.message : String(e)}.`);
+        }
       }
     }
-    const said = [down.length ? `Shut down ${down.join(", ")}.` : "", kept.length ? `Left running: ${kept.join("; ")}.` : ""].filter(Boolean).join(" ");
+    const said = [down.length ? `Shut down ${down.join(", ")}.` : "", kept.length ? `Left running: ${kept.join("; ")}.` : "", ...failed].filter(Boolean).join(" ");
     return said || "None of its agents was running.";
   }
 
@@ -345,8 +353,14 @@ export function createChatService(deps: ChatServiceDeps) {
         if (m.archived) cancelPending(chat, "archived");
         break;
       case "chat-delete":
+        // Out of the room first, so a tick or hook still holding it neither saves nor sends it.
         chats.delete(chat.id);
-        await deps.store.remove(chat.id);
+        try {
+          await deps.store.remove(chat.id);
+        } catch (e) {
+          chats.set(chat.id, chat);
+          return { ok: false, error: `Couldn't delete it: ${e instanceof Error ? e.message : String(e)}` };
+        }
         return m.closeTabs ? { ok: true, notice: await shutDown(chat) } : { ok: true };
       case "chat-discard-held":
         discardHeld(chat, now());
@@ -636,15 +650,17 @@ export function createChatService(deps: ChatServiceDeps) {
       }
     }
     for (const f of plan.fail) {
-      const chat = chats.get(f.chatId)!;
+      const chat = chats.get(f.chatId);
+      if (!chat) continue;
       chat.messages.find((x) => x.id === f.msgId)!.deliveries[f.handle] = { state: "failed", reason: f.reason, at: now() };
       changed.add(chat.id);
     }
     for (const s of plan.send) {
-      const chat = chats.get(s.chatId)!;
+      // Earlier sends were awaited: a delete, a Remove, an archive or a pause may have landed since.
+      const chat = chats.get(s.chatId);
+      if (!chat) continue;
       const msg = chat.messages.find((x) => x.id === s.msgId)!;
       const member = chat.members.find((x) => x.handle === s.handle)!;
-      // Earlier sends were awaited: a Remove, an archive or a pause may have landed since.
       const d = msg.deliveries[s.handle];
       if (!d || d.state !== "queued" || d.reason === "sent" || member.left || chat.archived) continue;
       const info = await infoOf(member.windowId!);

@@ -231,24 +231,34 @@ export function nearAgent(chat: Chat, sessions: readonly SessionInfo[]): Near | 
   return { session, folder, ...(m.kind === "claude" && m.profile ? { profile: m.profile } : {}) };
 }
 
+/** A new agent staged in the picker, to start when you press the button. */
+export interface StagedAgent {
+  kind: "claude" | "codex";
+  session: string;
+  /** Empty for the workspace's own folder. */
+  folder: string;
+  profile?: string;
+  role: string;
+}
+
 /**
  * What Retry stages again: the same kind, role and profile, in its workspace
  * while that still exists (else `fallback`), and its folder only when what
  * was typed was a path: anything else is why it failed.
  */
-export function retryStaged(m: ChatMember, sessions: readonly SessionInfo[], fallback: string): { kind: "claude" | "codex"; session: string; folder: string; profile?: string; role: string } {
+export function retryStaged(m: ChatMember, sessions: readonly SessionInfo[], fallback: string): StagedAgent {
   const session = m.session && sessions.some((s) => s.name === m.session) ? m.session : fallback;
   const folder = m.folder && /^(\/|~(\/|$))/.test(m.folder) ? m.folder : stagedFolder(sessions, session);
   return { kind: m.kind === "codex" ? "codex" : "claude", session, folder, ...(m.profile ? { profile: m.profile } : {}), role: m.role ?? "" };
 }
 
-/** Whom Delete can shut down: its agents running now, less those also in another open chat. */
+/** Whom Delete can shut down: its agents running now or still starting, less those also in another open chat. */
 export function shutdownList(chat: Chat, chats: readonly ChatSummary[], agents: Record<string, ChatMemberLive>): { down: string[]; kept: string[] } {
   const elsewhere = new Set(chats.filter((c) => c.id !== chat.id && !c.archived).flatMap((c) => c.windows));
   const down: string[] = [];
   const kept: string[] = [];
   for (const m of chat.members) {
-    if (m.kind === "user" || m.left || !m.windowId || !agents[m.handle]?.online) continue;
+    if (m.kind === "user" || m.left || !m.windowId || !(agents[m.handle]?.online || m.spawn === "pending")) continue;
     (elsewhere.has(m.windowId) ? kept : down).push(m.handle);
   }
   return { down, kept };

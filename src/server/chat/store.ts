@@ -63,8 +63,8 @@ export function createChatStore(dir: string = CHATS_DIR) {
     remove(id: string): Promise<void> {
       if (!isChatId(id)) return Promise.reject(new Error("invalid chat id"));
       const run = queue.then(async () => {
-        await rm(path(id), { force: true });
         await rm(`${path(id)}.tmp`, { force: true });
+        await rm(path(id), { force: true });
       });
       queue = run.catch(() => {});
       return run;

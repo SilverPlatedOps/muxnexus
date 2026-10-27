@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Adapter, AgentTarget } from "../src/server/chat/adapters";
@@ -18,6 +18,7 @@ let seen: Set<string>;
 let saidCalls: { kind: string; path: string; where: Where }[];
 let dead: Set<number>;
 let closed: string[];
+let closeFails: Set<string>;
 let saidReply: (kind: string, where: Where) => Said | null;
 let clock = 0;
 
@@ -47,7 +48,7 @@ function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: P
     receipt: async (_path, tag) => [...seen].some((s) => tag.includes(s)),
     said: async (kind, path, where) => { saidCalls.push({ kind, path, where }); return saidReply(kind, where); },
     alive: (pid) => !dead.has(pid),
-    closeWindow: async (w) => { closed.push(w); },
+    closeWindow: async (w) => { if (closeFails.has(w)) throw new Error(`can't find window: ${w}`); closed.push(w); },
     ...(over.spawn ? { spawn: over.spawn } : {}),
     now,
     home: homedir(),
@@ -67,6 +68,7 @@ beforeEach(async () => {
   saidReply = () => ({ text: "", ended: true, start: 0 });
   dead = new Set();
   closed = [];
+  closeFails = new Set();
   clock = 0;
   await tmux.killServer();
   await tmux.newSession("shop");
@@ -749,6 +751,58 @@ describe("deleting a chat", () => {
     await svc.tick();
     expect(readdirSync(dir)).toEqual([]);
     expect(await svc.summaries()).toEqual([]);
+  });
+
+  test("a tab that won't close doesn't stop the others, and is reported", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    closeFails.add(panes.claude!.window);
+    expect(await svc.handle({ t: "chat-delete", id, closeTabs: true })).toEqual({
+      ok: true,
+      notice: `Shut down codex1. Couldn't close claude1's tab: can't find window: ${panes.claude!.window}.`,
+    });
+    expect(closed).toEqual([panes.codex!.window]);
+  });
+
+  test("a file that can't be removed leaves the chat as it was, and says so", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    chmodSync(dir, 0o555);
+    try {
+      const r = await svc.handle({ t: "chat-delete", id, closeTabs: true });
+      expect(r.ok).toBe(false);
+      expect(r.ok ? "" : r.error).toStartWith("Couldn't delete it: ");
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+    expect((await svc.summaries()).map((c) => c.id)).toEqual([id]);
+    expect(closed).toEqual([]);
+  });
+
+  test("an agent still starting in a tab the chat opened is shut down too, within the half hour it's watched", async () => {
+    await window("fresh", "");
+    await window("later", "");
+    let next = "fresh";
+    const svc = service({ spawn: async () => panes[next]!.window });
+    const r = await svc.handle({ t: "chat-create", members: [], spawn: [{ kind: "claude", folder: "/tmp", session: "shop" }] });
+    expect(await svc.handle({ t: "chat-delete", id: r.ok ? r.chatId! : "", closeTabs: true })).toEqual({ ok: true, notice: "Shut down claude1." });
+    expect(closed).toEqual([panes.fresh!.window]);
+    next = "later";
+    const r2 = await svc.handle({ t: "chat-create", members: [], spawn: [{ kind: "claude", folder: "/tmp", session: "shop" }] });
+    clock += 31 * 60;
+    expect(await svc.handle({ t: "chat-delete", id: r2.ok ? r2.chatId! : "", closeTabs: true })).toEqual({ ok: true, notice: "Left running: claude1, no agent has started in its tab." });
+    expect(closed).toEqual([panes.fresh!.window]);
+  });
+
+  test("a delivery still to go in the same pass is not sent once the chat is deleted", async () => {
+    let id = "";
+    const svc: ReturnType<typeof service> = service({
+      adapters: { claude: { kind: "claude", send: async () => { await svc.handle({ t: "chat-delete", id, closeTabs: false }); return { ok: true }; } } },
+    });
+    id = await newChat(svc, "claude", "codex");
+    await svc.handle({ t: "chat-post", id, text: "@claude1 @codex1 go" });
+    await svc.tick();
+    expect(sends).toEqual([]);
   });
 
   test("the browser's message is checked", () => {

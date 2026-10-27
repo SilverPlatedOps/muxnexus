@@ -271,8 +271,9 @@ describe("adding to a chat", () => {
   test("Delete offers to shut down the agents running now, except those also in another open chat", () => {
     const c = twoAgents();
     addMember(c, { kind: "claude", windowId: "@3", session: "shop" }, T);
-    const live = { claude1: { online: true }, codex1: { online: true }, claude2: { online: false } };
+    addMember(c, { kind: "claude", windowId: "@4", session: "shop", spawn: "pending" }, T);
+    const live = { claude1: { online: true }, codex1: { online: true }, claude2: { online: false }, claude3: { online: false } };
     const others = [summary({ id: "c2", windows: ["@2"] }), summary({ id: "c3", archived: true, windows: ["@1"] })];
-    expect(shutdownList(c, [summary({ id: "c1", windows: ["@1", "@2", "@3"] }), ...others], live)).toEqual({ down: ["claude1"], kept: ["codex1"] });
+    expect(shutdownList(c, [summary({ id: "c1", windows: ["@1", "@2", "@3"] }), ...others], live)).toEqual({ down: ["claude1", "claude3"], kept: ["codex1"] });
   });
 });

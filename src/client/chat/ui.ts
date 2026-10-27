@@ -23,6 +23,7 @@ import {
   type ChatRow,
   type Row,
   type SideTab,
+  type StagedAgent,
 } from "./model";
 import { openPicker } from "./picker";
 
@@ -273,7 +274,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     name.onclick = (e) => {
       e.stopPropagation();
       toggleMenu(name, el("div", "chat-settings-menu"));
-      ask("Chat name", chat!.name, (n) => { if (n.trim()) host.send({ t: "chat-settings", id: chat!.id, name: n.trim() }); });
+      rename();
     };
     const members = btn("chat-members", "", "Who's in this chat");
     members.append(`Members ${sum.members}`);
@@ -634,11 +635,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const box = el("div", "chat-settings-menu");
     if (!chat) return box;
     box.append(el("div", "chat-menu-title", "Chat settings"));
-    const rename = btn("chat-mi", "Rename…");
-    rename.onclick = (e) => {
-      e.stopPropagation();
-      ask("Chat name", chat!.name, (n) => { if (n.trim()) host.send({ t: "chat-settings", id: chat!.id, name: n.trim() }); });
-    };
+    const renameItem = btn("chat-mi", "Rename…");
+    renameItem.onclick = (e) => { e.stopPropagation(); rename(); };
     const cap = btn("chat-mi", "");
     cap.append("Pause after ", el("span", "k", `${chat.cap} agent posts`));
     cap.onclick = (e) => {
@@ -656,8 +654,15 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const del = btn("chat-mi danger", "Delete chat…");
     del.append(el("span", "k", "for good"));
     del.onclick = (e) => { e.stopPropagation(); confirmDelete(); };
-    box.append(rename, cap, rules, el("div", "chat-sep"), archive, del);
+    box.append(renameItem, cap, rules, el("div", "chat-sep"), archive, del);
     return box;
+  }
+
+  /** The name field, in place of the open menu (none open, as when the name was clicked again: nothing). */
+  function rename() {
+    if (!chat) return;
+    const id = chat.id;
+    ask("Chat name", chat.name, (n) => { if (n.trim()) host.send({ t: "chat-settings", id, name: n.trim() }); });
   }
 
   /** In place of the open menu: what Delete does, and whether its agents go too (off unless ticked). */
@@ -701,7 +706,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     });
   }
 
-  function addAgents(replacing?: string, stage?: ReturnType<typeof retryStaged>[]) {
+  function addAgents(replacing?: string, stage?: StagedAgent[]) {
     if (!chat) return;
     const id = chat.id;
     const sessions = host.sessions();

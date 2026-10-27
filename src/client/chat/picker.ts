@@ -1,6 +1,6 @@
 import type { ChatMember } from "../../shared/chat";
 import type { ChatJoin, ChatSpawn, SessionInfo } from "../../shared/protocol";
-import { knownFolders, pickerGroups, stagedFolder, type Near, type PickerAgent } from "./model";
+import { knownFolders, pickerGroups, stagedFolder, type Near, type PickerAgent, type StagedAgent } from "./model";
 
 /**
  * New chat, and Add an agent: pick agents from any workspace, or stage new
@@ -20,7 +20,7 @@ export interface PickerOpts {
   /** Adding to a chat: where new agents start when no agent is picked. */
   near?: Near | null;
   /** New agents staged on opening: Retry's. */
-  stage?: { kind: "claude" | "codex"; session: string; folder: string; profile?: string; role: string }[];
+  stage?: StagedAgent[];
   submit(r: { name?: string; members: ChatJoin[]; spawn: ChatSpawn[] }): void;
 }
 
@@ -39,13 +39,7 @@ function btn(cls: string, text: string): HTMLButtonElement {
 /** A home folder as ~, the way a terminal shows it. */
 const tilde = (path: string) => path.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
 
-interface Staged {
-  kind: "claude" | "codex";
-  /** Empty for the workspace's own folder. */
-  folder: string;
-  session: string;
-  profile?: string;
-  role: string;
+interface Staged extends StagedAgent {
   /** The folder was typed: a change of workspace leaves it alone. */
   typed?: boolean;
 }
