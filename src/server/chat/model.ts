@@ -86,7 +86,7 @@ export function post(chat: Chat, from: string, text: string, now: string, opts: 
       }
     } else {
       chat.agentRun++;
-      if (!chat.paused && chat.agentRun >= chat.cap) {
+      if (!chat.paused && chat.cap > 0 && chat.agentRun >= chat.cap) {
         // Nobody else is woken: what was still waiting waits for the user too.
         chat.paused = { reason: "cap" };
         setPending(chat, "queued", "held", now);

@@ -124,6 +124,11 @@ export interface ChatSummary {
   windows: string[];
 }
 
+/** The house rule for a chat's cap, as agents and the user read it: 0 is no cap. */
+export function capRule(cap: number): string {
+  return cap > 0 ? `- After ${cap} agent posts without @user, the chat pauses.` : "- No cap: the chat never pauses on its own. If the exchange goes in circles, mux stop.";
+}
+
 /** Handed out in order, so two agents of one kind still look different. */
 export const SHAPES = ["◆", "▲", "■", "◇", "△", "□"] as const;
 

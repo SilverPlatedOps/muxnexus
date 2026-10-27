@@ -85,6 +85,14 @@ describe("posting", () => {
     expect(states(c, third.id)).toEqual({ codex1: "held" });
   });
 
+  test("with no cap the chat never pauses on its own", () => {
+    const c = chatWith("claude", "codex");
+    c.cap = 0;
+    for (let i = 0; i < 20; i++) post(c, i % 2 ? "codex1" : "claude1", i % 2 ? "@claude1 again" : "@codex1 again", T);
+    expect(c.paused).toBeUndefined();
+    expect(states(c, c.messages.at(-1)!.id)).toEqual({ claude1: "queued" });
+  });
+
   test("reaching the cap also holds what was still waiting", () => {
     const c = chatWith("claude", "codex");
     c.cap = 2;

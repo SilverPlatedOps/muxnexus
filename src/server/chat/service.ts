@@ -344,7 +344,7 @@ export function createChatService(deps: ChatServiceDeps) {
       case "chat-settings":
         if (m.name !== undefined && m.name.trim()) chat.name = uniqueName(m.name.trim(), chat.id);
         if (m.cap !== undefined) {
-          if (!Number.isInteger(m.cap) || m.cap < 1 || m.cap > 50) return { ok: false, error: "The cap is a whole number from 1 to 50." };
+          if (!Number.isInteger(m.cap) || m.cap < 0 || m.cap > 50) return { ok: false, error: "The cap is a whole number from 1 to 50, or 0 for no cap." };
           chat.cap = m.cap;
         }
         break;

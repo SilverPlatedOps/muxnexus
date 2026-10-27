@@ -106,6 +106,14 @@ describe("delivery text", () => {
     expect(text).toContain("- After 5 agent posts without @user, the chat pauses.");
     expect(text).toContain("@codex1 (Codex, shop-orders, reviewer)");
   });
+
+  test("with no cap, the join message says the chat never pauses on its own and when to stop it", () => {
+    const c = chat();
+    c.cap = 0;
+    const text = joinMessage(c, addMember(c, { kind: "claude", windowId: "@3" }, T), { home: HOME });
+    expect(text).toContain("- No cap: the chat never pauses on its own. If the exchange goes in circles, mux stop.");
+    expect(text).not.toContain("After 0 agent posts");
+  });
 });
 
 describe("who and read", () => {

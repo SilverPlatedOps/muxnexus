@@ -712,6 +712,16 @@ describe("what an agent said in its tab", () => {
   });
 });
 
+describe("the cap", () => {
+  test("is a whole number from 1 to 50, or 0 for none", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    expect(await svc.handle({ t: "chat-settings", id, cap: 0 })).toEqual({ ok: true, chatId: id });
+    expect((await svc.view(id))!.chat.cap).toBe(0);
+    for (const cap of [-1, 51, 2.5]) expect(await svc.handle({ t: "chat-settings", id, cap })).toEqual({ ok: false, error: "The cap is a whole number from 1 to 50, or 0 for no cap." });
+  });
+});
+
 describe("deleting a chat", () => {
   test("it goes for good, file and all, and its agents keep running unless asked", async () => {
     const svc = service();
