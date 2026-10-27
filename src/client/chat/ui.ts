@@ -13,13 +13,17 @@ import {
   memberStatus,
   mentionChoices,
   messageRows,
+  nearAgent,
   prefill,
   prefillChips,
+  retryStaged,
+  shutdownList,
   sideTab,
   tabChats,
   type ChatRow,
   type Row,
   type SideTab,
+  type StagedAgent,
 } from "./model";
 import { openPicker } from "./picker";
 
@@ -266,7 +270,12 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       return;
     }
     const sum = headerSummary(chat, agents);
-    const name = el("span", "chat-name", chat.name);
+    const name = btn("chat-name", chat.name, "Rename");
+    name.onclick = (e) => {
+      e.stopPropagation();
+      toggleMenu(name, el("div", "chat-settings-menu"));
+      rename();
+    };
     const members = btn("chat-members", "", "Who's in this chat");
     members.append(`Members ${sum.members}`);
     if (sum.needsYou) members.append(" · ", el("span", "glyph input", "●"));
@@ -579,8 +588,13 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
           b.onclick = () => { closeMenu(); reconnect(m); };
           r.append(b);
         } else if (st.fix === "retry") {
-          const b = btn("chat-fix", "Retry");
-          b.onclick = () => { closeMenu(); host.send({ t: "chat-remove", id: chat!.id, handle: m.handle }); host.send({ t: "chat-add", id: chat!.id, members: [], spawn: [{ kind: m.kind as "claude" | "codex", folder: m.folder ?? "", session: m.session ?? host.currentSession() ?? "", ...(m.role ? { role: m.role } : {}) }] }); };
+          // Staged again in the picker, so a folder that was wrong can be put right first.
+          const b = btn("chat-fix", "Retry…");
+          b.onclick = () => {
+            closeMenu();
+            const sessions = host.sessions();
+            addAgents(m.handle, [retryStaged(m, sessions, nearAgent(chat!, sessions)?.session ?? host.currentSession() ?? sessions[0]?.name ?? "")]);
+          };
           r.append(b);
         }
         const dots = btn("chat-fix more", "⋯", "More");
@@ -621,11 +635,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const box = el("div", "chat-settings-menu");
     if (!chat) return box;
     box.append(el("div", "chat-menu-title", "Chat settings"));
-    const rename = btn("chat-mi", "Rename…");
-    rename.onclick = (e) => {
-      e.stopPropagation();
-      ask("Chat name", chat!.name, (n) => { if (n.trim()) host.send({ t: "chat-settings", id: chat!.id, name: n.trim() }); });
-    };
+    const renameItem = btn("chat-mi", "Rename…");
+    renameItem.onclick = (e) => { e.stopPropagation(); rename(); };
     const cap = btn("chat-mi", "");
     cap.append("Pause after ", el("span", "k", `${chat.cap} agent posts`));
     cap.onclick = (e) => {
@@ -640,8 +651,44 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const archive = btn("chat-mi", chat.archived ? "Reopen chat" : "Archive chat");
     archive.append(el("span", "k", chat.archived ? "wakes nobody" : "keeps history"));
     archive.onclick = () => { host.send({ t: "chat-archive", id: chat!.id, archived: !chat!.archived }); closeMenu(); };
-    box.append(rename, cap, rules, el("div", "chat-sep"), archive);
+    const del = btn("chat-mi danger", "Delete chat…");
+    del.append(el("span", "k", "for good"));
+    del.onclick = (e) => { e.stopPropagation(); confirmDelete(); };
+    box.append(renameItem, cap, rules, el("div", "chat-sep"), archive, del);
     return box;
+  }
+
+  /** The name field, in place of the open menu (none open, as when the name was clicked again: nothing). */
+  function rename() {
+    if (!chat) return;
+    const id = chat.id;
+    ask("Chat name", chat.name, (n) => { if (n.trim()) host.send({ t: "chat-settings", id, name: n.trim() }); });
+  }
+
+  /** In place of the open menu: what Delete does, and whether its agents go too (off unless ticked). */
+  function confirmDelete() {
+    if (!menu || !chat) return;
+    const c = chat;
+    const { down, kept } = shutdownList(c, chats, agents);
+    const box = el("div", "chat-ask chat-delete");
+    box.append(el("div", "chat-menu-title", `Delete "${c.name}" for good?`), el("p", "chat-delete-note", "Its messages go. Its agents keep running."));
+    let shut: HTMLInputElement | null = null;
+    if (down.length) {
+      const label = el("label", "chat-delete-shut");
+      shut = el("input");
+      shut.type = "checkbox";
+      label.append(shut, `Also shut down ${down.join(", ")}: closes ${down.length === 1 ? "its tab" : "their tabs"}`);
+      box.append(label);
+    }
+    if (kept.length) box.append(el("p", "chat-delete-note", `${kept.join(", ")} ${kept.length === 1 ? "is" : "are"} in another open chat and ${kept.length === 1 ? "keeps" : "keep"} running.`));
+    const yes = btn("chat-btn danger", "Delete");
+    yes.onclick = () => { host.send({ t: "chat-delete", id: c.id, closeTabs: shut?.checked ?? false }); closeMenu(); };
+    const no = btn("chat-btn", "Cancel");
+    no.onclick = () => closeMenu();
+    box.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") closeMenu(); });
+    box.append(el("span", "sp"), no, yes);
+    menu.replaceChildren(box);
+    no.focus();
   }
 
   // ---- new chat and adding ----------------------------------------------------
@@ -659,16 +706,19 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     });
   }
 
-  function addAgents(replacing?: string) {
+  function addAgents(replacing?: string, stage?: StagedAgent[]) {
     if (!chat) return;
     const id = chat.id;
+    const sessions = host.sessions();
     openPicker({
       mode: "add",
-      sessions: host.sessions(),
+      sessions,
       profiles: host.profiles(),
       inChat: new Set(chat.members.filter((m) => !m.left && m.windowId).map((m) => m.windowId!)),
       existing: chat.members,
       currentSession: host.currentSession(),
+      near: nearAgent(chat, sessions),
+      ...(stage ? { stage } : {}),
       submit: (r) => {
         host.send({ t: "chat-add", id, members: r.members, spawn: r.spawn });
         if (replacing) host.send({ t: "chat-remove", id, handle: replacing });

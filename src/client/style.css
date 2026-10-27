@@ -1967,6 +1967,15 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-btn:hover { border-color: var(--accent); }
 .chat-btn.pri { background: var(--accent); border-color: var(--accent); color: #10141a; font-weight: 700; }
 .chat-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.chat-btn.danger { border-color: var(--red); color: var(--red); }
+.chat-btn.danger:hover { background: var(--red); color: #10141a; }
+.chat-delete { max-width: 380px; }
+.chat-delete-note { flex: 0 0 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.chat-delete-shut { flex: 0 0 100%; display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; color: var(--fg); font-size: 12.5px; line-height: 1.45; cursor: pointer; }
+.chat-delete-shut input { margin: 2px 0 0; accent-color: var(--red); }
+.chat-delete .sp { flex: 1; }
+button.chat-name { padding: 0; border: 0; background: none; font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+button.chat-name:hover { text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
 .chat-modal-fold { margin: 0 12px; padding: 8px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--muted); font: 12px var(--mono); text-align: left; cursor: pointer; }
 .chat-modal-fold:hover { color: var(--fg); }
 .chat-modal-extra { display: flex; flex-direction: column; gap: 6px; margin: 0 12px 8px; padding: 0 8px; }
@@ -1978,7 +1987,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-modal-foot .sp { flex: 1; }
 .chat-rules { margin: 0; padding: 14px 16px; overflow: auto; white-space: pre-wrap; color: var(--fg); font: 12px/1.6 var(--mono); }
 
-:is(.chat-who, .chat-members, .side-tab, .chats-new, .chat-fix, .chat-mi, .chat-agent, .chat-btn, .chat-side-who, .chat-side-btn, .chat-discard, .chat-member-name, .chat-member-add):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:is(.chat-name, .chat-who, .chat-members, .side-tab, .chats-new, .chat-fix, .chat-mi, .chat-agent, .chat-btn, .chat-side-who, .chat-side-btn, .chat-discard, .chat-member-name, .chat-member-add):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* Narrow: one pane at a time, switched from the chat's header. */
 @media (max-width: 720px) {

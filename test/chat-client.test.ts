@@ -10,9 +10,12 @@ import {
   mentionChoices,
   messageRows,
   knownFolders,
+  nearAgent,
   pickerGroups,
   prefill,
   prefillChips,
+  retryStaged,
+  shutdownList,
   sideTab,
   stagedFolder,
   tabChats,
@@ -226,5 +229,51 @@ describe("the new chat picker", () => {
 
   test("agents already in the chat are left out", () => {
     expect(pickerGroups(sessions, new Set(["@1", "@2"])).map((g) => g.session)).toEqual(["notes"]);
+  });
+});
+
+describe("adding to a chat", () => {
+  const sessions: SessionInfo[] = [
+    { name: "shop", id: "$1", attached: 0, windows: [{ id: "@1", index: 0, name: "claude", active: true, panes: 1, agent: { state: "done", since: T, profile: "work", checkout: "/Users/me/shop" } }] },
+    { name: "api", id: "$2", attached: 0, windows: [{ id: "@2", index: 0, name: "codex", active: true, panes: 1, agent: { state: "done", since: T, profile: "codex", checkout: "/Users/me/api" } }] },
+    { name: "notes", id: "$3", attached: 0, windows: [] },
+  ];
+  const twoAgents = () => {
+    const c = newChat("c1", "shop review", T);
+    addMember(c, { kind: "claude", windowId: "@1", session: "shop", folder: "/Users/me/shop", profile: "work" }, T);
+    addMember(c, { kind: "codex", windowId: "@2", session: "shop", folder: "/Users/me/api" }, T);
+    return c;
+  };
+
+  test("a new agent starts beside the agent you are talking to, in the workspace its tab is in now", () => {
+    const c = twoAgents();
+    post(c, "codex1", "@user which option?", T);
+    expect(nearAgent(c, sessions)).toEqual({ session: "api", folder: "/Users/me/api" });
+  });
+
+  test("else beside the chat's first agent still in it, with its profile", () => {
+    const c = twoAgents();
+    expect(nearAgent(c, sessions)).toEqual({ session: "shop", folder: "/Users/me/shop", profile: "work" });
+    leave(c, "claude1", T);
+    expect(nearAgent(c, sessions)?.session).toBe("api");
+    leave(c, "codex1", T);
+    expect(nearAgent(c, sessions)).toBeNull();
+  });
+
+  test("Retry stages the same agent again, keeping its folder only when it was a path", () => {
+    const c = twoAgents();
+    const bad = addMember(c, { kind: "codex", session: "shop", folder: "Shop orders", spawn: "failed", spawnError: "no such folder: Shop orders", role: "reviewer" }, T);
+    expect(retryStaged(bad, sessions, "notes")).toEqual({ kind: "codex", session: "shop", folder: "/Users/me/shop", role: "reviewer" });
+    const typo = addMember(c, { kind: "claude", session: "gone", folder: "~/github/shop-ordres", profile: "work", spawn: "failed" }, T);
+    expect(retryStaged(typo, sessions, "notes")).toEqual({ kind: "claude", session: "notes", folder: "~/github/shop-ordres", profile: "work", role: "" });
+  });
+
+  test("Delete offers to shut down the agents running now, except those also in another open chat", () => {
+    const c = twoAgents();
+    addMember(c, { kind: "claude", windowId: "@3", session: "shop" }, T);
+    addMember(c, { kind: "claude", windowId: "@4", session: "shop", spawn: "pending" }, T);
+    const live = { claude1: { online: true }, codex1: { online: true }, claude2: { online: false }, claude3: { online: false } };
+    const others = [summary({ id: "c2", windows: ["@2"] }), summary({ id: "c3", archived: true, windows: ["@1"] })];
+    expect(shutdownList(c, [summary({ id: "c1", windows: ["@1", "@2", "@3"] }), ...others], live)).toEqual({ down: ["claude1", "claude3"], kept: ["codex1"] });
   });
 });

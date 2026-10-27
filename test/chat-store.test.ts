@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMember, newChat, post } from "../src/server/chat/model";
@@ -61,5 +61,16 @@ describe("chat store", () => {
     }
     await Promise.all(saves);
     expect((await store.get(chat.id))?.name).toBe("three");
+  });
+
+  test("remove deletes the chat's file, after any save queued before it", async () => {
+    const store = createChatStore(dir);
+    const chat = newChat(store.newId(), "first", T);
+    await store.save(chat);
+    const late = store.save({ ...chat, name: "late" });
+    await store.remove(chat.id);
+    await late;
+    expect(await store.get(chat.id)).toBeNull();
+    expect(readdirSync(dir)).toEqual([]);
   });
 });
