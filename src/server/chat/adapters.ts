@@ -129,6 +129,13 @@ const TAIL = 256 * 1024;
 /** From an offset, this much is read: the message lands soon after it goes. */
 const SPAN = 8 * 1024 * 1024;
 
+/** A tag as it can appear in a JSON line: as is, escaped, or escaped down to ASCII. */
+export function tagForms(tag: string): string[] {
+  const escaped = JSON.stringify(tag).slice(1, -1);
+  const ascii = escaped.replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  return [tag, escaped, ascii];
+}
+
 /**
  * Whether `tag` appears in a transcript or rollout: after `from`, where it
  * stood when the message went, or else near its end. Both are JSON lines, so
@@ -144,9 +151,7 @@ export async function hasTag(path: string, tag: string, from?: number): Promise<
     const buf = Buffer.alloc(Math.min(size - start, from === undefined ? TAIL : SPAN));
     await fh.read(buf, 0, buf.length, start);
     const text = buf.toString("utf8");
-    const escaped = JSON.stringify(tag).slice(1, -1);
-    const ascii = escaped.replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
-    return text.includes(tag) || text.includes(escaped) || text.includes(ascii);
+    return tagForms(tag).some((f) => text.includes(f));
   } catch {
     return false;
   } finally {

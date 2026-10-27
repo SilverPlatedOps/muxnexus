@@ -84,6 +84,19 @@ describe("the conversation", () => {
     expect(messageRows(c).find((r) => r.id === none.id)!.tick).toBeNull();
   });
 
+  test("what an agent said in its tab rides on its line, with a line count, for posts and system lines", () => {
+    const c = chat();
+    const p = post(c, "claude1", "sub looks wrong", T);
+    const plain = post(c, "codex1", "agreed", T);
+    const sys = post(c, "claude1", "claude1 finished without replying", T, { system: true });
+    p.tabText = "Two problems.\n\nPosted my review.";
+    sys.tabText = "Nothing to report.";
+    const rows = messageRows(c);
+    expect(rows.find((r) => r.id === p.id)!.tab).toEqual({ text: "Two problems.\n\nPosted my review.", lines: 3 });
+    expect(rows.find((r) => r.id === plain.id)!.tab).toBeNull();
+    expect(rows.find((r) => r.id === sys.id)!.tab).toEqual({ text: "Nothing to report.", lines: 1 });
+  });
+
   test("a delivery that went wrong adds one line under its message", () => {
     const c = chat();
     const m = post(c, "user", "@claude1 @codex1 go", T);

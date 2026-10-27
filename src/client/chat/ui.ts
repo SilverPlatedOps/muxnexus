@@ -18,6 +18,7 @@ import {
   sideTab,
   tabChats,
   type ChatRow,
+  type Row,
   type SideTab,
 } from "./model";
 import { openPicker } from "./picker";
@@ -241,6 +242,21 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   let chips: string[] = [];
   /** The agent the box last pre-filled: taken off, it isn't put back for the same agent. */
   let offered: string | null = null;
+  /** Tab folds the user opened, by chat and message, so a repaint keeps them open. */
+  const openTabs = new Set<string>();
+
+  /** What the agent said in its tab that turn, folded under its line. */
+  function tabFold(r: Row): HTMLElement | null {
+    if (!r.tab || !chat) return null;
+    const key = `${chat.id}#${r.id}`;
+    const d = el("details", "chat-tab");
+    d.open = openTabs.has(key);
+    d.ontoggle = () => { if (d.open) openTabs.add(key); else openTabs.delete(key); };
+    const s = el("summary", "", `In its tab · ${r.tab.lines} line${r.tab.lines === 1 ? "" : "s"}`);
+    s.title = `Everything ${r.from} said in its own tab that turn, beside what it posted. Only you see this.`;
+    d.append(s, el("div", "chat-tab-text", r.tab.text));
+    return d;
+  }
 
   function paintChat() {
     if (!chat) {
@@ -278,6 +294,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     for (const r of rows) {
       if (r.kind === "system") {
         nodes.push(el("div", "chat-sys", r.text));
+        const fold = tabFold(r);
+        if (fold) nodes.push(fold);
         continue;
       }
       const line = el("div", `chat-line${r.me ? " me" : ""}${r.turnStart ? " turn" : ""}`);
@@ -295,6 +313,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       }
       line.append(shape, who, body);
       nodes.push(line);
+      const fold = tabFold(r);
+      if (fold) nodes.push(fold);
       for (const x of r.exceptions) nodes.push(el("div", `chat-ex${x.startsWith("✕") ? " bad" : ""}`, x));
     }
     if (!rows.some((r) => r.kind === "msg")) nodes.push(el("div", "chat-empty", "Nobody's been woken yet. Mention an agent to give it the first task."));

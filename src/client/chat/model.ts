@@ -63,7 +63,11 @@ export interface Row {
   /** The speaker changed: a little room above. */
   turnStart: boolean;
   at: string;
+  /** What the agent said in its own tab that turn, folded under the line. */
+  tab: { text: string; lines: number } | null;
 }
+
+const tabOf = (text: string | undefined) => (text ? { text, lines: text.split("\n").length } : null);
 
 function exception(handle: string, state: string, reason?: string): string | null {
   if (state === "failed" && reason?.startsWith("not confirmed: ")) return `✕ not confirmed for ${handle} · ${reason.slice("not confirmed: ".length)}`;
@@ -79,7 +83,7 @@ export function messageRows(chat: Chat): Row[] {
   for (const m of chat.messages) {
     const member = chat.members.find((x) => x.handle === m.from);
     if (m.system) {
-      rows.push({ id: m.id, kind: "system", from: m.from, shape: "·", colour: null, me: false, text: m.text, parts: [{ text: m.text }], tick: null, exceptions: [], turnStart: false, at: m.at });
+      rows.push({ id: m.id, kind: "system", from: m.from, shape: "·", colour: null, me: false, text: m.text, parts: [{ text: m.text }], tick: null, exceptions: [], turnStart: false, at: m.at, tab: tabOf(m.tabText) });
       continue;
     }
     const ds = Object.entries(m.deliveries);
@@ -98,6 +102,7 @@ export function messageRows(chat: Chat): Row[] {
       exceptions: ds.flatMap(([h, d]) => exception(h, d.state, d.reason) ?? []),
       turnStart: m.from !== last,
       at: m.at,
+      tab: tabOf(m.tabText),
     });
     last = m.from;
   }

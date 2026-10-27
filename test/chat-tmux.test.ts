@@ -43,6 +43,7 @@ describe("chat lookups", () => {
       kind: "codex",
       pid: 777,
       state: "running",
+      since: 1790000000,
       thread: { id: "01a1-t", path: "/Users/me/.codex/sessions/r 1.jsonl" },
     });
   });

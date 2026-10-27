@@ -56,6 +56,10 @@ export interface ChatMember {
   awaiting?: number;
   /** Its turn was seen running since `awaiting` was delivered. */
   sawRunning?: boolean;
+  /** Where the message it is `awaiting` landed: what it said there shows if it never posts. */
+  wake?: { path: string; from?: number; tag: string };
+  /** Its last post, until that turn ends: then what it said in its tab that turn goes under it. */
+  turn?: { msgId: number; path: string; at: number; since: string };
   left?: boolean;
   /** An agent started from the chat, before its tab came up, or after it failed to. */
   spawn?: "pending" | "failed";
@@ -73,6 +77,12 @@ export interface ChatMessage {
   to: string[];
   /** A line the room writes itself: joins, leaves, stops. Delivers nothing. */
   system?: boolean;
+  /**
+   * What the agent said in its own tab in the turn that made this line, when
+   * that adds to the line: so the user can see whether a post holds all it
+   * concluded. For the user's eyes only, never delivered to an agent.
+   */
+  tabText?: string;
   /** One per agent recipient. */
   deliveries: Record<string, Delivery>;
 }

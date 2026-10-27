@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentKind, Chat, ChatMember, ChatSummary } from "../../shared/chat";
+import type { AgentKind, Chat, ChatMember, ChatMessage, ChatSummary } from "../../shared/chat";
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
@@ -10,6 +10,7 @@ import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMention
 import { nextSends, type AgentView } from "./plan";
 import type { ChatStore } from "./store";
 import { deliveryText, readText, whoText } from "./text";
+import { said as saidIn, type Said, type Where } from "./turns";
 
 /**
  * The room on the server: chats in memory, saved on every change, and the
@@ -91,6 +92,8 @@ export interface ChatServiceDeps {
   spawn?: (req: SpawnRequest) => Promise<string>;
   socketOf?: (configDir: string, pid: number) => Promise<string | null>;
   receipt?: (path: string, tag: string, from?: number) => Promise<boolean>;
+  /** What an agent said in its tab in one turn; tests stand in for it. */
+  said?: (kind: AgentKind, path: string, where: Where) => Promise<Said | null>;
   /** Whether an agent process still runs; tests stand in for it. */
   alive?: (pid: number) => boolean;
   now?: () => string;
@@ -105,6 +108,8 @@ const SPAWN_TIMEOUT_MS = 90_000;
 const UNCONFIRMED_MS = 5 * 60_000;
 /** A tab that can't be read for this long after a message went to it is gone, not between reads. */
 const GONE_MS = 30_000;
+/** A turn still running this long after its post is read as it stands. */
+const TURN_MS = 30 * 60_000;
 /** The longest chat line: a delivery is one argument to `codex queue`, and a review fits well inside. */
 export const MAX_TEXT = 32_000;
 const tooLong = (n: number) => `too long: ${n.toLocaleString("en-US")} characters, and a chat line holds ${MAX_TEXT.toLocaleString("en-US")}. Put it in a file and point to it.`;
@@ -120,6 +125,7 @@ export function createChatService(deps: ChatServiceDeps) {
   const home = deps.home ?? homedir();
   const socketOf = deps.socketOf ?? ((dir: string, pid: number) => claudeSocket(dir, pid));
   const receipt = deps.receipt ?? hasTag;
+  const said = deps.said ?? saidIn;
   const alive = deps.alive ?? processAlive;
   /**
    * Whether the agent in a member's tab is the one that joined: the same kind,
@@ -142,6 +148,21 @@ export function createChatService(deps: ChatServiceDeps) {
   const save = (chat: Chat) => deps.store.save(chat);
 
   const live = (m: ChatMember, states: Map<string, WindowLive>) => (m.windowId ? states.get(m.windowId) : undefined);
+
+  /** What the agent said in its tab, under a line of the chat: unless it adds nothing, and never longer than a chat line, keeping its end. */
+  function addTab(msg: ChatMessage, text: string | undefined) {
+    const t = text?.trim();
+    if (!t || t === msg.text.trim()) return;
+    msg.tabText = t.length > MAX_TEXT ? `…\n${t.slice(-MAX_TEXT)}` : t;
+  }
+
+  /** A member's last post gets the turn it was made in. */
+  async function settle(chat: Chat, m: ChatMember) {
+    const turn = m.turn!;
+    delete m.turn;
+    const msg = chat.messages.find((x) => x.id === turn.msgId);
+    if (msg) addTab(msg, (await said(m.kind as AgentKind, turn.path, { at: turn.at }))?.text);
+  }
 
   /** A chat name no other chat has, so a receipt tag and `--chat` name one chat. */
   function uniqueName(name: string, self?: string): string {
@@ -352,6 +373,21 @@ export function createChatService(deps: ChatServiceDeps) {
         const msg = post(chat, member.handle, text, t);
         delete member.awaiting;
         delete member.sawRunning;
+        delete member.wake;
+        // What it says in its tab this turn goes under its last post of the
+        // turn, once the turn ends. An earlier post keeps its own turn if that
+        // one is over; in this same turn, the turn moves here.
+        const path = info ? transcriptOf(info) : undefined;
+        if (path) {
+          const prev = member.turn;
+          delete member.turn;
+          if (prev) {
+            const s = await said(member.kind as AgentKind, prev.path, { at: prev.at });
+            const old = chat.messages.find((x) => x.id === prev.msgId);
+            if (s?.ended && old) addTab(old, s.text);
+          }
+          member.turn = { msgId: msg.id, path, at: await sizeOf(path), since: t };
+        }
         await save(chat);
         const notes: string[] = [];
         const agents = Object.keys(msg.deliveries);
@@ -425,6 +461,21 @@ export function createChatService(deps: ChatServiceDeps) {
 
     for (const chat of active) {
       for (const m of chat.members) {
+        // A post's turn is over when its stamp says so after the post, its
+        // agent has been gone half a minute, or after half an hour. One that
+        // left in that turn still gets it.
+        if (m.turn && m.windowId) {
+          const info = await infoOf(m.windowId);
+          const posted = Date.parse(m.turn.since);
+          const age = Date.parse(now()) - posted;
+          const over = sameAgent(m, info)
+            ? info.state !== "running" && info.state !== "input" && (info.since ?? 0) >= Math.floor(posted / 1000)
+            : age > GONE_MS;
+          if (over || age > TURN_MS) {
+            await settle(chat, m);
+            changed.add(chat.id);
+          }
+        }
         if (m.kind === "user" || m.left || !m.windowId) continue;
         const info = await infoOf(m.windowId);
         // A tab started from the chat joins once its agent stamps it.
@@ -470,7 +521,9 @@ export function createChatService(deps: ChatServiceDeps) {
           else if (state === "done" && m.sawRunning) {
             delete m.awaiting;
             delete m.sawRunning;
-            post(chat, m.handle, `${m.handle} finished without replying`, now(), { system: true });
+            const line = post(chat, m.handle, `${m.handle} finished without replying`, now(), { system: true });
+            if (m.wake) addTab(line, (await said(m.kind as AgentKind, m.wake.path, { ...(m.wake.from !== undefined ? { from: m.wake.from } : {}), tag: m.wake.tag }))?.text);
+            delete m.wake;
             changed.add(chat.id);
           }
         }
@@ -492,6 +545,7 @@ export function createChatService(deps: ChatServiceDeps) {
             if (!chat.messages.some((x) => x.from === handle && x.id > msg.id && !x.system)) {
               m.awaiting = msg.id;
               m.sawRunning = false;
+              m.wake = { path, tag: p?.tag ?? tagOf(chat, msg.id), ...(p && p.path === path ? { from: p.offset } : {}) };
             }
             changed.add(chat.id);
           } else if (!reachable(m, info)) {
@@ -586,7 +640,7 @@ export function createChatService(deps: ChatServiceDeps) {
   function busy(): boolean {
     for (const chat of chats.values()) {
       if (chat.archived) continue;
-      if (chat.members.some((m) => m.spawn === "pending" || m.awaiting !== undefined)) return true;
+      if (chat.members.some((m) => m.spawn === "pending" || m.awaiting !== undefined || m.turn !== undefined)) return true;
       for (const msg of chat.messages) for (const d of Object.values(msg.deliveries)) if (d.state === "queued") return true;
     }
     return false;

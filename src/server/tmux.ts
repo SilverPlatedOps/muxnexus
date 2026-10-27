@@ -57,6 +57,8 @@ export interface WindowAgentInfo {
   configDir?: string;
   /** The stamp's own state, before the server's staleness guards. */
   state?: AgentState;
+  /** When the stamp's state was set, in epoch seconds. */
+  since?: number;
   cwd?: string;
   /** Codex: the thread `codex queue` addresses, and its rollout. */
   thread?: { id: string; path?: string };
@@ -98,6 +100,7 @@ export function parseWindowAgent(rows: readonly string[], codexArgs: Readonly<Re
       kind,
       pid: stamp.pid,
       state: stamp.state,
+      since: stamp.since,
       ...(cwd ? { cwd } : {}),
       ...(stamp.configDir ? { configDir: stamp.configDir } : {}),
       ...(kind === "codex" && t ? { thread: { id: t[1]!, ...(t[2] ? { path: t[2] } : {}) } } : {}),
