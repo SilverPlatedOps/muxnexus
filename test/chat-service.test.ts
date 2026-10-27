@@ -31,7 +31,7 @@ async function window(name: string, stamp: string, extra: Record<string, string>
   live.set(win!, { state: "done", session: "shop" });
 }
 
-function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: Partial<Record<"claude" | "codex", Adapter>> } = {}) {
+function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: Partial<Record<"claude" | "codex", Adapter>>; spawn?: () => Promise<string> } = {}) {
   return createChatService({
     store: createChatStore(dir),
     tmux: { windowOfPane: (p) => tmux.windowOfPane(p), agentOfWindow: over.agentOfWindow ?? ((w) => tmux.agentOfWindow(w)) },
@@ -46,6 +46,7 @@ function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: P
     receipt: async (_path, tag) => [...seen].some((s) => tag.includes(s)),
     said: async (kind, path, where) => { saidCalls.push({ kind, path, where }); return saidReply(kind, where); },
     alive: (pid) => !dead.has(pid),
+    ...(over.spawn ? { spawn: over.spawn } : {}),
     now,
     home: homedir(),
   });
@@ -434,6 +435,58 @@ describe("reconnect", () => {
     info = { paneId: "%98", kind: "codex", pid: 5, state: "done", thread: { id: "th-9" } };
     await svc.tick();
     expect((await svc.view(id))!.chat.members.find((m) => m.handle === "codex1")).toMatchObject({ agentId: "th-9", pid: 5 });
+  });
+});
+
+describe("agents started from a chat", () => {
+  test("one that hasn't started in time is reported with where to look, and joins once it does", async () => {
+    await window("fresh", "");
+    const svc = service({ spawn: async () => panes.fresh!.window });
+    const r = await svc.handle({ t: "chat-create", members: [], spawn: [{ kind: "claude", folder: "/tmp", session: "shop" }] });
+    const id = r.ok ? r.chatId! : "";
+    await svc.tick();
+    expect((await svc.view(id))!.chat.members.find((m) => m.handle === "claude1")!.spawn).toBe("pending");
+    clock += 91;
+    await svc.tick();
+    let chat = (await svc.view(id))!.chat;
+    expect(chat.members.find((m) => m.handle === "claude1")).toMatchObject({ spawn: "failed", spawnError: "nothing has started in its tab yet: check it, it may be waiting on a prompt such as trusting a new folder" });
+    expect(chat.messages.at(-1)!.text).toBe("claude1 hasn't started: nothing has started in its tab yet: check it, it may be waiting on a prompt such as trusting a new folder");
+    expect(svc.busy()).toBe(true);
+    await tmux.run(["set-option", "-p", "-t", panes.fresh!.pane, "@muxnexus_agent", "done 1790000000 5151 /Users/me/.claude"]);
+    await svc.tick();
+    chat = (await svc.view(id))!.chat;
+    const m = chat.members.find((x) => x.handle === "claude1")!;
+    expect([m.spawn, m.spawnError, m.pid]).toEqual([undefined, undefined, 5151]);
+    expect(chat.messages.at(-1)!.text).toBe("claude1 joined");
+  });
+
+  test("a slow one is only taken by an agent of its own kind, and is watched for half an hour", async () => {
+    await window("fresh", "");
+    const svc = service({ spawn: async () => panes.fresh!.window });
+    const r = await svc.handle({ t: "chat-create", members: [], spawn: [{ kind: "claude", folder: "/tmp", session: "shop" }] });
+    const id = r.ok ? r.chatId! : "";
+    clock += 91;
+    await svc.tick();
+    await tmux.run(["set-option", "-p", "-t", panes.fresh!.pane, "@muxnexus_agent", "done 1790000000 6161 /Users/me/.codex"]);
+    await svc.tick();
+    expect((await svc.view(id))!.chat.members.find((m) => m.handle === "claude1")!.spawn).toBe("failed");
+    expect(svc.busy()).toBe(true);
+    clock += 30 * 60;
+    expect(svc.busy()).toBe(false);
+  });
+
+  test("one whose tab was closed before it started can be retried", async () => {
+    await window("fresh", "");
+    const svc = service({ spawn: async () => panes.fresh!.window });
+    const r = await svc.handle({ t: "chat-create", members: [], spawn: [{ kind: "claude", folder: "/tmp", session: "shop" }] });
+    const id = r.ok ? r.chatId! : "";
+    clock += 91;
+    await svc.tick();
+    await tmux.run(["kill-window", "-t", panes.fresh!.window]);
+    delete panes.fresh;
+    await svc.tick();
+    expect((await svc.view(id))!.chat.members.find((m) => m.handle === "claude1")).toMatchObject({ spawn: "failed", spawnError: "its tab was closed before it started" });
+    expect((await svc.view(id))!.chat.members.find((m) => m.handle === "claude1")!.windowId).toBeUndefined();
   });
 });
 

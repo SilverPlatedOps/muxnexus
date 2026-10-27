@@ -1113,10 +1113,13 @@ export class Tmux {
    * shell, as `newWindow` does: the window id, so a chat can follow the agent
    * that starts in it.
    */
-  async spawnWindow(session: string, folder: string, command: string): Promise<string> {
+  async spawnWindow(session: string, folder: string | null, command: string): Promise<string> {
     const target = `${await this.target(session)}:`;
     const shell = (await this.run(["show-options", "-gv", "default-shell"])).trim() || "/bin/sh";
-    const out = await this.run(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", target, "-c", folder, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
+    // tmux reads -c as a format: a folder's own # is doubled to stay a #. With
+    // none, the workspace's folder -- left out, tmux would use the server's.
+    const cwd = folder === null ? "#{session_path}" : folder.replaceAll("#", "##");
+    const out = await this.run(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", target, "-c", cwd, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
     return out.trim();
   }
 

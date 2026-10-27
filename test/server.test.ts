@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { ServerMessage } from "../src/shared/protocol";
-import { allowedHostList, createServer, hostAllowed, type RunningServer } from "../src/server/server";
+import { allowedHostList, createServer, hostAllowed, spawnFolder, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -47,6 +47,23 @@ test("rejects a WebSocket upgrade with a foreign Origin", async () => {
     ws.onclose = () => res();
   });
   expect(opened).toBe(false);
+});
+
+describe("where an agent started from a chat opens", () => {
+  test("empty is the workspace's own folder, ~ is home, a full path must be a folder", async () => {
+    const home = mkdtempSync(join(tmpdir(), "mxn-home-"));
+    try {
+      expect(await spawnFolder("", home)).toBeNull();
+      expect(await spawnFolder("  ", home)).toBeNull();
+      expect(await spawnFolder("~", home)).toBe(home);
+      expect(await spawnFolder("~/", home)).toBe(home);
+      expect(await spawnFolder(tmpdir(), home)).toBe(tmpdir());
+      await expect(spawnFolder("~/shop-orders", home)).rejects.toThrow(`no such folder: ${join(home, "shop-orders")}`);
+      await expect(spawnFolder("[Testing] Shop orders", home)).rejects.toThrow("not a folder: [Testing] Shop orders. Use a full path like ~/github/shop-orders, or leave it empty for the workspace's own folder");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("restore hint", () => {

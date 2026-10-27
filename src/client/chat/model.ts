@@ -161,6 +161,8 @@ export interface MemberStatus {
 
 /** What a member's row says, and the one action that puts it right. */
 export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | undefined): MemberStatus {
+  // With a tab, it is still starting there and its tab shows why; without one, it never opened.
+  if (m.spawn === "failed" && m.windowId) return { text: `hasn't started: ${m.spawnError ?? "unknown"}`, fix: "open", alarm: true };
   if (m.spawn === "failed") return { text: `didn't start: ${m.spawnError ?? "unknown"}`, fix: "retry", alarm: true };
   if (m.spawn === "pending") return { text: "starting…" };
   if (!live?.online) {
@@ -193,6 +195,21 @@ export interface PickerAgent {
   folder?: string;
   /** A Codex tab that hasn't stamped yet: no conversation, or the shared daemon. */
   waiting: boolean;
+}
+
+/**
+ * Where a new agent in `session` starts: beside the agent picked when it is in
+ * that workspace, else beside one of the workspace's agents, else "" -- the
+ * workspace's own folder.
+ */
+export function stagedFolder(sessions: readonly SessionInfo[], session: string, picked?: PickerAgent): string {
+  if (picked?.folder && picked.session === session) return picked.folder;
+  return sessions.find((s) => s.name === session)?.windows.find((w) => w.agent?.checkout)?.agent?.checkout ?? "";
+}
+
+/** Every folder an agent works in, once: what the folder field offers. */
+export function knownFolders(sessions: readonly SessionInfo[]): string[] {
+  return [...new Set(sessions.flatMap((s) => s.windows.flatMap((w) => (w.agent?.checkout ? [w.agent.checkout] : []))))];
 }
 
 /**

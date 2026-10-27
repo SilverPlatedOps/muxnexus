@@ -1,6 +1,6 @@
 import type { ChatMember } from "../../shared/chat";
 import type { ChatJoin, ChatSpawn, SessionInfo } from "../../shared/protocol";
-import { pickerGroups, type PickerAgent } from "./model";
+import { knownFolders, pickerGroups, stagedFolder, type PickerAgent } from "./model";
 
 /**
  * New chat, and Add an agent: pick agents from any workspace, or stage new
@@ -37,10 +37,13 @@ const tilde = (path: string) => path.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "
 
 interface Staged {
   kind: "claude" | "codex";
+  /** Empty for the workspace's own folder. */
   folder: string;
   session: string;
   profile?: string;
   role: string;
+  /** The folder was typed: a change of workspace leaves it alone. */
+  typed?: boolean;
 }
 
 export function openPicker(o: PickerOpts) {
@@ -61,6 +64,8 @@ export function openPicker(o: PickerOpts) {
   modal.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") close(); });
 
   for (const g of groups) for (const a of g.agents) if (a.windowId === o.preselect) picked.set(a.windowId, { agent: a, role: "" });
+
+  const firstPicked = () => [...picked.values()][0]?.agent;
 
   /** The handle a new member of `kind` would get, given what's picked before it. */
   function handleFor(kind: string, index: number): string {
@@ -116,11 +121,25 @@ export function openPicker(o: PickerOpts) {
         r.append(el("span", "ck", "+"), el("span", "t", `new ${s.kind === "codex" ? "Codex" : "Claude"}`));
         r.lastElementChild!.append(el("span", "hd", handleFor(s.kind, kindIdx)));
         const sub = el("span", "s");
+        const ws = el("select", "chat-staged-ws");
+        ws.setAttribute("aria-label", "Workspace it opens in");
+        for (const x of o.sessions) {
+          const opt = el("option", "", x.customName ?? x.label ?? x.name);
+          opt.value = x.name;
+          if (x.name === s.session) opt.selected = true;
+          ws.append(opt);
+        }
         const folder = el("input", "chat-staged-folder");
         folder.value = s.folder;
+        folder.placeholder = "the workspace's folder";
+        folder.setAttribute("list", "chat-folders");
         folder.setAttribute("aria-label", "Folder it starts in");
-        folder.oninput = () => { s.folder = folder.value; };
-        sub.append("starts on Create in ", folder);
+        folder.oninput = () => { s.folder = folder.value; s.typed = true; };
+        ws.onchange = () => {
+          s.session = ws.value;
+          if (!s.typed) folder.value = s.folder = tilde(stagedFolder(o.sessions, s.session, firstPicked()));
+        };
+        sub.append("opens on Create in ", ws, " ", folder);
         if (s.kind === "claude" && o.profiles.length > 1) {
           const prof = el("select", "chat-staged-profile");
           for (const p of o.profiles) {
@@ -144,12 +163,13 @@ export function openPicker(o: PickerOpts) {
     paintList();
 
     const spawn = el("div", "chat-modal-spawn");
-    const first = [...picked.values()][0]?.agent;
+    const first = firstPicked();
     const add = (kind: "claude" | "codex") => {
+      const session = first?.session ?? o.currentSession ?? o.sessions[0]?.name ?? "";
       staged.push({
         kind,
-        folder: first?.folder ?? "",
-        session: first?.session ?? o.currentSession ?? o.sessions[0]?.name ?? "",
+        folder: tilde(stagedFolder(o.sessions, session, first)),
+        session,
         ...(kind === "claude" && first?.profile && first.profile !== "codex" ? { profile: first.profile } : {}),
         role: "",
       });
@@ -198,13 +218,20 @@ export function openPicker(o: PickerOpts) {
       o.submit({
         ...(name.trim() ? { name: name.trim() } : {}),
         members: [...picked.values()].map((p) => ({ windowId: p.agent.windowId, ...(p.role.trim() ? { role: p.role.trim() } : {}) })),
-        spawn: staged.filter((s) => s.folder.trim() && s.session).map((s) => ({ kind: s.kind, folder: s.folder.trim(), session: s.session, ...(s.profile ? { profile: s.profile } : {}), ...(s.role.trim() ? { role: s.role.trim() } : {}) })),
+        spawn: staged.filter((s) => s.session).map((s) => ({ kind: s.kind, folder: s.folder.trim(), session: s.session, ...(s.profile ? { profile: s.profile } : {}), ...(s.role.trim() ? { role: s.role.trim() } : {}) })),
       });
       close();
     };
     foot.append(el("span", "note", "Members can read the whole chat."), el("span", "sp"), go);
 
-    modal.replaceChildren(headEl, search, list, spawn, fold, extra, foot);
+    const folders = el("datalist");
+    folders.id = "chat-folders";
+    for (const f of knownFolders(o.sessions)) {
+      const opt = el("option");
+      opt.value = tilde(f);
+      folders.append(opt);
+    }
+    modal.replaceChildren(headEl, search, list, spawn, fold, extra, foot, folders);
     if (document.activeElement === document.body || !modal.contains(document.activeElement)) search.focus();
   }
 

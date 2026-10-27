@@ -102,8 +102,10 @@ export interface ChatServiceDeps {
 
 type Result = { ok: true; chatId?: string } | { ok: false; error: string };
 
-/** A spawned agent whose tab never stamped within this long has failed to start. */
+/** A spawned agent whose tab never stamped within this long is reported as not started. */
 const SPAWN_TIMEOUT_MS = 90_000;
+/** For this long after it was added, one that hasn't started is still watched, and joins once it does. */
+const LATE_JOIN_MS = 30 * 60_000;
 /** A message handed to an idle agent with no sign of it after this long was not read. */
 const UNCONFIRMED_MS = 5 * 60_000;
 /** A tab that can't be read for this long after a message went to it is gone, not between reads. */
@@ -473,9 +475,12 @@ export function createChatService(deps: ChatServiceDeps) {
         if (m.kind === "user" || m.left || !m.windowId) continue;
         const info = await infoOf(m.windowId);
         // A tab started from the chat joins once its agent stamps it.
-        if (m.spawn === "pending") {
-          if (info && !info.daemon && info.pid) {
+        // One slow to start -- waiting on a prompt in its tab, say -- still
+        // joins once an agent of its kind does; one whose tab has gone can be retried.
+        if (m.spawn === "pending" || m.spawn === "failed") {
+          if (info && info.kind === m.kind && !info.daemon && info.pid) {
             delete m.spawn;
+            delete m.spawnError;
             m.paneId = info.paneId;
             m.pid = info.pid;
             if (info.server) m.server = info.server;
@@ -484,10 +489,14 @@ export function createChatService(deps: ChatServiceDeps) {
             if (id) m.agentId = id;
             post(chat, m.handle, `${m.handle} joined${m.role ? ` as ${m.role}` : ""}`, now(), { system: true });
             changed.add(chat.id);
-          } else if (Date.parse(now()) - Date.parse(m.joinedAt) > SPAWN_TIMEOUT_MS) {
+          } else if (m.spawn === "pending" && Date.parse(now()) - Date.parse(m.joinedAt) > SPAWN_TIMEOUT_MS) {
             m.spawn = "failed";
-            m.spawnError = "its agent never started";
-            post(chat, m.handle, `${m.handle} didn't start: ${m.spawnError}`, now(), { system: true });
+            m.spawnError = "nothing has started in its tab yet: check it, it may be waiting on a prompt such as trusting a new folder";
+            post(chat, m.handle, `${m.handle} hasn't started: ${m.spawnError}`, now(), { system: true });
+            changed.add(chat.id);
+          } else if (m.spawn === "failed" && !info && deps.windows && !(await deps.windows()).includes(m.windowId)) {
+            delete m.windowId;
+            m.spawnError = "its tab was closed before it started";
             changed.add(chat.id);
           }
           continue;
@@ -643,7 +652,8 @@ export function createChatService(deps: ChatServiceDeps) {
   function busy(): boolean {
     for (const chat of chats.values()) {
       if (chat.archived) continue;
-      if (chat.members.some((m) => m.spawn === "pending" || m.awaiting !== undefined || m.turns !== undefined)) return true;
+      const late = (m: ChatMember) => m.spawn === "failed" && !!m.windowId && Date.parse(now()) - Date.parse(m.joinedAt) <= LATE_JOIN_MS;
+      if (chat.members.some((m) => m.spawn === "pending" || late(m) || m.awaiting !== undefined || m.turns !== undefined)) return true;
       for (const msg of chat.messages) for (const d of Object.values(msg.deliveries)) if (d.state === "queued") return true;
     }
     return false;
