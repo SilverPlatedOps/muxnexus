@@ -202,9 +202,56 @@ export interface PickerAgent {
  * that workspace, else beside one of the workspace's agents, else "" -- the
  * workspace's own folder.
  */
-export function stagedFolder(sessions: readonly SessionInfo[], session: string, picked?: PickerAgent): string {
+export function stagedFolder(sessions: readonly SessionInfo[], session: string, picked?: { session: string; folder?: string }): string {
   if (picked?.folder && picked.session === session) return picked.folder;
   return sessions.find((s) => s.name === session)?.windows.find((w) => w.agent?.checkout)?.agent?.checkout ?? "";
+}
+
+/** Where a new agent goes when nothing is picked: a workspace, a folder, and the profile a new Claude takes. */
+export interface Near {
+  session: string;
+  folder: string;
+  profile?: string;
+}
+
+/**
+ * Where an agent added to a chat starts, unless you pick one to start beside:
+ * beside the agent you are talking to (the one the message box offers), else
+ * the chat's first agent still in it, in the workspace its tab is in now.
+ */
+export function nearAgent(chat: Chat, sessions: readonly SessionInfo[]): Near | null {
+  const agents = chat.members.filter((m) => m.kind !== "user" && !m.left && m.windowId);
+  const p = prefill(chat);
+  const m = agents.find((x) => x.handle === p) ?? agents[0];
+  if (!m) return null;
+  const at = sessions.find((s) => s.windows.some((w) => w.id === m.windowId));
+  const session = at?.name ?? m.session;
+  if (!session) return null;
+  const folder = at?.windows.find((w) => w.id === m.windowId)?.agent?.checkout ?? m.folder ?? "";
+  return { session, folder, ...(m.kind === "claude" && m.profile ? { profile: m.profile } : {}) };
+}
+
+/**
+ * What Retry stages again: the same kind, role and profile, in its workspace
+ * while that still exists (else `fallback`), and its folder only when what
+ * was typed was a path: anything else is why it failed.
+ */
+export function retryStaged(m: ChatMember, sessions: readonly SessionInfo[], fallback: string): { kind: "claude" | "codex"; session: string; folder: string; profile?: string; role: string } {
+  const session = m.session && sessions.some((s) => s.name === m.session) ? m.session : fallback;
+  const folder = m.folder && /^(\/|~(\/|$))/.test(m.folder) ? m.folder : stagedFolder(sessions, session);
+  return { kind: m.kind === "codex" ? "codex" : "claude", session, folder, ...(m.profile ? { profile: m.profile } : {}), role: m.role ?? "" };
+}
+
+/** Whom Delete can shut down: its agents running now, less those also in another open chat. */
+export function shutdownList(chat: Chat, chats: readonly ChatSummary[], agents: Record<string, ChatMemberLive>): { down: string[]; kept: string[] } {
+  const elsewhere = new Set(chats.filter((c) => c.id !== chat.id && !c.archived).flatMap((c) => c.windows));
+  const down: string[] = [];
+  const kept: string[] = [];
+  for (const m of chat.members) {
+    if (m.kind === "user" || m.left || !m.windowId || !agents[m.handle]?.online) continue;
+    (elsewhere.has(m.windowId) ? kept : down).push(m.handle);
+  }
+  return { down, kept };
 }
 
 /** Every folder an agent works in, once: what the folder field offers. */

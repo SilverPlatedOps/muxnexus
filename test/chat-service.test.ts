@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Adapter, AgentTarget } from "../src/server/chat/adapters";
-import { createChatService, isLoopback, type WindowLive } from "../src/server/chat/service";
+import { createChatService, isLoopback, parseChatMessage, type WindowLive } from "../src/server/chat/service";
 import { createChatStore } from "../src/server/chat/store";
 import type { Said, Where } from "../src/server/chat/turns";
 import { Tmux } from "../src/server/tmux";
@@ -17,6 +17,7 @@ let sends: { kind: string; target: AgentTarget; text: string }[];
 let seen: Set<string>;
 let saidCalls: { kind: string; path: string; where: Where }[];
 let dead: Set<number>;
+let closed: string[];
 let saidReply: (kind: string, where: Where) => Said | null;
 let clock = 0;
 
@@ -46,6 +47,7 @@ function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: P
     receipt: async (_path, tag) => [...seen].some((s) => tag.includes(s)),
     said: async (kind, path, where) => { saidCalls.push({ kind, path, where }); return saidReply(kind, where); },
     alive: (pid) => !dead.has(pid),
+    closeWindow: async (w) => { closed.push(w); },
     ...(over.spawn ? { spawn: over.spawn } : {}),
     now,
     home: homedir(),
@@ -64,6 +66,7 @@ beforeEach(async () => {
   // As a transcript would read: the message was taken in, and nothing said.
   saidReply = () => ({ text: "", ended: true, start: 0 });
   dead = new Set();
+  closed = [];
   clock = 0;
   await tmux.killServer();
   await tmux.newSession("shop");
@@ -475,6 +478,13 @@ describe("agents started from a chat", () => {
     expect(svc.busy()).toBe(false);
   });
 
+  test("one that didn't start keeps what it was asked for, so Retry can ask again", async () => {
+    const svc = service({ spawn: async () => { throw new Error("not a folder: Shop orders"); } });
+    const r = await svc.handle({ t: "chat-create", members: [], spawn: [{ kind: "claude", folder: "Shop orders", session: "shop", profile: "work", role: "driver" }] });
+    const m = (await svc.view(r.ok ? r.chatId! : ""))!.chat.members.find((x) => x.handle === "claude1");
+    expect(m).toMatchObject({ kind: "claude", folder: "Shop orders", session: "shop", profile: "work", role: "driver", spawn: "failed" });
+  });
+
   test("one whose tab was closed before it started can be retried", async () => {
     await window("fresh", "");
     const svc = service({ spawn: async () => panes.fresh!.window });
@@ -697,6 +707,54 @@ describe("what an agent said in its tab", () => {
     expect(t.startsWith("…\n")).toBe(true);
     expect(t.endsWith(" THE END")).toBe(true);
     expect(t.length).toBe(32_002);
+  });
+});
+
+describe("deleting a chat", () => {
+  test("it goes for good, file and all, and its agents keep running unless asked", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    expect(await svc.handle({ t: "chat-delete", id, closeTabs: false })).toEqual({ ok: true });
+    expect(await svc.summaries()).toEqual([]);
+    expect(await svc.view(id)).toBeNull();
+    expect(readdirSync(dir)).toEqual([]);
+    expect(await createChatStore(dir).list()).toEqual([]);
+    expect(closed).toEqual([]);
+    expect((await say(svc, "claude", "say", "hello")).output).toBe("NOT POSTED: this tab isn't in a muxnexus chat. The user adds it from the Chats tab.");
+  });
+
+  test("asked to, it shuts down the agents that joined it, and leaves the rest running", async () => {
+    await window("third", "done 1790000000 888 /Users/me/.claude");
+    await window("fourth", "done 1790000000 999 /Users/me/.claude");
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex", "third", "fourth");
+    await newChat(svc, "codex");
+    await svc.handle({ t: "chat-remove", id, handle: "claude2" });
+    await tmux.run(["set-option", "-p", "-t", panes.fourth!.pane, "@muxnexus_agent", "done 1790000000 5555 /Users/me/.claude"]);
+    expect(await svc.handle({ t: "chat-delete", id, closeTabs: true })).toEqual({
+      ok: true,
+      notice: `Shut down claude1. Left running: codex1, in "shop review 2"; claude3, its tab now runs another agent.`,
+    });
+    expect(closed).toEqual([panes.claude!.window]);
+    expect((await svc.summaries()).map((c) => c.name)).toEqual(["shop review 2"]);
+  });
+
+  test("a save already on its way doesn't bring it back", async () => {
+    let id = "";
+    const svc: ReturnType<typeof service> = service({
+      adapters: { claude: { kind: "claude", send: async () => { await svc.handle({ t: "chat-delete", id, closeTabs: false }); return { ok: true }; } } },
+    });
+    id = await newChat(svc, "claude");
+    await svc.handle({ t: "chat-post", id, text: "@claude1 go" });
+    await svc.tick();
+    expect(readdirSync(dir)).toEqual([]);
+    expect(await svc.summaries()).toEqual([]);
+  });
+
+  test("the browser's message is checked", () => {
+    expect(parseChatMessage({ t: "chat-delete", id: "x", closeTabs: true })).not.toBeNull();
+    expect(parseChatMessage({ t: "chat-delete", id: "x" })).toBeNull();
+    expect(parseChatMessage({ t: "chat-delete", id: "x", closeTabs: "yes" })).toBeNull();
   });
 });
 

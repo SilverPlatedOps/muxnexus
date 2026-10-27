@@ -83,6 +83,22 @@ describe("chats over the socket", () => {
     c.ws.close();
   });
 
+  test("deleting a chat and shutting down its agents closes their tabs and says so", async () => {
+    await tmux.newSession("shop");
+    await tmux.run(["new-window", "-t", "=shop:"]);
+    const [pane, win] = (await tmux.run(["display-message", "-p", "-t", "=shop:1", "#{pane_id} #{window_id}"])).trim().split(" ");
+    await tmux.run(["set-option", "-p", "-t", pane!, "@muxnexus_agent", `done ${Math.floor(Date.now() / 1000)} ${process.pid} /Users/me/.claude`]);
+    const c = await connect(server.port);
+    c.send({ t: "chats", on: true });
+    c.send({ t: "chat-create", name: "to delete", members: [{ windowId: win }] });
+    const created = await waitFor(() => c.last("chat-created"), 3000, "chat-created");
+    c.send({ t: "chat-delete", id: created.id, closeTabs: true });
+    expect((await waitFor(() => c.last("notice"), 3000, "a notice")).message).toBe("Shut down claude1.");
+    await waitFor(() => c.last("chats")?.chats.every((x) => x.id !== created.id), 3000, "the list without it");
+    expect(await tmux.run(["list-windows", "-t", "=shop", "-F", "#{window_id}"])).not.toContain(win!);
+    c.ws.close();
+  });
+
   test("a bad chat message is answered with an error", async () => {
     const c = await connect(server.port);
     c.send({ t: "chat-post", id: "not-a-chat", text: "x" });

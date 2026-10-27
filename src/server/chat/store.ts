@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Chat } from "../../shared/chat";
@@ -54,6 +54,17 @@ export function createChatStore(dir: string = CHATS_DIR) {
         const file = path(chat.id);
         await writeFile(`${file}.tmp`, data);
         await rename(`${file}.tmp`, file);
+      });
+      queue = run.catch(() => {});
+      return run;
+    },
+
+    /** A chat's file, gone: after any save queued ahead of it, so that save can't bring it back. */
+    remove(id: string): Promise<void> {
+      if (!isChatId(id)) return Promise.reject(new Error("invalid chat id"));
+      const run = queue.then(async () => {
+        await rm(path(id), { force: true });
+        await rm(`${path(id)}.tmp`, { force: true });
       });
       queue = run.catch(() => {});
       return run;

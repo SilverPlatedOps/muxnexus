@@ -1,6 +1,6 @@
 import type { ChatMember } from "../../shared/chat";
 import type { ChatJoin, ChatSpawn, SessionInfo } from "../../shared/protocol";
-import { knownFolders, pickerGroups, stagedFolder, type PickerAgent } from "./model";
+import { knownFolders, pickerGroups, stagedFolder, type Near, type PickerAgent } from "./model";
 
 /**
  * New chat, and Add an agent: pick agents from any workspace, or stage new
@@ -17,6 +17,10 @@ export interface PickerOpts {
   existing: ChatMember[];
   preselect?: string;
   currentSession: string | null;
+  /** Adding to a chat: where new agents start when no agent is picked. */
+  near?: Near | null;
+  /** New agents staged on opening: Retry's. */
+  stage?: { kind: "claude" | "codex"; session: string; folder: string; profile?: string; role: string }[];
   submit(r: { name?: string; members: ChatJoin[]; spawn: ChatSpawn[] }): void;
 }
 
@@ -49,7 +53,7 @@ interface Staged {
 export function openPicker(o: PickerOpts) {
   const groups = pickerGroups(o.sessions, o.inChat);
   const picked = new Map<string, { agent: PickerAgent; role: string }>();
-  const staged: Staged[] = [];
+  const staged: Staged[] = (o.stage ?? []).map((s) => ({ ...s, folder: tilde(s.folder) }));
   let query = "";
   let folded = true;
   let name = "";
@@ -66,6 +70,8 @@ export function openPicker(o: PickerOpts) {
   for (const g of groups) for (const a of g.agents) if (a.windowId === o.preselect) picked.set(a.windowId, { agent: a, role: "" });
 
   const firstPicked = () => [...picked.values()][0]?.agent;
+  /** What a new agent starts beside: the first agent picked, else the chat's. */
+  const beside = () => firstPicked() ?? o.near ?? undefined;
 
   /** The handle a new member of `kind` would get, given what's picked before it. */
   function handleFor(kind: string, index: number): string {
@@ -137,9 +143,9 @@ export function openPicker(o: PickerOpts) {
         folder.oninput = () => { s.folder = folder.value; s.typed = true; };
         ws.onchange = () => {
           s.session = ws.value;
-          if (!s.typed) folder.value = s.folder = tilde(stagedFolder(o.sessions, s.session, firstPicked()));
+          if (!s.typed) folder.value = s.folder = tilde(stagedFolder(o.sessions, s.session, beside()));
         };
-        sub.append("opens on Create in ", ws, " ", folder);
+        sub.append(`opens on ${o.mode === "create" ? "Create" : "Add"} in `, ws, " ", folder);
         if (s.kind === "claude" && o.profiles.length > 1) {
           const prof = el("select", "chat-staged-profile");
           for (const p of o.profiles) {
@@ -163,7 +169,7 @@ export function openPicker(o: PickerOpts) {
     paintList();
 
     const spawn = el("div", "chat-modal-spawn");
-    const first = firstPicked();
+    const first = beside();
     const add = (kind: "claude" | "codex") => {
       const session = first?.session ?? o.currentSession ?? o.sessions[0]?.name ?? "";
       staged.push({
@@ -235,6 +241,7 @@ export function openPicker(o: PickerOpts) {
     if (document.activeElement === document.body || !modal.contains(document.activeElement)) search.focus();
   }
 
-  paint();
+  // On the page first, so the search can take focus.
   document.body.append(back);
+  paint();
 }

@@ -216,6 +216,8 @@ export type ClientMessage =
   | { t: "chat-role"; id: string; handle: string; role: string }
   | { t: "chat-settings"; id: string; name?: string; cap?: number }
   | { t: "chat-archive"; id: string; archived: boolean }
+  /** Gone for good; `closeTabs` also shuts down the agents that joined it. */
+  | { t: "chat-delete"; id: string; closeTabs: boolean }
   | { t: "chat-discard-held"; id: string }
   /** Point a member whose tab closed at the tab its conversation was resumed in. */
   | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }

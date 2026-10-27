@@ -389,6 +389,13 @@ export function createServer(opts: ServerOptions): RunningServer {
           return lastSessions.flatMap((s) => s.windows.map((w) => w.id));
         },
         adapters: { claude: claudeAdapter(), codex: codexAdapter() },
+        closeWindow: async (windowId) => {
+          // By the session it is in now: it may have moved since it joined.
+          lastSessionsAt = 0;
+          await chatStates();
+          const s = lastSessions.find((x) => x.windows.some((w) => w.id === windowId));
+          if (s) await tmux.killWindow(s.name, windowId);
+        },
         spawn: async (req) => {
           const folder = await spawnFolder(req.folder);
           // Codex starts its thread on its first turn, and a chat can only queue to a
@@ -720,6 +727,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "chat-role":
         case "chat-settings":
         case "chat-archive":
+        case "chat-delete":
         case "chat-discard-held":
         case "chat-reconnect": {
           if (!chat) return send(ws, { t: "error", message: "Chats are off on this server." });
@@ -728,6 +736,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           const r = await chat.handle(parsed);
           if (!r.ok) return send(ws, { t: "error", message: r.error });
           if (m.t === "chat-create" && r.chatId) send(ws, { t: "chat-created", id: r.chatId });
+          if (r.notice) send(ws, { t: "notice", message: r.notice });
           await pushChats();
           void chatTick(true);
           return;
