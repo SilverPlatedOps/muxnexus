@@ -156,12 +156,17 @@ export function createChatService(deps: ChatServiceDeps) {
     msg.tabText = t.length > MAX_TEXT ? `…\n${t.slice(-MAX_TEXT)}` : t;
   }
 
-  /** A member's last post gets the turn it was made in. */
+  /** A member's posts get the turns they were made in: each turn under its last post. */
   async function settle(chat: Chat, m: ChatMember) {
-    const turn = m.turn!;
-    delete m.turn;
-    const msg = chat.messages.find((x) => x.id === turn.msgId);
-    if (msg) addTab(msg, (await said(m.kind as AgentKind, turn.path, { at: turn.at }))?.text);
+    const posts = m.turns!;
+    delete m.turns;
+    const last = new Map<string, { msg: ChatMessage; text: string }>();
+    for (const p of posts) {
+      const s = await said(m.kind as AgentKind, p.path, { at: p.at });
+      const msg = chat.messages.find((x) => x.id === p.msgId);
+      if (s && msg) last.set(`${p.path}#${s.start}`, { msg, text: s.text });
+    }
+    for (const { msg, text } of last.values()) addTab(msg, text);
   }
 
   /** A chat name no other chat has, so a receipt tag and `--chat` name one chat. */
@@ -374,20 +379,10 @@ export function createChatService(deps: ChatServiceDeps) {
         delete member.awaiting;
         delete member.sawRunning;
         delete member.wake;
-        // What it says in its tab this turn goes under its last post of the
-        // turn, once the turn ends. An earlier post keeps its own turn if that
-        // one is over; in this same turn, the turn moves here.
+        // What it says in its tab this turn goes under the post once the turn
+        // ends: where its transcript stands now places the post in its turn.
         const path = info ? transcriptOf(info) : undefined;
-        if (path) {
-          const prev = member.turn;
-          delete member.turn;
-          if (prev) {
-            const s = await said(member.kind as AgentKind, prev.path, { at: prev.at });
-            const old = chat.messages.find((x) => x.id === prev.msgId);
-            if (s?.ended && old) addTab(old, s.text);
-          }
-          member.turn = { msgId: msg.id, path, at: await sizeOf(path), since: t };
-        }
+        if (path) (member.turns ??= []).push({ msgId: msg.id, path, at: await sizeOf(path), since: t });
         await save(chat);
         const notes: string[] = [];
         const agents = Object.keys(msg.deliveries);
@@ -461,17 +456,16 @@ export function createChatService(deps: ChatServiceDeps) {
 
     for (const chat of active) {
       for (const m of chat.members) {
-        // A post's turn is over when its stamp says so after the post, its
-        // agent has been gone half a minute, or after half an hour. One that
-        // left in that turn still gets it.
-        if (m.turn && m.windowId) {
-          const info = await infoOf(m.windowId);
-          const posted = Date.parse(m.turn.since);
-          const age = Date.parse(now()) - posted;
+        // Its last post's turn is over when its stamp says so after the post,
+        // its process has gone, or after half an hour; an unreadable tab is
+        // not enough. One that left in that turn still gets it.
+        if (m.turns?.length) {
+          const info = m.windowId ? await infoOf(m.windowId) : null;
+          const posted = Date.parse(m.turns.at(-1)!.since);
           const over = sameAgent(m, info)
             ? info.state !== "running" && info.state !== "input" && (info.since ?? 0) >= Math.floor(posted / 1000)
-            : age > GONE_MS;
-          if (over || age > TURN_MS) {
+            : m.pid !== undefined && !alive(m.pid);
+          if (over || Date.parse(now()) - posted > TURN_MS) {
             await settle(chat, m);
             changed.add(chat.id);
           }
@@ -643,7 +637,7 @@ export function createChatService(deps: ChatServiceDeps) {
   function busy(): boolean {
     for (const chat of chats.values()) {
       if (chat.archived) continue;
-      if (chat.members.some((m) => m.spawn === "pending" || m.awaiting !== undefined || m.turn !== undefined)) return true;
+      if (chat.members.some((m) => m.spawn === "pending" || m.awaiting !== undefined || m.turns !== undefined)) return true;
       for (const msg of chat.messages) for (const d of Object.values(msg.deliveries)) if (d.state === "queued") return true;
     }
     return false;

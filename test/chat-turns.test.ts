@@ -51,6 +51,7 @@ describe("Claude: what it said in one turn", () => {
     expect(await said("claude", path, { at: after[12]! })).toEqual({
       text: "Reviewing the diff. Two problems: sub swaps its arguments, and add() has no tests. The swap matters more.\n\nPosted my review.",
       ended: true,
+      start: after[5]!,
     });
   });
 
@@ -66,6 +67,7 @@ describe("Claude: what it said in one turn", () => {
     expect(await said("claude", path, { at: after[12]! })).toEqual({
       text: "Reviewing the diff. Two problems: sub swaps its arguments, and add() has no tests. The swap matters more.",
       ended: false,
+      start: after[5]!,
     });
   });
 
@@ -77,6 +79,16 @@ describe("Claude: what it said in one turn", () => {
   test("a post whose turn wasn't written yet belongs to the turn after the last one that ended", async () => {
     const { path, after } = transcript(claudeRows);
     expect((await said("claude", path, { at: after[5]! }))?.text).toStartWith("Reviewing the diff.");
+  });
+
+  test("a message that arrives mid-turn doesn't end the turn: Claude Code ends it", async () => {
+    const rows = [...claudeRows];
+    rows.splice(13, 0, { type: "user", isSidechain: false, isMeta: true, origin: { kind: "peer" }, message: { role: "user", content: "[muxnexus · shop review · #5 · from @codex1]\nagreed" } }, cText("Codex agrees; nothing more to do."));
+    const { path, after } = transcript(rows);
+    const s = await said("claude", path, { at: after[12]! });
+    expect(s?.text).toEndWith("Codex agrees; nothing more to do.\n\nPosted my review.");
+    expect(s?.start).toBe(after[5]!);
+    expect((await said("claude", path, { at: after[15]! }))?.start).toBe(after[5]!);
   });
 
   test("no transcript, or no tag in it, gives nothing", async () => {
@@ -111,6 +123,7 @@ describe("Codex: what it said in one turn", () => {
     expect(await said("codex", path, { at: after[5]! })).toEqual({
       text: "Checking the diff first.\n\nOne finding: sub swaps its arguments. Also, math.js has no tests at all. Posted the first to the chat.",
       ended: true,
+      start: after[0]!,
     });
   });
 
@@ -121,6 +134,6 @@ describe("Codex: what it said in one turn", () => {
 
   test("an aborted turn ends too", async () => {
     const { path, after } = transcript(codexRows);
-    expect(await said("codex", path, { at: after[11]! })).toEqual({ text: "Something else entirely.", ended: true });
+    expect(await said("codex", path, { at: after[11]! })).toEqual({ text: "Something else entirely.", ended: true, start: after[9]! });
   });
 });

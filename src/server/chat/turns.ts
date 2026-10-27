@@ -12,6 +12,8 @@ export interface Said {
   text: string;
   /** The turn has closed in the transcript: nothing more will be added to it. */
   ended: boolean;
+  /** Where the turn begins in the file: two posts with the same start are in one turn. */
+  start: number;
 }
 
 /**
@@ -23,6 +25,8 @@ export type Where = { at: number } | { from?: number; tag: string };
 
 interface Row {
   pos: number;
+  /** Where the next line begins. */
+  next: number;
   open?: boolean;
   close?: boolean;
   text?: string;
@@ -31,14 +35,15 @@ interface Row {
 
 // Transcript rows are whatever the agent wrote: read loosely, never trusted.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Classify = (row: any) => Omit<Row, "pos" | "tag"> | null;
+type Classify = (row: any) => Omit<Row, "pos" | "next" | "tag"> | null;
 
 const blocks = (content: unknown, type: string): string =>
   Array.isArray(content) ? content.filter((b) => b?.type === type && typeof b.text === "string").map((b) => b.text as string).join("") : "";
 
 /**
- * Claude Code: a prompt opens a turn -- the user's, a peer's, a finished
- * task's, not text Claude Code adds itself -- and `turn_duration` closes it.
+ * Claude Code: `turn_duration` closes a turn, and nothing else divides one. A
+ * prompt is no boundary: a peer's message or the user's typing can arrive in
+ * the middle of a turn and be read between its tool calls.
  */
 const claude: Classify = (r) => {
   if (r.isSidechain) return null;
@@ -46,11 +51,6 @@ const claude: Classify = (r) => {
   if (r.type === "assistant") {
     const text = blocks(r.message?.content, "text");
     return text ? { text } : null;
-  }
-  if (r.type === "user") {
-    const c = r.message?.content;
-    const prompt = typeof c === "string" || blocks(c, "text") !== "";
-    return prompt && (r.origin?.kind || (!r.isMeta && !r.isCompactSummary)) ? { open: true } : null;
   }
   return null;
 };
@@ -105,7 +105,7 @@ export async function said(kind: AgentKind, path: string, where: Where): Promise
       const pos = base + i;
       i = j + 1;
       const tag = tagged && forms.some((f) => line.includes(f));
-      let row: Omit<Row, "pos" | "tag"> | null = null;
+      let row: Omit<Row, "pos" | "next" | "tag"> | null = null;
       if (hint.test(line)) {
         try {
           row = classify(JSON.parse(line));
@@ -113,33 +113,33 @@ export async function said(kind: AgentKind, path: string, where: Where): Promise
           // a line still being written
         }
       }
-      if (row || tag) rows.push({ pos, ...row, ...(tag ? { tag: true } : {}) });
+      if (row || tag) rows.push({ pos, next: base + i, ...row, ...(tag ? { tag: true } : {}) });
     }
 
-    // Claude Code logs a message's arrival (`queue-operation`) before the
-    // prompt it becomes: the tagged row that opens a turn is the one.
-    let t = tagged ? rows.findIndex((r) => r.tag && r.open) : rows.findLastIndex((r) => r.pos < (where as { at: number }).at);
-    if (tagged && t === -1) t = rows.findIndex((r) => r.tag);
+    const t = tagged ? rows.findIndex((r) => r.tag) : rows.findLastIndex((r) => r.pos < (where as { at: number }).at);
     if (t === -1) return null;
-    // A post is always inside a turn: if the last row before it closed one,
-    // its own turn hadn't reached the file yet, and is the next.
+    // The turn's first row, and where in the file it begins. A post is always
+    // inside a turn: if the last row before it closed one, its own turn hadn't
+    // reached the file yet, and is the next.
+    let first = 0;
+    let start = rows[0]!.pos;
     if (!tagged && rows[t]!.close) {
-      t = rows.findIndex((r, k) => k > t && r.open);
-      if (t === -1) return { text: "", ended: false };
+      first = t + 1;
+      start = rows[t]!.next;
+    } else {
+      for (let k = t; k >= 0; k--) {
+        if (rows[k]!.open) { first = k; start = rows[k]!.pos; break; }
+        if (k < t && rows[k]!.close) { first = k + 1; start = rows[k]!.next; break; }
+      }
     }
-    let start = 0;
-    for (let k = t; k >= 0; k--) {
-      if (rows[k]!.open) { start = k; break; }
-      if (k < t && rows[k]!.close) { start = k + 1; break; }
-    }
-    let end = rows.length - 1;
+    let last = rows.length - 1;
     let ended = false;
-    for (let k = t + 1; k < rows.length; k++) {
-      if (rows[k]!.close) { end = k; ended = true; break; }
-      if (rows[k]!.open) { end = k - 1; ended = true; break; }
+    for (let k = Math.max(t + 1, first); k < rows.length; k++) {
+      if (rows[k]!.close) { last = k; ended = true; break; }
+      if (rows[k]!.open && k > first) { last = k - 1; ended = true; break; }
     }
-    const text = rows.slice(start, end + 1).map((r) => r.text?.trim() ?? "").filter(Boolean).join("\n\n");
-    return { text, ended };
+    const text = rows.slice(first, last + 1).map((r) => r.text?.trim() ?? "").filter(Boolean).join("\n\n");
+    return { text, ended, start };
   } catch {
     return null;
   } finally {

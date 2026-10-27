@@ -16,6 +16,7 @@ let live: Map<string, WindowLive>;
 let sends: { kind: string; target: AgentTarget; text: string }[];
 let seen: Set<string>;
 let saidCalls: { kind: string; path: string; where: Where }[];
+let dead: Set<number>;
 let saidReply: (kind: string, where: Where) => Said | null;
 let clock = 0;
 
@@ -44,7 +45,7 @@ function service(over: { agentOfWindow?: typeof tmux.agentOfWindow; adapters?: P
     socketOf: async (_dir, pid) => `/tmp/cc-socks/${pid}.sock`,
     receipt: async (_path, tag) => [...seen].some((s) => tag.includes(s)),
     said: async (kind, path, where) => { saidCalls.push({ kind, path, where }); return saidReply(kind, where); },
-    alive: () => true,
+    alive: (pid) => !dead.has(pid),
     now,
     home: homedir(),
   });
@@ -60,6 +61,7 @@ beforeEach(async () => {
   seen = new Set();
   saidCalls = [];
   saidReply = () => null;
+  dead = new Set();
   clock = 0;
   await tmux.killServer();
   await tmux.newSession("shop");
@@ -444,7 +446,7 @@ describe("what an agent said in its tab", () => {
   test("a post gets its whole turn once the turn has ended, and not before", async () => {
     const svc = service();
     const id = await newChat(svc, "claude", "codex");
-    saidReply = () => ({ text: TURN, ended: true });
+    saidReply = () => ({ text: TURN, ended: true, start: 100 });
     await stamp("claude", "running", epoch());
     expect(await say(svc, "claude", "say", "sub looks wrong")).toMatchObject({ ok: true, output: "posted as #3 · context only: nobody was mentioned" });
     expect(svc.busy()).toBe(true);
@@ -462,7 +464,7 @@ describe("what an agent said in its tab", () => {
   test("a stamp older than the post is not the end of its turn", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");
-    saidReply = () => ({ text: TURN, ended: true });
+    saidReply = () => ({ text: TURN, ended: true, start: 100 });
     clock += 10;
     await stamp("claude", "done", epoch() - 5);
     await say(svc, "claude", "say", "sub looks wrong");
@@ -478,14 +480,14 @@ describe("what an agent said in its tab", () => {
     const svc = service();
     const id = await newChat(svc, "claude");
     await stamp("claude", "running", epoch());
-    saidReply = () => ({ text: "  sub looks wrong \n", ended: true });
+    saidReply = () => ({ text: "  sub looks wrong \n", ended: true, start: 100 });
     await say(svc, "claude", "say", "sub looks wrong");
     clock += 5;
     await stamp("claude", "done", epoch());
     await svc.tick();
     expect((await msgOf(svc, id, 2)).tabText).toBeUndefined();
     await stamp("claude", "running", epoch());
-    saidReply = () => ({ text: "", ended: true });
+    saidReply = () => ({ text: "", ended: true, start: 100 });
     await say(svc, "claude", "say", "and another thing");
     clock += 5;
     await stamp("claude", "done", epoch());
@@ -496,7 +498,7 @@ describe("what an agent said in its tab", () => {
   test("it reaches no agent: not a delivery, a catch-up or mux read", async () => {
     const svc = service();
     const id = await newChat(svc, "claude", "codex");
-    saidReply = () => ({ text: "TAB-ONLY: the swap matters more", ended: true });
+    saidReply = () => ({ text: "TAB-ONLY: the swap matters more", ended: true, start: 100 });
     await stamp("claude", "running", epoch());
     await say(svc, "claude", "say", "sub looks wrong");
     clock += 5;
@@ -514,7 +516,7 @@ describe("what an agent said in its tab", () => {
   test("a turn the chat started that ended without a post shows what the agent said", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");
-    saidReply = (_k, where) => ("tag" in where ? { text: "Nothing wrong in math.js, so I didn't post.", ended: true } : null);
+    saidReply = (_k, where) => ("tag" in where ? { text: "Nothing wrong in math.js, so I didn't post.", ended: true, start: 100 } : null);
     await svc.handle({ t: "chat-post", id, text: "@claude1 anything wrong in math.js?" });
     await svc.tick();
     seen.add("#2 ·");
@@ -530,7 +532,7 @@ describe("what an agent said in its tab", () => {
   test("a turn too short to be seen running still ends once its stamp says so after the message went", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");
-    saidReply = (_k, where) => ("tag" in where ? { text: "I changed math.js today.", ended: true } : null);
+    saidReply = (_k, where) => ("tag" in where ? { text: "I changed math.js today.", ended: true, start: 100 } : null);
     await svc.handle({ t: "chat-post", id, text: "@claude1 which file did you change? Answer in your tab." });
     await svc.tick();
     seen.add("#2 ·");
@@ -544,14 +546,14 @@ describe("what an agent said in its tab", () => {
     expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ system: true, text: "claude1 finished without replying", tabText: "I changed math.js today." });
   });
 
-  test("two posts in one turn: the turn goes under the last", async () => {
+  test("two posts in one turn: the turn goes under the last, and the post itself reads no transcript", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");
-    saidReply = () => ({ text: TURN, ended: false });
     await stamp("claude", "running", epoch());
     await say(svc, "claude", "say", "first");
     await say(svc, "claude", "say", "second");
-    saidReply = () => ({ text: TURN, ended: true });
+    expect(saidCalls).toHaveLength(0);
+    saidReply = () => ({ text: TURN, ended: true, start: 100 });
     clock += 5;
     await stamp("claude", "done", epoch());
     await svc.tick();
@@ -559,10 +561,25 @@ describe("what an agent said in its tab", () => {
     expect((await msgOf(svc, id, 3)).tabText).toBe(TURN);
   });
 
+  test("posts in two turns, settled together, each get their own", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude");
+    await stamp("claude", "running", epoch());
+    await say(svc, "claude", "say", "first");
+    await say(svc, "claude", "say", "second");
+    let n = 0;
+    saidReply = () => (++n === 1 ? { text: "turn one", ended: true, start: 100 } : { text: "turn two", ended: true, start: 900 });
+    clock += 5;
+    await stamp("claude", "done", epoch());
+    await svc.tick();
+    expect((await msgOf(svc, id, 2)).tabText).toBe("turn one");
+    expect((await msgOf(svc, id, 3)).tabText).toBe("turn two");
+  });
+
   test("a post, then mux leave in the same turn, still gets the turn", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");
-    saidReply = () => ({ text: TURN, ended: true });
+    saidReply = () => ({ text: TURN, ended: true, start: 100 });
     await stamp("claude", "running", epoch());
     await say(svc, "claude", "say", "sub looks wrong");
     await say(svc, "claude", "leave");
@@ -572,16 +589,19 @@ describe("what an agent said in its tab", () => {
     expect((await msgOf(svc, id, 2)).tabText).toBe(TURN);
   });
 
-  test("a turn that never ends is read as it stands after half an hour; a replaced agent's after half a minute", async () => {
+  test("a turn that never ends is read as it stands after half an hour; a replaced agent's once its process is gone", async () => {
     const svc = service();
     const id = await newChat(svc, "claude", "codex");
-    saidReply = () => ({ text: "still going", ended: false });
+    saidReply = () => ({ text: "still going", ended: false, start: 100 });
     await stamp("claude", "running", epoch());
     await stamp("codex", "running", epoch());
     await say(svc, "claude", "say", "one");
     await say(svc, "codex", "say", "two");
     await stamp("codex", "running", epoch(), 9999);
     clock += 31;
+    await svc.tick();
+    expect((await msgOf(svc, id, 4)).tabText).toBeUndefined();
+    dead.add(777);
     await svc.tick();
     expect((await msgOf(svc, id, 3)).tabText).toBeUndefined();
     expect((await msgOf(svc, id, 4)).tabText).toBe("still going");
@@ -593,7 +613,7 @@ describe("what an agent said in its tab", () => {
   test("a very long turn keeps its end", async () => {
     const svc = service();
     const id = await newChat(svc, "claude");
-    saidReply = () => ({ text: `${"a".repeat(40_000)} THE END`, ended: true });
+    saidReply = () => ({ text: `${"a".repeat(40_000)} THE END`, ended: true, start: 100 });
     await stamp("claude", "running", epoch());
     await say(svc, "claude", "say", "x");
     clock += 5;

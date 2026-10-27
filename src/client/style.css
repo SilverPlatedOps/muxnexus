@@ -1890,7 +1890,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-tab summary { width: max-content; color: var(--dim); cursor: pointer; }
 .chat-tab summary:hover { color: var(--muted); }
 .chat-tab summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-.chat-tab-text { margin: 4px 0 6px; padding: 6px 10px; max-height: 40vh; overflow: auto; border-left: 2px solid var(--line); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-tab-text { margin: 4px 0 6px; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-empty { margin: 16px 6px; padding: 10px 12px; border: 1px dashed var(--edge); border-radius: 8px; color: var(--muted); font-size: 12px; }
 
 .chat-strip { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 18px; padding: 6px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }

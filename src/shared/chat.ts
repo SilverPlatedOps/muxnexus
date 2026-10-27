@@ -58,8 +58,8 @@ export interface ChatMember {
   sawRunning?: boolean;
   /** Where and when the message it is `awaiting` went: what it said there shows if it never posts. */
   wake?: { path: string; from?: number; tag: string; sent: string };
-  /** Its last post, until that turn ends: then what it said in its tab that turn goes under it. */
-  turn?: { msgId: number; path: string; at: number; since: string };
+  /** Its posts whose turns haven't ended: then what it said in its tab goes under the last post of each turn. */
+  turns?: { msgId: number; path: string; at: number; since: string }[];
   left?: boolean;
   /** An agent started from the chat, before its tab came up, or after it failed to. */
   spawn?: "pending" | "failed";
