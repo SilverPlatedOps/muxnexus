@@ -7,7 +7,6 @@ import {
   chatRows,
   chatsAsking,
   composerState,
-  headerSummary,
   heldCount,
   memberColour,
   memberStatus,
@@ -32,6 +31,7 @@ import { renderMarkdown } from "./markdown";
 import { createChatContext } from "./context";
 import { chatRules } from "../../shared/chat-rules";
 import { createChatActivity } from "./activity";
+import { agentMark } from "./logos";
 
 /**
  * The chat UI: the Chats tab's list, and a chat in the main area with a
@@ -94,7 +94,7 @@ const store = {
 };
 
 /** Per chat: the member beside it, the scroll position, the unsent draft. */
-interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number }
+interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean }
 function remembered(id: string): Remembered {
   try { return (JSON.parse(store.get(STATE_KEY) ?? "{}") as Record<string, Remembered>)[id] ?? {}; } catch { return {}; }
 }
@@ -224,6 +224,25 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   const context = createChatContext((m) => host.send(m));
   const agentBar = el("nav", "chat-agent-bar");
   agentBar.setAttribute("aria-label", "Agent terminals");
+  /** Mode, brief, handoff, rounds, members and context: one panel beside the conversation, not rows above it. */
+  const details = el("aside", "chat-details");
+  details.id = "chat-details";
+  details.setAttribute("aria-label", "Chat details");
+  details.hidden = true;
+  const detailsHead = el("header", "chat-details-head");
+  const detailsTitle = el("h2", "", "Chat details");
+  const detailsClose = btn("icon-btn", "✕", "Close chat details");
+  detailsClose.onclick = () => setDetails(false);
+  details.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || (e.target as HTMLElement).closest("dialog")) return;
+    e.stopPropagation();
+    setDetails(false);
+    head.querySelector<HTMLElement>(".chat-details-toggle")?.focus();
+  });
+  detailsHead.append(detailsTitle, el("span", "sp"), detailsClose);
+  const detailsMembers = el("section", "chat-details-members");
+  details.append(detailsHead, context.el, detailsMembers);
+  let detailsOpen = false;
   const lines = el("div", "chat-lines");
   const strip = el("div", "chat-strip");
   const activity = createChatActivity();
@@ -237,7 +256,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   const suggest = el("div", "chat-suggest");
   suggest.hidden = true;
   compose.append(chipsEl, input, helper, suggest);
-  pane.append(head, agentBar, context.el, lines, strip, activity.el, compose);
+  const convo = el("div", "chat-convo");
+  convo.append(lines, strip, activity.el, compose);
+  const main = el("div", "chat-main");
+  main.append(convo, details);
+  pane.append(head, main);
   const divider = el("div", "chat-divider");
   const side = el("section", "chat-side");
   const sideHead = el("header", "chat-side-head");
@@ -277,6 +300,14 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   let headerSignature = "";
   let paintedChat: string | null = null;
 
+  function setDetails(on: boolean) {
+    detailsOpen = on;
+    details.hidden = !on;
+    if (chat) remember(chat.id, { details: on });
+    paintChat();
+    if (on) details.querySelector<HTMLElement>("select, button:not(.icon-btn)")?.focus({ preventScroll: true });
+  }
+
   function paintChat() {
     context.update(chat);
     activity.update(chat, agents);
@@ -289,19 +320,19 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       strip.hidden = true;
       return;
     }
-    const sum = headerSummary(chat, agents);
-    const nextHeader = JSON.stringify([chat.id, chat.name, chat.members, agents, sideHandle, sideWindow, sideOn]);
+    const nextHeader = JSON.stringify([chat.id, chat.name, chat.mode, chat.round, chat.members, agents, sideHandle, sideWindow, sideOn, detailsOpen]);
     if (headerSignature !== nextHeader) {
     headerSignature = nextHeader;
     const name = btn("chat-name", chat.name, "Double-click to rename (or use Rename in settings)");
     name.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); renameAt(name, chat!.id, chat!.name); };
     name.onclick = (e) => { if (e.detail === 0) { e.stopPropagation(); renameAt(name, chat!.id, chat!.name); } };
-    const members = btn("chat-members", "", "Who's in this chat");
-    members.append(`Members ${sum.members}`);
-    if (sum.needsYou) members.append(" · ", el("span", "glyph input", "●"));
-    if (sum.offline) members.append(` · ${sum.offline} offline`);
-    members.append(" ▾");
-    members.onclick = (e) => { e.stopPropagation(); toggleMenu(members, membersMenu()); };
+    const mode = chat.mode ? chat.mode[0]!.toUpperCase() + chat.mode.slice(1) : "General";
+    const detailsBtn = btn(`chat-details-toggle${detailsOpen ? " on" : ""}`, `Details · ${mode}`, "Mode, brief, handoff, members and context");
+    detailsBtn.setAttribute("aria-expanded", String(detailsOpen));
+    detailsBtn.setAttribute("aria-controls", details.id);
+    detailsBtn.onclick = () => setDetails(!detailsOpen);
+    const round = chat.round?.state === "open" ? btn("chat-round-pill", `Round ${chat.round.submitted.length}/${chat.round.participants.length}`, "Independent round open: peer answers withheld until all submit. Open details to reveal.") : null;
+    if (round) round.onclick = () => setDetails(true);
     const more = btn("chat-more icon-btn", "⋯", "Chat settings");
     more.onclick = (e) => { e.stopPropagation(); toggleMenu(more, settingsMenu()); };
     const narrowSwitch = el("div", "chat-switch");
@@ -315,8 +346,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     // On a phone the top bar's menu button is out of sight: the chat brings its own.
     const burger = btn("chat-burger icon-btn", "☰", "Show the sidebar");
     burger.onclick = () => document.getElementById("hamburger")?.click();
-    head.replaceChildren(burger, name, members, el("span", "sp"), narrowSwitch, more);
-    agentBar.replaceChildren(el("span", "chat-agent-label", "Terminals"));
+    head.replaceChildren(burger, name, agentBar, el("span", "sp"), narrowSwitch, ...(round ? [round] : []), detailsBtn, more);
+    agentBar.replaceChildren();
     for (const m of chat.members) {
       if (m.kind === "user" || m.left) continue;
       const live = agents[m.handle];
@@ -324,14 +355,15 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       const selected = sideHandle === m.handle && !!sideWindow;
       const b = btn(`chat-agent-switch${selected ? " selected" : ""}`, "", `Open ${m.handle} terminal · ${state}`);
       b.setAttribute("aria-pressed", String(selected));
-      const shape = el("span", "chat-shape", m.shape);
-      shape.style.color = memberColour(m) ?? "";
-      b.append(shape, el("span", "", m.handle), el("span", `chat-agent-state${live?.state === "input" ? " needs-you" : ""}`, state));
+      b.append(agentMark(m.kind, m.shape), el("span", "chat-agent-handle", m.handle), el("span", `chat-agent-state${live?.state === "input" ? " needs-you" : live?.state === "running" ? " working" : ""}`, state));
       b.disabled = !canOpen(m, live);
       if (b.disabled) b.title = memberStatus(chat, m, live).text;
       b.onclick = () => openSide(m.handle);
       agentBar.append(b);
     }
+    const roster = membersMenu();
+    roster.classList.add("chat-details-roster");
+    detailsMembers.replaceChildren(el("h3", "chat-details-label", "Members"), roster);
     }
 
 
@@ -358,9 +390,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         continue;
       }
       const line = el("div", `chat-line${r.me ? " me" : ""}${r.turnStart ? " turn" : ""}`);
-      const shape = el("span", "chat-shape", r.shape);
+      const shape = r.me ? el("span", "chat-shape", r.shape) : agentMark(chat.members.find((m) => m.handle === r.from)?.kind ?? "", r.shape);
       const who = btn("chat-who", r.me ? "you" : r.from, r.me ? undefined : `${r.from}: open its terminal beside the chat`);
-      if (r.colour) { shape.style.color = r.colour; who.style.color = r.colour; }
+      if (r.colour) who.style.color = r.colour;
       if (!r.me) who.onclick = () => openSide(r.from);
       const body = el("div", "chat-body");
       const rendered = renderMarkdown(r.text, chat.members.find((m) => m.handle === r.from)?.windowId);
@@ -426,9 +458,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   function paintCompose() {
     if (!chat) return;
     chipsEl.replaceChildren(...chips.map((h) => {
-      const c = el("span", "chat-chip", `@${h}`);
       const m = chat!.members.find((x) => x.handle === h);
-      if (m) c.style.color = memberColour(m) ?? "";
+      const c = el("span", "chat-chip");
+      if (m) { c.append(agentMark(m.kind, m.shape)); c.style.color = memberColour(m) ?? ""; }
+      c.append(`@${h}`);
       const x = btn("chat-chip-x", "✕", `Don't send to ${h}`);
       x.onclick = () => { chips = chips.filter((y) => y !== h); paintCompose(); input.focus(); };
       c.append(x);
@@ -520,9 +553,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     suggest.replaceChildren(...choices.map((c, i) => {
       const r = btn(`chat-suggest-row${i === choice ? " on" : ""}`, "");
       const m = chat!.members.find((x) => x.handle === c.handle)!;
-      const shape = el("span", "chat-shape", m.shape);
-      shape.style.color = memberColour(m) ?? "";
-      r.append(shape, el("span", "h", `@${c.handle}`), el("span", "meta", c.meta));
+      r.append(agentMark(m.kind, m.shape), el("span", "h", `@${c.handle}`), el("span", "meta", c.meta));
       r.onmousedown = (e) => { e.preventDefault(); pick(c.handle); };
       return r;
     }), el("div", "chat-suggest-foot", "↑↓ choose · ↵ insert · a mention wakes that agent"));
@@ -612,9 +643,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   function paintSideHead(m: ChatMember, session: string) {
     const who = btn("chat-side-who", "", "Show another member's terminal");
-    const shape = el("span", "chat-shape", m.shape);
-    shape.style.color = memberColour(m) ?? "";
-    who.append(shape, ` ${m.handle} · ${session} ▾`);
+    who.append(agentMark(m.kind, m.shape), ` ${m.handle} · ${session} ▾`);
     who.onclick = (e) => { e.stopPropagation(); toggleMenu(who, membersMenu(true)); };
     const expand = btn("chat-side-btn", "⤢ Expand", "Open this tab in its workspace");
     expand.onclick = () => expandTo(m.handle);
@@ -694,8 +723,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       const live = agents[m.handle];
       const st = memberStatus(chat, m, live);
       const r = el("div", "chat-member");
-      const shape = el("span", "chat-shape", m.shape);
-      shape.style.color = memberColour(m) ?? "";
+      const shape = agentMark(m.kind, m.shape);
       const glyph = el("span", `glyph ${live?.state === "input" ? "input" : live?.state === "running" ? "running" : live?.online ? "seen" : "none"}`, live?.state === "input" ? "●" : live?.state === "running" ? "" : live?.online ? "○" : "·");
       const name = btn("chat-member-name", m.handle, "Open its terminal beside the chat");
       name.style.color = memberColour(m) ?? "";
@@ -876,6 +904,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         input.value = r.draft ?? "";
         chips = (r.chips?.length ? r.chips : [prefill(c)].filter((x): x is string => !!x)).filter((h) => c.members.some((m) => m.handle === h && !m.left));
         offered = prefill(c);
+        detailsOpen = r.details === true;
+        details.hidden = !detailsOpen;
         autosize();
         if (r.member && showing && !host.onPhone()) openSide(r.member);
       } else {

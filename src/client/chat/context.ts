@@ -137,7 +137,7 @@ export function createChatContext(send: (m: ClientMessage) => boolean) {
       const hand = button("Hand off…", () => handoff());
       hand.disabled = next.round?.state === "open" || !next.members.some((m) => m.kind !== "user" && !m.left);
       if (hand.disabled) hand.title = next.round?.state === "open" ? "Reveal the independent round before sharing context" : "Add an agent first";
-      el.append(select, brief, hand);
+      el.append(node("h3", "chat-details-label", "Mode"), select, node("h3", "chat-details-label", "Brief and handoff"), brief, hand);
       if (next.mode === "investigate" || next.round?.state === "open") {
         const round = button(next.round?.state === "open" ? "Reveal answers" : "Independent round…", () => {
           if (next.round?.state === "open") send({ t: "chat-round", id: next.id, action: "end" }); else startRound();

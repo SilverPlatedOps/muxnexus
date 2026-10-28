@@ -2128,3 +2128,47 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-activity-dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes chat-working-dot { 0%, 60%, 100% { opacity: .45; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .chat-activity-dots i { animation: none; opacity: .65; transform: none; } }
+/* One chat header: name, agent switches, details. The rest lives in the details panel. */
+.chat-head { gap: 10px; }
+.chat-head .chat-agent-bar { display: flex; flex: 0 1 auto; min-width: 0; gap: 6px; padding: 0; border: 0; background: none; overflow-x: auto; scrollbar-width: none; }
+.chat-head .chat-agent-bar::-webkit-scrollbar { display: none; }
+.chat-agent-handle { font-weight: 600; }
+.chat-head .chat-name { flex: none; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-agent-state.working { color: var(--accent); }
+.chat-details-toggle, .chat-round-pill { flex: none; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font: 500 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.chat-details-toggle:hover, .chat-details-toggle.on { color: var(--fg-strong); background: var(--hover); border-color: var(--edge); }
+.chat-round-pill { color: var(--accent); border-color: var(--edge); }
+:is(.chat-details-toggle, .chat-round-pill):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chat-main { flex: 1; min-height: 0; display: flex; }
+.chat-convo { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.chat-details { flex: 0 0 300px; min-height: 0; overflow-y: auto; padding: 12px 16px 20px; border-left: 1px solid var(--line); background: var(--panel); }
+.chat-details[hidden] { display: none; }
+.chat-details-head { display: flex; align-items: center; margin-bottom: 6px; }
+.chat-details-head h2 { margin: 0; font: 600 14px var(--mono); color: var(--fg-strong); }
+.chat-details-head .sp { flex: 1; }
+.chat-details-label { margin: 14px 0 6px; font: 600 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.chat-details .chat-context { flex-direction: column; align-items: stretch; gap: 8px; padding: 0; border: 0; background: none; }
+.chat-details .chat-context > * { flex: none; }
+.chat-details .chat-mode { max-width: none; width: 100%; }
+.chat-details .chat-context .chat-btn { text-align: left; }
+.chat-details .chat-context-stats { margin-left: 0; }
+.chat-details-roster { display: flex; flex-direction: column; gap: 2px; width: auto; }
+.chat-details-roster .chat-member { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 6px 4px; }
+.chat-details-roster .chat-member-name { flex: 1 1 auto; min-width: 0; }
+.chat-details-roster .chat-member-meta { order: 10; flex: 1 0 100%; padding-left: 23px; white-space: normal; }
+.chat-details-roster .chat-member-more { padding-left: 23px; }
+/* Agent family marks: Claude's logo in its brand orange, Codex in the text colour. */
+.agent-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; }
+.agent-mark svg { width: 100%; height: 100%; display: block; }
+.agent-mark.claude { color: #d97757; }
+.agent-mark.codex { color: var(--fg-strong); }
+.chat-line > .agent-mark { align-self: start; margin-top: 3px; }
+.chat-chip .agent-mark { width: 12px; height: 12px; margin-right: 3px; }
+/* Message actions show on hover or keyboard focus, so every answer isn't followed by a button. */
+.chat-message { position: relative; }
+.chat-message .chat-handoff-action { position: absolute; top: 2px; right: 6px; margin: 0; background: var(--panel); border-color: var(--edge); opacity: 0; transition: opacity .12s; }
+.chat-message:hover .chat-handoff-action, .chat-message:focus-within .chat-handoff-action { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .chat-message .chat-handoff-action { transition: none; } }
+/* Prose reads in a proportional face; code, commands and handles stay monospace. */
+.chat-body > .chat-markdown, .chat-long > .chat-markdown { font: 13.5px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.chat-body .chat-markdown :is(code, pre, .chat-code) { font-family: var(--mono); }
