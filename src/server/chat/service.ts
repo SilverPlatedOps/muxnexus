@@ -509,10 +509,12 @@ export function createChatService(deps: ChatServiceDeps) {
     const t = now();
     switch (cmd) {
       case "say": {
-        // `mux say --reply 12 "…"`: the message this answers. Anywhere before the text.
+        // `mux say --reply 12 "…"`: the message this answers. A flag only before
+        // the text, or before a `--` that ends the flags; nothing after it is one.
+        const end = args.indexOf("--");
         let words = args;
         let replyTo: number | undefined;
-        const flag = words.findIndex((w) => w === "--reply" || w.startsWith("--reply="));
+        const flag = words.findIndex((w, i) => (end < 0 || i < end) && (w === "--reply" || w.startsWith("--reply=")));
         if (flag >= 0) {
           const raw = words[flag]!.includes("=") ? words[flag]!.split("=")[1]! : words[flag + 1] ?? "";
           const id = Number(raw.replace(/^#/, ""));
@@ -522,6 +524,7 @@ export function createChatService(deps: ChatServiceDeps) {
           replyTo = id;
           words = words.filter((_, i) => i !== flag && (words[flag]!.includes("=") || i !== flag + 1));
         }
+        if (words[0] === "--") words = words.slice(1);
         // `mux say "@codex1" <<EOF` with the text opening on @codex1 too: one mention, not two.
         const text = unescapeNewlines(words.join(" ").trim()).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
         if (!text) return { ok: false, output: `NOT POSTED: nothing to say. Usage: mux say "<text>"` };

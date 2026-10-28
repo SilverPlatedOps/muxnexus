@@ -108,6 +108,9 @@ describe("the hook", () => {
     expect((await say(svc, "codex", "say", "--reply", "3", "@claude1 looks fine")).ok).toBe(true);
     expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ text: "@claude1 looks fine", replyTo: 3 });
     expect((await say(svc, "codex", "say", "--reply=#3", "again")).ok).toBe(true);
+    // The adapter's form: flags, then -- , then the text, which may itself hold "--reply".
+    expect((await say(svc, "codex", "say", "--reply", "3", "--", "use --reply 4 next time")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ text: "use --reply 4 next time", replyTo: 3 });
     expect((await say(svc, "codex", "say", "--reply", "99", "nope")).output).toStartWith("NOT POSTED: #99 isn't a message");
     expect((await say(svc, "codex", "say", "--reply", "x", "nope")).output).toStartWith("NOT POSTED: --reply takes a message id");
   });
