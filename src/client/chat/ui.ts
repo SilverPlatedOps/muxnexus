@@ -215,6 +215,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     setReplying(id);
     const m = chat.members.find((x) => x.handle === from && x.kind !== "user" && !x.left);
     if (m && !chips.includes(m.handle)) chips.push(m.handle);
+    // Saved with the link, so a reload brings back who it was for, not only what it answers.
+    remember(chat.id, { chips });
     paintCompose();
     input.focus();
   }
