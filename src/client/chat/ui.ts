@@ -423,7 +423,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
   input.addEventListener("input", () => { choice = 0; paintSuggest(); paintCompose(); autosize(); if (chat) remember(chat.id, { draft: input.value }); });
   input.addEventListener("keydown", (e) => {
-    // ⌘ shortcuts (⌘J, ⌘K, ⌘1…) still work from the message box; plain keys stay in it.
+    // ⌘ shortcuts (⌘J, ⌘K…) still work from the message box; plain keys stay in it.
     if (!e.metaKey) e.stopPropagation();
     if (!suggest.hidden && choices.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); choice = (choice + 1) % choices.length; paintSuggest(); return; }

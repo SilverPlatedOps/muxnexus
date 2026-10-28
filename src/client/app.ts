@@ -851,10 +851,6 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" && !wrapEl.hidden) {
     e.preventDefault();
     openFind();
-  } else if (e.key === "1" || e.key === "2") {
-    e.preventDefault();
-    if (onPhone()) setDrawer(true);
-    chatUI?.setTab(e.key === "1" ? "chats" : "workspaces");
   } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
     // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
     // ⌘J for itself -- it costs one clause and saves finding out the hard way.
