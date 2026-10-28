@@ -266,6 +266,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   /** Recipients picked as chips; the draft holds the rest. */
   let chips: string[] = [];
+  /** Images pasted into the unsent message: saved on the server, named in the message when it goes. */
+  let pasted: { name: string; path: string; url: string }[] = [];
+  let uploading = 0;
   /** The agent the box last pre-filled: taken off, it isn't put back for the same agent. */
   let offered: string | null = null;
   /** Tab folds the user opened, by chat and message, so a repaint keeps them open. */
@@ -446,6 +449,15 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       c.append(x);
       return c;
     }));
+    chipsEl.append(...pasted.map((p) => {
+      const t = el("span", "chat-thumb");
+      const img = document.createElement("img");
+      img.src = p.url; img.alt = "pasted image";
+      const x = btn("chat-chip-x", "✕", "Don't send this image");
+      x.onclick = () => { pasted = pasted.filter((y) => y !== p); paintCompose(); input.focus(); };
+      t.append(img, x);
+      return t;
+    }), ...(uploading ? [el("span", "chat-thumb-wait", "Uploading…")] : []));
     const text = [...chips.map((h) => `@${h}`), input.value].join(" ");
     const st = composerState(chat, input.value.trim() || chips.length ? text : "");
     // The chips say who hears it; the box speaks up only when nobody will.
@@ -455,16 +467,53 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   function send() {
     if (!chat) return;
-    const text = [...chips.map((h) => `@${h}`), input.value.trim()].filter(Boolean).join(" ").trim();
-    if (!input.value.trim()) return;
+    const typed = [...chips.map((h) => `@${h}`), input.value.trim()].filter(Boolean).join(" ").trim();
+    if (!input.value.trim() && !pasted.length) return;
+    if (uploading) { host.toast("Wait for the image to finish uploading"); return; }
+    // The path is what an agent opens; this chat shows it as the picture.
+    const text = [typed, ...pasted.map((p) => `![pasted image](<${p.path}>)`)].filter(Boolean).join("\n\n");
     host.send({ t: "chat-post", id: chat.id, text });
     input.value = "";
+    pasted = [];
     chips = [];
     offered = null;
     remember(chat.id, { draft: "", chips: [] });
     paintCompose();
     autosize();
   }
+
+  async function attach(files: File[]) {
+    const id = chat?.id;
+    if (!id) return;
+    for (const f of files) {
+      if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) { host.toast("Only png, jpeg, gif and webp images can be pasted"); continue; }
+      uploading++; paintCompose();
+      try {
+        const res = await fetch(`/api/chat/image/${id}`, { method: "POST", headers: { "content-type": f.type }, body: f });
+        const body = (await res.json().catch(() => null)) as { ok: boolean; name?: string; path?: string; url?: string; error?: string } | null;
+        if (res.ok && body?.ok && body.name && body.path && body.url) { if (chat?.id === id) pasted.push({ name: body.name, path: body.path, url: body.url }); }
+        else host.toast(body?.error ?? `Couldn't upload the image (${res.status})`);
+      } catch {
+        host.toast("Couldn't upload the image");
+      } finally {
+        uploading--; paintCompose();
+      }
+    }
+  }
+  const imagesIn = (dt: DataTransfer | null) => [...(dt?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+  input.addEventListener("paste", (e) => {
+    const files = imagesIn(e.clipboardData);
+    if (!files.length) return;
+    e.preventDefault();
+    void attach(files);
+  });
+  compose.addEventListener("dragover", (e) => { if (imagesIn(e.dataTransfer).length || [...(e.dataTransfer?.types ?? [])].includes("Files")) e.preventDefault(); });
+  compose.addEventListener("drop", (e) => {
+    const files = imagesIn(e.dataTransfer);
+    if (!files.length) return;
+    e.preventDefault();
+    void attach(files);
+  });
 
   function autosize() {
     input.style.height = "auto";
@@ -834,6 +883,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     setChat(c: Chat, a: Record<string, ChatMemberLive>) {
       if (c.id !== openId) return;
       const first = chat === null;
+      if (chat && chat.id !== c.id) pasted = [];
       chat = c;
       agents = a;
       if (first) {

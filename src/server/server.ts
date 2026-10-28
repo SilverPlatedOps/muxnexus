@@ -11,6 +11,7 @@ import { shellQuote, Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
 import { claudeAdapter, codexAdapter } from "./chat/adapters";
 import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
+import { createImageStore } from "./chat/images";
 import { createChatStore, isChatId } from "./chat/store";
 import type { DockerReader } from "./docker";
 import type { MemoryReader, MemoryReading } from "./memory";
@@ -477,6 +478,37 @@ export function createServer(opts: ServerOptions): RunningServer {
     void chatTick(true);
     void pushChats();
     return Response.json(r);
+  }
+
+  const images = opts.chatsDir ? createImageStore(opts.chatsDir) : null;
+
+  /**
+   * Pasted chat images: POST /api/chat/image/<chat> with the bytes, GET
+   * /api/chat/image/<chat>/<name>. A page of this server only: no other site
+   * may post one or learn that one exists.
+   */
+  async function chatImage(req: Request, url: URL): Promise<Response> {
+    if (!chat || !images) return new Response("Not found", { status: 404 });
+    if (!hostAllowed(req.headers.get("host"), allowedHosts)) return new Response("Forbidden: unrecognised Host", { status: 403 });
+    const site = req.headers.get("sec-fetch-site");
+    if (site !== null && site !== "same-origin" && site !== "none") return new Response("Forbidden: cross-site", { status: 403 });
+    const [, , , , id, name] = url.pathname.split("/");
+    if (!id || !isChatId(id) || !(await chat.view(id))) return new Response("No such chat", { status: 404 });
+    if (req.method === "POST" && !name) {
+      const origin = req.headers.get("origin");
+      if (origin !== null) {
+        try { if (new URL(origin).host !== req.headers.get("host")) return new Response("Forbidden: cross-origin", { status: 403 }); } catch { return new Response("Forbidden", { status: 403 }); }
+      }
+      const length = Number(req.headers.get("content-length") ?? 0);
+      if (length > 11 * 1024 * 1024) return Response.json({ ok: false, error: "That image is too large." }, { status: 413 });
+      const saved = await images.save(id, new Uint8Array(await req.arrayBuffer()));
+      return saved.ok ? Response.json({ ok: true, name: saved.name, path: saved.path, url: `/api/chat/image/${id}/${saved.name}` }) : Response.json({ ok: false, error: saved.error }, { status: saved.status });
+    }
+    if (req.method === "GET" && name) {
+      const got = await images.read(id, name);
+      return got ? new Response(got.bytes as unknown as BodyInit, { headers: { "content-type": got.type, "x-content-type-options": "nosniff", "cache-control": "private, max-age=31536000, immutable" } }) : new Response("Not found", { status: 404 });
+    }
+    return new Response("Method not allowed", { status: 405 });
   }
 
   let polling: Promise<void> | null = null;
@@ -1093,6 +1125,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         return linkedFile(url);
       }
       if (url.pathname === "/api/chat/hook") return chatHook(req, srv.requestIP(req));
+      if (url.pathname.startsWith("/api/chat/image/")) return chatImage(req, url);
       if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
         // policy, so any page open in the user's browser could otherwise

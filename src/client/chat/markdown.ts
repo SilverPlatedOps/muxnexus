@@ -69,6 +69,15 @@ export function markdownNodes(source: string, windowId?: string): MarkdownNode[]
       const href = chatLink(raw(n), windowId);
       return href ? [{ tag: "a", attrs: { href, target: "_blank", rel: "noopener noreferrer" }, children: [textNode(raw(n))] }] : [textNode(raw(n))];
     }
+    // A picture pasted into this chat is shown from the server's own file; any other image stays text.
+    if (n.name === "Image") {
+      const target = raw(n).match(/\]\(<?([^)>]+)>?\)\s*$/)?.[1];
+      const m = target ? /\/([0-9a-f-]{36})\/images\/(\d{13}-[0-9a-f]{8}\.(?:png|jpg|gif|webp))$/.exec(target) : null;
+      if (m) {
+        const src = `/api/chat/image/${m[1]}/${m[2]}`;
+        return [{ tag: "a", attrs: { href: src, target: "_blank", rel: "noopener noreferrer" }, children: [{ tag: "img", attrs: { src, alt: "pasted image", class: "chat-image", loading: "lazy" } }] }];
+      }
+    }
     // Images and HTML are text: remote images must never load as a side effect of a post.
     if (/^(?:Image|HTMLBlock|HTMLTag|Comment|ProcessingInstruction)$/.test(n.name)) return [textNode(raw(n))];
     if (n.name === "HorizontalRule") return [{ tag: "hr" }];

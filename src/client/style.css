@@ -1904,6 +1904,11 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; background: var(--chip); border-radius: 4px; font-size: 12px; line-height: 20px; }
 .chat-chip-x { border: 0; background: none; color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0 2px; }
 .chat-chip-x:hover { color: var(--fg); }
+.chat-thumb { position: relative; display: inline-flex; align-items: flex-start; background: var(--chip); border-radius: 4px; padding: 2px; }
+.chat-thumb img { display: block; max-height: 56px; max-width: 96px; border-radius: 3px; }
+.chat-thumb .chat-chip-x { position: absolute; top: 0; right: 0; background: var(--bg); border-radius: 0 3px 0 3px; }
+.chat-thumb-wait { font-size: 12px; color: var(--muted); line-height: 20px; }
+.chat-image { display: block; max-width: min(360px, 100%); max-height: 280px; border-radius: 4px; margin: 4px 0; }
 .chat-input { flex: 1 1 200px; min-width: 120px; resize: none; border: 0; outline: 0; background: none; color: var(--fg-strong); font: 12.5px/1.5 var(--mono); padding: 2px 0; max-height: 160px; }
 .chat-helper { flex: 0 0 100%; color: var(--muted); font-size: 11px; }
 .chat-helper:empty { display: none; }
