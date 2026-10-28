@@ -2228,3 +2228,8 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 @keyframes chat-hit { from { background: color-mix(in oklab, var(--accent) 28%, transparent); } to { background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .chat-message.chat-hit { animation: none; background: color-mix(in oklab, var(--accent) 16%, transparent); } }
 .chat-tab.similar > summary { opacity: .6; }
+/* Every working agent's switch is in view and says so: the row stays for screen readers only. */
+.chat-activity.quiet { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.chat-agent-state.working { display: inline-flex; align-items: center; gap: 5px; }
+.chat-agent-state .chat-activity-dots { height: 10px; gap: 2px; }
+.chat-agent-state .chat-activity-dots i { width: 3px; height: 3px; }

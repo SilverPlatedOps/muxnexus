@@ -33,7 +33,7 @@ import { createChatNotes } from "./notes";
 import { makeResizable } from "../resize";
 import { createChatContext } from "./context";
 import { chatRules } from "../../shared/chat-rules";
-import { createChatActivity } from "./activity";
+import { createChatActivity, workingDots } from "./activity";
 import { agentMark } from "./logos";
 
 /**
@@ -437,7 +437,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     return out;
   }
   agentBar.addEventListener("scroll", () => activity.update(chat, agents, switchesInView()), { passive: true });
-  window.addEventListener("resize", () => activity.update(chat, agents, switchesInView()));
+  // Dragging the dock changes what the bar shows without the window resizing.
+  new ResizeObserver(() => activity.update(chat, agents, switchesInView())).observe(agentBar);
 
   function paintChat() {
     context.update(chat);
@@ -492,7 +493,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       const b = btn(`chat-agent-switch${selected ? " selected" : ""}`, "", `Open ${m.handle} terminal · ${credits || state}`);
       b.setAttribute("aria-pressed", String(selected));
       b.dataset.handle = m.handle;
-      b.append(agentMark(m.kind, m.shape), el("span", "chat-agent-handle", m.handle), el("span", `chat-agent-state${credits ? " limited" : live?.state === "input" ? " needs-you" : live?.state === "running" ? " working" : ""}`, state));
+      const stateEl = el("span", `chat-agent-state${credits ? " limited" : live?.state === "input" ? " needs-you" : live?.state === "running" ? " working" : ""}`, state);
+      if (!credits && live?.state === "running") stateEl.prepend(workingDots());
+      b.append(agentMark(m.kind, m.shape), el("span", "chat-agent-handle", m.handle), stateEl);
       b.disabled = !canOpen(m, live);
       if (b.disabled) b.title = memberStatus(chat, m, live).text;
       b.onclick = () => openSide(m.handle);
