@@ -514,8 +514,9 @@ export function createChatService(deps: ChatServiceDeps) {
       case "say": {
         // `mux say --reply 12 "…"`: the message this answers. A flag only before
         // the text, or before a `--` that ends the flags; nothing after it is one.
-        const end = args.indexOf("--");
-        let words = args;
+        // Its own `--`, read once here: the generic strip would let text after it pass as a flag.
+        const end = rest.indexOf("--");
+        let words = rest;
         let replyTo: number | undefined;
         const flag = words.findIndex((w, i) => (end < 0 || i < end) && (w === "--reply" || w.startsWith("--reply=")));
         if (flag >= 0) {
