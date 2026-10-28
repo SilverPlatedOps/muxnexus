@@ -1,0 +1,25 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install terminal dependencies
+        run: brew list tmux >/dev/null 2>&1 || brew install tmux
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun build src/client/index.html --outdir "$RUNNER_TEMP/muxnexus-client"
+      - run: bun test

@@ -450,7 +450,7 @@ describe("summaryWindow", () => {
     expect(summaryWindow([
       { kind: "session", percent: 100, severity: "exceeded", resetsAt: "2026-10-23T12:00:00Z" },
       { kind: "weekly_all", percent: 100, severity: "exceeded", resetsAt: "2026-10-26T08:00:00Z" },
-    ])?.kind).toBe("weekly_all");
+    ], Date.parse("2026-10-23T10:00:00Z"))?.kind).toBe("weekly_all");
   });
 
   test("a limit whose reset time has passed no longer speaks, though the reading still says 100%", () => {
