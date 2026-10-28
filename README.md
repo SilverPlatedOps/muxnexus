@@ -67,6 +67,9 @@ add it; this does, for every Claude profile it finds (`~/.claude`,
 python3 scripts/install-agent-hook.py
 ```
 
+Agents can optionally use typed MCP chat tools instead of shell commands. See
+[Typed chat tools](docs/chat-tools.md) for per-pane setup, schemas and rollout.
+
 It adds entries to each profile's `settings.json`, and to Codex's `hooks.json`,
 and backs each file up before changing it; running it again changes nothing.
 Codex runs a new hook only once you trust it, so open `codex` afterwards and
