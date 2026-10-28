@@ -128,6 +128,11 @@ describe("the conversation", () => {
     expect(messageRows(c).filter((r) => r.kind === "msg").map((r) => r.turnStart)).toEqual([true, false, true]);
   });
 
+  test("automated notices are room status, never drawn as the human", () => {
+    const c = chat();
+    const m = post(c, "user", "round ended", T, { auto: true });
+    expect(messageRows(c).find((r) => r.id === m.id)).toMatchObject({ kind: "system", me: false });
+  });
   test("the room's own lines are system rows", () => {
     const c = chat();
     leave(c, "codex1", T);

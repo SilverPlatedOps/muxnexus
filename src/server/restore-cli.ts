@@ -21,7 +21,8 @@ const short = (p: string) => {
 
 function describe(step: RestoreStep): string {
   const name = step.window.windowName ? `${step.window.windowName} -- ` : "";
-  const what = step.resume ? `claude --resume (${short(step.resume.configDir ?? join(homedir(), ".claude"))})` : "shell";
+  const what = step.codex ? `codex resume (${short(step.codex.home ?? join(homedir(), ".codex"))})`
+    : step.resume ? `claude --resume (${short(step.resume.configDir ?? join(homedir(), ".claude"))})` : "shell";
   return `  ${step.window.index}: ${name}${what} in ${short(step.cwd)}${step.window.note ? "  [note]" : ""}`;
 }
 
@@ -91,7 +92,7 @@ async function cmdRestore(tmux: Tmux, dir: string, dryRun: boolean, start: boole
   const steps = dryRun ? await planRestore(tmux, snap) : await applyRestore(tmux, snap, { start });
   printPlan(steps);
   if (!dryRun && steps.length) console.log(`\nrestored ${steps.length} windows`);
-  if (!start && steps.some((s) => s.resume)) {
+  if (!start && steps.some((s) => s.resume || s.codex)) {
     console.log(`${dryRun ? "each resume would be" : "each resume is"} typed but not run: press Enter in the tabs you want back`);
   }
   return 0;

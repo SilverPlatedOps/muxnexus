@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyRestore, createSnapshotter, liveFrom, type Live, PANE_FIELDS, parsePanes, parseRestoreArgs, pendingRestore,
@@ -14,6 +14,73 @@ import { sleep, waitFor } from "./helpers";
 function row(values: Partial<Record<string, string>>): string {
   return PANE_FIELDS.map((f) => values[f] ?? "").join("\x1f");
 }
+
+describe("Codex windows", () => {
+  const CODEX = (id: string, over: Partial<SnapWindow> = {}) =>
+    SNAP({ command: "codex", thread: { id, path: `${HOME}/.codex/sessions/2026/10/rollout-${id}.jsonl` }, ...over });
+
+  test("parsePanes reads the thread a Codex hook stamped", () => {
+    const out = row({ session_name: "s", window_id: "@1", window_index: "0", pane_index: "0", pane_current_command: "codex", "@muxnexus_thread": "th-1 /h/.codex/sessions/r.jsonl" });
+    expect(parsePanes(out)[0]!.thread).toEqual({ id: "th-1", path: "/h/.codex/sessions/r.jsonl" });
+    expect(parsePanes(row({ session_name: "s", window_id: "@2", window_index: "0", pane_index: "0" }))[0]!.thread).toBeUndefined();
+  });
+
+  test("a window still running codex resumes its thread, not a Claude conversation", () => {
+    const [step] = plan([CODEX("th-1")]);
+    expect(step!.codex).toMatchObject({ thread: "th-1", home: null });
+    expect(step!.resume).toBeUndefined();
+  });
+
+  test("a thread under another CODEX_HOME is resumed there", () => {
+    const [step] = plan([CODEX("th-2", { thread: { id: "th-2", path: `${HOME}/.codex-work/sessions/2026/r.jsonl` } })]);
+    expect(step!.codex).toMatchObject({ thread: "th-2", home: `${HOME}/.codex-work` });
+  });
+
+  test("a codex window back at its shell stays quit, and a thread already live is not started twice", () => {
+    expect(plan([CODEX("th-1", { command: "zsh" })])[0]!.codex).toBeUndefined();
+    expect(plan([CODEX("th-1")], { conversations: ["th-1"] })).toEqual([]);
+  });
+
+  test("a typed Codex resume that never ran survives a second reboot, even at a shell", () => {
+    const w = SNAP({ command: "zsh", pendingThread: { id: "th-9", path: `${HOME}/.codex-work/sessions/r.jsonl` } });
+    expect(plan([w])[0]!.codex).toEqual({ thread: "th-9", home: `${HOME}/.codex-work`, path: `${HOME}/.codex-work/sessions/r.jsonl` });
+    expect(liveFrom([w]).conversations.has("th-9")).toBe(true);
+    expect(plan([w], { conversations: ["th-9"] })).toEqual([]);
+  });
+
+  test("parsePanes reads the pending thread", () => {
+    const out = row({ session_name: "s", window_id: "@1", window_index: "0", pane_index: "0", "@muxnexus_pending_thread": "th-9 /h/.codex/sessions/r.jsonl" });
+    expect(parsePanes(out)[0]!.pendingThread).toEqual({ id: "th-9", path: "/h/.codex/sessions/r.jsonl" });
+  });
+
+  test("a pane that went Claude to Codex resumes the Codex thread, not the stale Claude stamp", () => {
+    const w = CODEX("th-1", { ...AGENT("old-claude"), command: "codex", agent: `running 1790000000 777 ${HOME}/.codex` });
+    const [step] = plan([w]);
+    expect(step!.codex).toMatchObject({ thread: "th-1" });
+    expect(step!.resume).toBeUndefined();
+  });
+
+  test("a pane that went Codex to Claude resumes the Claude conversation", () => {
+    const w = SNAP({ ...AGENT("abc"), thread: { id: "th-old", path: `${HOME}/.codex/sessions/r.jsonl` }, agent: `running 1790000000 4242 ${HOME}/.claude` });
+    const [step] = plan([w]);
+    expect(step!.resume?.transcript).toContain("abc.jsonl");
+    expect(step!.codex).toBeUndefined();
+  });
+
+  test("with both stamps and a shell, the last stamp's config directory decides", () => {
+    const base = { ...AGENT("old-claude"), thread: { id: "th-1", path: `${HOME}/.codex/sessions/r.jsonl` }, command: "zsh" };
+    expect(plan([SNAP({ ...base, agent: `done 1 7 ${HOME}/.codex` })])[0]!.codex).toBeUndefined();
+    expect(plan([SNAP({ ...base, agent: `done 1 7 ${HOME}/.claude` })])[0]!.resume).toBeUndefined();
+  });
+
+  test("liveFrom counts a running thread as held", () => {
+    expect(liveFrom([CODEX("th-1")]).conversations.has("th-1")).toBe(true);
+  });
+
+  test("a snapshot from before threads were recorded still plans (no codex step)", () => {
+    expect(plan([SNAP({ command: "codex" })])[0]!.codex).toBeUndefined();
+  });
+});
 
 describe("parsePanes", () => {
   test("records a window's session, directory, name and conversation", () => {
@@ -362,6 +429,59 @@ describe("applyRestore", () => {
     expect(again.windows[0].pending).toEqual({ sessionId: "abc", transcriptPath: transcript });
     const replanned = restorePlan(again.windows, { sessions: new Set(), conversations: new Set() }, { home: HOME, exists: () => true });
     expect(replanned[0].resume?.transcript).toBe(transcript);
+  });
+
+  test("with start: false, a Codex resume is typed with the default home unset, and a second snapshot keeps its thread", async () => {
+    const rollout = join(dir, ".codex", "sessions", "2026", "r.jsonl");
+    const snap: Snapshot = {
+      stamp: "100-2", taken: "2026-10-01T00:00:00Z",
+      windows: [SNAP({ cwd: dir, command: "codex", thread: { id: "th-7", path: rollout } })],
+    };
+
+    // Not under this test's HOME, so its home reads as another one: the typed line sets it.
+    await applyRestore(tmux, snap, { start: false });
+    const screen = await waitFor(async () => {
+      const s = await tmux.run(["capture-pane", "-p", "-J", "-t", "=work:0"]);
+      return s.includes("resume") ? s : null;
+    }, 3000, "the typed Codex resume");
+    expect(screen).toContain("resume 'th-7'");
+    expect(screen).toContain("--no-daemon");
+    const again = (await takeSnapshot(tmux, dir))!;
+    expect(again.windows[0].pendingThread).toEqual({ id: "th-7", path: rollout });
+    const replanned = restorePlan(again.windows, { sessions: new Set(), conversations: new Set() }, { home: HOME, exists: () => true });
+    expect(replanned[0].codex?.thread).toBe("th-7");
+  });
+
+  test("the typed Codex resume actually runs: default home unset, other home set", async () => {
+    const bin = join(dir, "bin");
+    await Bun.write(join(bin, "codex"), '#!/bin/sh\necho "ARGS:$*"\necho "HOME:${CODEX_HOME-unset}"\n');
+    await Bun.$`chmod +x ${join(bin, "codex")}`;
+    // A shell that already has an account's CODEX_HOME (a server must exist to hold it); a fake codex, never the real one.
+    await tmux.newSession("keep");
+    await tmux.run(["set-environment", "-g", "CODEX_HOME", "/inherited"]);
+    for (const [name, path, want] of [["a", `${homedir()}/.codex/sessions/r.jsonl`, "HOME:unset"], ["b", `${dir}/.codex-work/sessions/r.jsonl`, `HOME:${dir}/.codex-work`]] as const) {
+      const snap: Snapshot = { stamp: `100-${name}`, taken: "2026-10-01T00:00:00Z", windows: [SNAP({ session: `s-${name}`, cwd: dir, command: "codex", thread: { id: `th-${name}`, path } })] };
+      await applyRestore(tmux, snap, { codexBin: join(bin, "codex") });
+      const screen = await waitFor(async () => {
+        const s = await tmux.run(["capture-pane", "-p", "-J", "-t", `=s-${name}:0`]);
+        return s.includes("HOME:") && s.split("\n").some((l) => l.startsWith("HOME:")) ? s : null;
+      }, 4000, "the fake codex output").catch(async (e) => { throw new Error(`${e.message}\n${await tmux.run(["capture-pane", "-p", "-J", "-t", `=s-${name}:0`])}`); });
+      expect(screen).toContain(`ARGS:--no-daemon -c tui.alternate_screen="never" resume th-${name}`);
+      expect(screen.split("\n")).toContain(want);
+    }
+  });
+
+  test("a default-home Codex resume unsets CODEX_HOME", async () => {
+    const snap: Snapshot = {
+      stamp: "100-3", taken: "2026-10-01T00:00:00Z",
+      windows: [SNAP({ cwd: dir, command: "codex", thread: { id: "th-8", path: `${homedir()}/.codex/sessions/r.jsonl` } })],
+    };
+    await applyRestore(tmux, snap, { start: false });
+    const screen = await waitFor(async () => {
+      const s = await tmux.run(["capture-pane", "-p", "-J", "-t", "=work:0"]);
+      return s.includes("resume") ? s : null;
+    }, 3000, "the typed Codex resume");
+    expect(screen).toContain("env -u CODEX_HOME codex --no-daemon");
   });
 });
 

@@ -65,10 +65,36 @@ export interface Row {
   turnStart: boolean;
   at: string;
   /** What the agent said in its own tab that turn, folded under the line. */
-  tab: { text: string; lines: number } | null;
+  tab: { text: string; lines: number; similar?: true } | null;
+  /** The message this one answers, as its quote shows it. */
+  replyTo?: { id: number; from: string; text: string };
 }
 
-const tabOf = (text: string | undefined) => (text ? { text, lines: text.split("\n").length } : null);
+const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9_]{4,}/g) ?? []);
+/**
+ * What the agent said in its tab. One that looks like a restatement (most of
+ * its words are in the post, and it is no longer) is marked `similar` and
+ * drawn quietly, never hidden: shared words don't mean the same thing, and a
+ * "not" changes everything.
+ */
+export function tabOf(text: string | undefined, post = ""): { text: string; lines: number; similar?: true } | null {
+  if (!text) return null;
+  const tab = { text, lines: text.split("\n").length };
+  const mine = words(text);
+  if (!post || !mine.size || text.length > post.length * 1.2) return tab;
+  const said = words(post);
+  let shared = 0;
+  for (const w of mine) if (said.has(w)) shared++;
+  return shared / mine.size >= 0.6 ? { ...tab, similar: true } : tab;
+}
+
+/** The start of a replied-to message, on one line; a parent gone from the chat still shows its number. */
+export function replyQuote(chat: Pick<Chat, "messages">, id: number): { id: number; from: string; text: string } {
+  const p = chat.messages.find((m) => m.id === id);
+  // Markdown's marks read as noise in a one-line quote.
+  const flat = p ? p.text.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim() : "";
+  return { id, from: p?.from ?? "", text: p ? (flat.length > 120 ? `${flat.slice(0, 119)}…` : flat) : "(no longer in the chat)" };
+}
 
 function exception(handle: string, state: string, reason?: string): string | null {
   if (state === "failed" && reason?.startsWith("not confirmed: ")) return `✕ not confirmed for ${handle} · ${reason.slice("not confirmed: ".length)}`;
@@ -83,7 +109,7 @@ export function messageRows(chat: Chat): Row[] {
   let last: string | null = null;
   for (const m of chat.messages) {
     const member = chat.members.find((x) => x.handle === m.from);
-    if (m.system) {
+    if (m.system || m.auto) {
       rows.push({ id: m.id, kind: "system", from: m.from, shape: "·", colour: null, me: false, text: m.text, parts: [{ text: m.text }], tick: null, exceptions: [], turnStart: false, at: m.at, tab: tabOf(m.tabText) });
       continue;
     }
@@ -103,7 +129,8 @@ export function messageRows(chat: Chat): Row[] {
       exceptions: ds.flatMap(([h, d]) => exception(h, d.state, d.reason) ?? []),
       turnStart: m.from !== last,
       at: m.at,
-      tab: tabOf(m.tabText),
+      tab: tabOf(m.tabText, m.text),
+      ...(m.replyTo !== undefined ? { replyTo: replyQuote(chat, m.replyTo) } : {}),
     });
     last = m.from;
   }
@@ -143,13 +170,18 @@ export function heldCount(chat: Chat): number {
 const KIND: Record<string, string> = { claude: "Claude", codex: "Codex" };
 const STATE: Record<string, string> = { running: "working", input: "waiting on you", done: "idle" };
 
+/** An agent stopped by its account's usage limit, as its status reads. */
+export function creditsText(limit: { until: string }): string {
+  return `out of credits${limit.until ? ` until ${limit.until}` : ""}`;
+}
+
 export function mentionChoices(chat: Chat, agents: Record<string, ChatMemberLive>, query: string): { handle: string; meta: string }[] {
   const q = query.toLowerCase();
   return chat.members
     .filter((m) => m.kind !== "user" && !m.left && m.handle.toLowerCase().startsWith(q))
     .map((m) => {
       const live = agents[m.handle];
-      const state = live?.online === false ? "offline" : STATE[live?.state ?? ""] ?? "idle";
+      const state = live?.online === false ? "offline" : live?.limit ? creditsText(live.limit) : STATE[live?.state ?? ""] ?? "idle";
       return { handle: m.handle, meta: [KIND[m.kind], live?.session ?? m.session, m.role, state].filter(Boolean).join(" · ") };
     });
 }
@@ -191,6 +223,7 @@ export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | u
     }
     return { text: `${live?.replaced ? "another agent runs in its tab" : "offline"} · ${waiting} waiting`, fix: "reconnect" };
   }
+  if (live.limit) return { text: creditsText(live.limit), fix: "open", alarm: true };
   if (live.state === "input") return { text: "needs attention", fix: "open", alarm: true };
   return { text: STATE[live.state ?? ""] ?? "idle" };
 }

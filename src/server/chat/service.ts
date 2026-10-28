@@ -1,15 +1,18 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentKind, Chat, ChatMember, ChatMessage, ChatSummary } from "../../shared/chat";
+import { CHAT_RULES_VERSION } from "../../shared/chat-rules";
+import { CHAT_MODES, MAX_NOTES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatMode, type ChatNotes, type ChatSummary } from "../../shared/chat";
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
+import { usageLimit, type UsageLimit } from "./limits";
+import { searchChats } from "./search";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
-import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, setCap, stop, summary } from "./model";
+import { addMember, replyTarget, discardHeld, leave, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
 import type { ChatStore } from "./store";
-import { deliveryText, readText, whoText } from "./text";
+import { packetText, packetReceiptTag, joinMessage, handoffText, readText, unescapeNewlines, whoText } from "./text";
 import { said as saidIn, type Said, type Where } from "./turns";
 
 /**
@@ -32,10 +35,12 @@ export interface HookRequest {
   sessionId?: string;
   cwd?: string;
   argv: string[];
+  /** The text comes from a typed tool call, not a shell line: a literal `\n` in it stays as written. */
+  literalText?: boolean;
 }
 
 /** The browser's chat messages that change a chat. */
-export type ChatClientMessage = Exclude<Extract<ClientMessage, { t: `chat-${string}` }>, { t: "chat-open" }>;
+export type ChatClientMessage = Exclude<Extract<ClientMessage, { t: `chat-${string}` }>, { t: "chat-open" | "chat-search" }>;
 export type SpawnRequest = ChatSpawn;
 export type MemberLive = ChatMemberLive;
 
@@ -56,13 +61,18 @@ export function parseChatMessage(m: { t: string } & Record<string, unknown>): Ch
     switch (m.t) {
       case "chat-create": return (m.name === undefined || str(m.name)) && joins(m.members) && spawns(m.spawn);
       case "chat-add": return str(m.id) && joins(m.members) && spawns(m.spawn);
-      case "chat-post": return str(m.id) && str(m.text);
+      case "chat-post": return str(m.id) && str(m.text) && (m.replyTo === undefined || (Number.isSafeInteger(m.replyTo) && (m.replyTo as number) > 0));
       case "chat-remove": return str(m.id) && str(m.handle);
       case "chat-role": return str(m.id) && str(m.handle) && str(m.role);
       case "chat-settings": return str(m.id) && (m.name === undefined || str(m.name)) && (m.cap === undefined || typeof m.cap === "number");
       case "chat-archive": return str(m.id) && typeof m.archived === "boolean";
       case "chat-delete": return str(m.id) && typeof m.closeTabs === "boolean";
       case "chat-discard-held": return str(m.id);
+      case "chat-mode": return str(m.id) && (m.mode === null || CHAT_MODES.includes(m.mode as ChatMode));
+      case "chat-brief": return str(m.id) && str(m.text) && (m.expectRev === undefined || (Number.isSafeInteger(m.expectRev) && (m.expectRev as number) >= 0));
+      case "chat-notes": return str(m.id) && str(m.text) && Number.isSafeInteger(m.rev) && (m.rev as number) >= 0 && str(m.req) && (m.req as string).length <= 64;
+      case "chat-handoff": return str(m.id) && Array.isArray(m.to) && m.to.every(str) && str(m.question) && str(m.excerpt) && str(m.label) && (m.repo === undefined || str(m.repo)) && (m.revision === undefined || str(m.revision));
+      case "chat-round": return str(m.id) && (m.action === "start" || m.action === "end") && (m.topic === undefined || str(m.topic));
       case "chat-reconnect": return str(m.id) && str(m.handle) && (m.windowId === undefined || str(m.windowId));
       default: return false;
     }
@@ -76,6 +86,7 @@ export function parseHookRequest(v: unknown): HookRequest | null {
   if (!r || (r.agent !== "claude" && r.agent !== "codex") || !str(r.pane)) return null;
   if (!Array.isArray(r.argv) || !r.argv.every(str)) return null;
   if ((r.sessionId !== undefined && !str(r.sessionId)) || (r.cwd !== undefined && !str(r.cwd))) return null;
+  if (r.literalText !== undefined && typeof r.literalText !== "boolean") return null;
   return r as unknown as HookRequest;
 }
 
@@ -103,7 +114,7 @@ export interface ChatServiceDeps {
   home?: string;
 }
 
-type Result = { ok: true; chatId?: string; notice?: string } | { ok: false; error: string };
+type Result = { ok: true; chatId?: string; notice?: string; notes?: ChatNotes } | { ok: false; error: string; notes?: ChatNotes; conflict?: true };
 
 /** A spawned agent whose tab never stamped within this long is reported as not started. */
 const SPAWN_TIMEOUT_MS = 90_000;
@@ -117,6 +128,8 @@ const GONE_MS = 30_000;
 const TURN_MS = 30 * 60_000;
 /** The longest chat line: a delivery is one argument to `codex queue`, and a review fits well inside. */
 export const MAX_TEXT = 32_000;
+/** The longest brief: it rides on a wake whenever it changes, so it stays short. */
+export const MAX_BRIEF = 4_000;
 const tooLong = (n: number) => `too long: ${n.toLocaleString("en-US")} characters, and a chat line holds ${MAX_TEXT.toLocaleString("en-US")}. Put it in a file and point to it.`;
 
 export function isLoopback(address: string | undefined | null): boolean {
@@ -147,11 +160,26 @@ export function createChatService(deps: ChatServiceDeps) {
   const reachable = (m: ChatMember, info: WindowAgentInfo | null | undefined) =>
     sameAgent(m, info) && !info.daemon && (info.fresh === true || (info.pid !== undefined && alive(info.pid)));
   const idOf = (info: WindowAgentInfo) => info.conversation?.sessionId ?? info.thread?.id;
+  /** A Codex member whose last turn ended on the usage limit, while that limit still holds. */
+  const limitOf = async (m: ChatMember, info: WindowAgentInfo | null | undefined): Promise<UsageLimit | null> => {
+    if (m.kind !== "codex" || !sameAgent(m, info) || !info.thread?.path) return null;
+    const l = await usageLimit(info.thread.path);
+    return l && (l.untilMs === undefined || l.untilMs > Date.parse(now())) ? l : null;
+  };
   const chats = new Map<string, Chat>();
   let loaded: Promise<void> | null = null;
   const ready = () => (loaded ??= deps.store.list().then((list) => { for (const c of list) chats.set(c.id, c); }));
   // A chat deleted while a tick or hook still held it stays deleted.
-  const save = (chat: Chat) => (chats.get(chat.id) === chat ? deps.store.save(chat) : Promise.resolve());
+  /** A notes write on its way to disk, per chat: the next waits for it, so a revision is never handed out twice. */
+  const notesSaving = new Map<string, Promise<unknown>>();
+  // Any other save of the chat waits for a notes write, then takes the chat as
+  // it stands: with the notes if they were written, without if they weren't.
+  // Either way the disk never holds notes the user was told failed.
+  const save = (chat: Chat): Promise<void> => {
+    const go = () => (chats.get(chat.id) === chat ? deps.store.save(chat) : Promise.resolve());
+    const notes = notesSaving.get(chat.id);
+    return notes ? notes.then(go) : go();
+  };
 
   const live = (m: ChatMember, states: Map<string, WindowLive>) => (m.windowId ? states.get(m.windowId) : undefined);
 
@@ -321,7 +349,11 @@ export function createChatService(deps: ChatServiceDeps) {
         const text = m.text.trim();
         if (!text) return { ok: false, error: "Nothing to send." };
         if (text.length > MAX_TEXT) return { ok: false, error: `That's ${tooLong(text.length)}` };
-        post(chat, "user", text, now());
+        if (m.replyTo !== undefined) {
+          const bad = replyTarget(chat, m.replyTo, "user");
+          if (bad) return { ok: false, error: bad };
+        }
+        post(chat, "user", text, now(), m.replyTo !== undefined ? { replyTo: m.replyTo } : {});
         break;
       }
       case "chat-add": {
@@ -364,6 +396,64 @@ export function createChatService(deps: ChatServiceDeps) {
         return m.closeTabs ? { ok: true, notice: await shutDown(chat) } : { ok: true };
       case "chat-discard-held":
         discardHeld(chat, now());
+        break;
+      case "chat-mode":
+        setMode(chat, m.mode ?? undefined, now());
+        break;
+      case "chat-notes": {
+        while (notesSaving.has(chat.id)) await notesSaving.get(chat.id);
+        if (chats.get(chat.id) !== chat) return { ok: false, error: "No such chat." };
+        const current = chat.notes ?? { text: "", rev: 0, updatedAt: "" };
+        if (m.text.length > MAX_NOTES) return { ok: false, error: `The notes are ${m.text.length.toLocaleString("en-US")} characters; they hold ${MAX_NOTES.toLocaleString("en-US")}.`, notes: current };
+        if (m.rev !== current.rev) return { ok: false, conflict: true, error: "These notes changed in another window.", notes: current };
+        // The same words again (a retry, a blur) are no new revision.
+        if (m.text === current.text) return { ok: true, chatId: chat.id, notes: current };
+        // Written as a copy first: the chat, its view and search take the new
+        // notes only once they are on disk.
+        const next = { text: m.text, rev: current.rev + 1, updatedAt: now() };
+        const writing = deps.store.save({ ...chat, notes: next });
+        const settled = writing.then(() => { if (chats.get(chat.id) === chat) chat.notes = next; }, () => {});
+        notesSaving.set(chat.id, settled);
+        try {
+          await writing;
+          await settled;
+          // Deleted while it was written: nothing was kept, so nothing is called saved.
+          if (chats.get(chat.id) !== chat) return { ok: false, error: "No such chat." };
+        } catch (e) {
+          return { ok: false, error: `Couldn't save the notes: ${e instanceof Error ? e.message : String(e)}`, notes: current };
+        } finally {
+          if (notesSaving.get(chat.id) === settled) notesSaving.delete(chat.id);
+        }
+        return { ok: true, chatId: chat.id, notes: next };
+      }
+      case "chat-brief":
+        // A brief edited from a stale copy is turned back, not written over the newer one.
+        if (m.expectRev !== undefined && m.expectRev !== (chat.brief?.rev ?? 0)) return { ok: false, error: "The brief changed in another window. Reopen it to see the current one." };
+        if (m.text.length > MAX_BRIEF) return { ok: false, error: `The brief is ${m.text.length.toLocaleString("en-US")} characters; keep it under ${MAX_BRIEF.toLocaleString("en-US")}, and point to a file for more.` };
+        setBrief(chat, m.text, now());
+        break;
+      case "chat-handoff": {
+        const live = new Set(chat.members.filter((x) => x.kind !== "user" && !x.left).map((x) => x.handle));
+        const to = [...new Set(m.to)];
+        if (to.length === 0 || to.some((h) => !live.has(h))) return { ok: false, error: "Pick agents that are still in the chat." };
+        if (!m.question.trim() || !m.excerpt.trim()) return { ok: false, error: "A handoff needs a question and an excerpt." };
+        // A participant in an open blind round isn't handed another's answer: it would anchor it.
+        if (chat.round?.state === "open" && to.some((h) => chat.round!.participants.includes(h))) return { ok: false, error: "A blind round is open: end it before handing an excerpt to a participant." };
+        const label = m.label.trim() || "excerpt";
+        const source = { label, ...(m.repo?.trim() ? { repo: m.repo.trim() } : {}), ...(m.revision?.trim() ? { revision: m.revision.trim() } : {}) };
+        const text = handoffText(to, m.question, m.excerpt, source);
+        if (text.length > MAX_TEXT) return { ok: false, error: `That's ${tooLong(text.length)}` };
+        // Named by the user, not read out of the excerpt: an `@Override` in a diff wakes nobody.
+        post(chat, "user", text, now(), { handoff: source, to });
+        break;
+      }
+      case "chat-round":
+        if (m.action === "end") {
+          if (!reveal(chat, now())) return { ok: false, error: "No round is open." };
+        } else {
+          const err = startRound(chat, (m.topic ?? "").trim() || "what is going on here", now());
+          if (err) return { ok: false, error: err };
+        }
         break;
       case "chat-reconnect": {
         // Only the member's own conversation, in an agent of its kind, in a tab
@@ -422,10 +512,28 @@ export function createChatService(deps: ChatServiceDeps) {
     const t = now();
     switch (cmd) {
       case "say": {
-        const text = args.join(" ").trim();
+        // `mux say --reply 12 "…"`: the message this answers. A flag only before
+        // the text, or before a `--` that ends the flags; nothing after it is one.
+        // Its own `--`, read once here: the generic strip would let text after it pass as a flag.
+        const end = rest.indexOf("--");
+        let words = rest;
+        let replyTo: number | undefined;
+        const flag = words.findIndex((w, i) => (end < 0 || i < end) && (w === "--reply" || w.startsWith("--reply=")));
+        if (flag >= 0) {
+          const raw = words[flag]!.includes("=") ? words[flag]!.split("=")[1]! : words[flag + 1] ?? "";
+          const id = Number(raw.replace(/^#/, ""));
+          if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, output: `NOT POSTED: --reply takes a message id, like --reply 12. Usage: mux say --reply <id> "<text>"` };
+          const bad = replyTarget(chat, id, member.handle);
+          if (bad) return { ok: false, output: `NOT POSTED: ${bad} See mux read.` };
+          replyTo = id;
+          words = words.filter((_, i) => i !== flag && (words[flag]!.includes("=") || i !== flag + 1));
+        }
+        if (words[0] === "--") words = words.slice(1);
+        // `mux say "@codex1" <<EOF` with the text opening on @codex1 too: one mention, not two.
+        const text = (req.literalText ? words.join(" ").trim() : unescapeNewlines(words.join(" ").trim())).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
         if (!text) return { ok: false, output: `NOT POSTED: nothing to say. Usage: mux say "<text>"` };
         if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
-        const msg = post(chat, member.handle, text, t);
+        const msg = post(chat, member.handle, text, t, replyTo !== undefined ? { replyTo } : {});
         delete member.awaiting;
         delete member.sawRunning;
         delete member.wake;
@@ -443,10 +551,44 @@ export function createChatService(deps: ChatServiceDeps) {
         const where = mine.length > 1 ? `posted to "${chat.name}" as #${msg.id}` : `posted as #${msg.id}`;
         return { ok: true, output: [where, ...notes].join(" · ") };
       }
-      case "read": {
-        const n = Number(args[0] ?? 20);
-        return { ok: true, output: readText(chat, Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 20) };
+      case "submit": {
+        const round = chat.round;
+        if (round?.state !== "open") return { ok: false, output: "NOT POSTED: no round is open. Use mux say." };
+        if (!round.participants.includes(member.handle)) return { ok: false, output: "NOT POSTED: you weren't asked in this round. Use mux say." };
+        const usage = `mux submit --chat ${chat.id} ${round.id} "<your hypothesis and evidence>"`;
+        if (args[0] !== round.id) return { ok: false, output: `NOT POSTED: the open round is ${round.id}. Usage: ${usage}` };
+        const raw = args.slice(1).join(" ").trim();
+        const text = req.literalText ? raw : unescapeNewlines(raw);
+        if (!text) return { ok: false, output: `NOT POSTED: nothing to submit. Usage: ${usage}` };
+        if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
+        const msg = post(chat, member.handle, text, t, { submit: true });
+        delete member.awaiting;
+        delete member.sawRunning;
+        delete member.wake;
+        const path = info ? transcriptOf(info) : undefined;
+        if (path) (member.turns ??= []).push({ msgId: msg.id, path, at: await sizeOf(path), since: t });
+        await save(chat);
+        const left = round.state === "open" ? round.participants.filter((h) => !round.submitted.includes(h)) : [];
+        return { ok: true, output: left.length ? `submitted as #${msg.id}; held until ${left.map((h) => `@${h}`).join(" ")} submit${left.length === 1 ? "s" : ""} or @user ends the round` : `submitted as #${msg.id}; the round is revealed` };
       }
+      case "read": {
+        let n = 20;
+        const range: { since?: number; before?: number; human?: boolean } = {};
+        let count = false;
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i]!;
+          if (arg === "--human") range.human = true;
+          else if (arg === "--since" || arg === "--before") {
+            const v = args[++i];
+            if (v === undefined || !/^\d+$/.test(v) || !Number.isSafeInteger(Number(v))) return { ok: false, output: "Usage: mux read [n] [--since ID] [--before ID] [--human]" };
+            range[arg === "--since" ? "since" : "before"] = Number(v);
+          } else if (!count && /^\d+$/.test(arg) && Number(arg) > 0 && Number.isSafeInteger(Number(arg))) {
+            n = Math.min(Number(arg), 200); count = true;
+          } else return { ok: false, output: "Usage: mux read [n] [--since ID] [--before ID] [--human]" };
+        }
+        return { ok: true, output: readText(chat, n, member.handle, range) };
+      }
+      case "rules": return { ok: true, output: [joinMessage(chat, member, { home }), chat.brief?.text ? `\nBrief from @user (rev ${chat.brief.rev}):\n${chat.brief.text}` : "\nNo pinned brief."].join("\n") };
       case "who": {
         const states = await deps.states();
         return { ok: true, output: whoText(chat, (m) => STATE_WORDS[live(m, states)?.state ?? ""] ?? "offline", { home }) };
@@ -460,7 +602,7 @@ export function createChatService(deps: ChatServiceDeps) {
         await save(chat);
         return { ok: true, output: `left "${chat.name}"` };
       default:
-        return { ok: false, output: `NOT POSTED: unknown command "${cmd ?? ""}". Use mux say, read, who, stop or leave.` };
+        return { ok: false, output: `NOT POSTED: unknown command "${cmd ?? ""}". Use mux say, submit, read, who, stop or leave.` };
     }
   }
 
@@ -499,6 +641,7 @@ export function createChatService(deps: ChatServiceDeps) {
       if (!infos.has(w)) infos.set(w, await deps.tmux.agentOfWindow(w));
       return infos.get(w) ?? null;
     };
+    const limits = new Map<string, UsageLimit>();
     const idle = (m: ChatMember, info: WindowAgentInfo | null) => {
       const state = live(m, states)?.state ?? info?.state;
       return state === undefined || state === "done";
@@ -548,6 +691,17 @@ export function createChatService(deps: ChatServiceDeps) {
             changed.add(chat.id);
           }
           continue;
+        }
+        // Out of credits: said once in the chat, and its messages wait until the limit lifts.
+        const limit = await limitOf(m, info);
+        if (limit) {
+          limits.set(`${chat.id} ${m.handle}`, limit);
+          const key = `${limit.at} ${limit.until}`;
+          if (m.limited !== key) {
+            m.limited = key;
+            post(chat, m.handle, `${m.handle} is out of usage credits${limit.until ? ` until ${limit.until}` : ""}; messages to it wait until then`, now(), { system: true });
+            changed.add(chat.id);
+          }
         }
         if (sameAgent(m, info)) {
           // A Codex that joined before its first turn: its process and thread, once it has them.
@@ -620,14 +774,14 @@ export function createChatService(deps: ChatServiceDeps) {
       }
     }
 
-    const view = (_c: Chat, m: ChatMember): AgentView => {
+    const view = (c: Chat, m: ChatMember): AgentView => {
       const info = m.windowId ? (infos.get(m.windowId) ?? null) : null;
-      // A Codex tab with no conversation yet has no thread to queue to: its messages wait.
+      // A Codex tab with no conversation yet has no thread to queue to: its messages wait. So do one out of credits.
       const threadless = info?.kind === "codex" && !info.daemon && !info.thread;
       return {
         kind: m.kind as AgentKind,
         online: reachable(m, info),
-        idle: !threadless && idle(m, info),
+        idle: !threadless && !limits.has(`${c.id} ${m.handle}`) && idle(m, info),
         ...(info?.daemon ? { daemon: true } : {}),
       };
     };
@@ -640,7 +794,8 @@ export function createChatService(deps: ChatServiceDeps) {
           const m = chat.members.find((x) => x.handle === handle);
           if (!m) continue;
           const info = m.windowId ? infos.get(m.windowId) : undefined;
-          const why = !view(chat, m).online ? "offline" : info?.kind === "codex" && !info.thread ? "no conversation yet" : undefined;
+          const limit = limits.get(`${chat.id} ${m.handle}`);
+          const why = !view(chat, m).online ? "offline" : info?.kind === "codex" && !info.thread ? "no conversation yet" : limit ? `out of credits${limit.until ? ` until ${limit.until}` : ""}` : undefined;
           if (d.reason !== why) {
             if (why) d.reason = why;
             else delete d.reason;
@@ -659,7 +814,9 @@ export function createChatService(deps: ChatServiceDeps) {
       // Earlier sends were awaited: a delete, a Remove, an archive or a pause may have landed since.
       const chat = chats.get(s.chatId);
       if (!chat) continue;
-      const msg = chat.messages.find((x) => x.id === s.msgId)!;
+      let messages = (s.msgIds ?? [s.msgId]).map((id) => chat.messages.find((x) => x.id === id)).filter((m): m is ChatMessage => !!m);
+      if (!messages.length) continue;
+      const msg = messages[0]!;
       const member = chat.members.find((x) => x.handle === s.handle)!;
       const d = msg.deliveries[s.handle];
       if (!d || d.state !== "queued" || d.reason === "sent" || member.left || chat.archived) continue;
@@ -667,15 +824,30 @@ export function createChatService(deps: ChatServiceDeps) {
       const adapter = deps.adapters[member.kind as AgentKind];
       changed.add(chat.id);
       if (!info || !adapter) {
-        msg.deliveries[s.handle] = { state: "failed", reason: adapter ? "offline" : "unavailable", at: now() };
+        for (const message of messages) message.deliveries[s.handle] = { state: "failed", reason: adapter ? "offline" : "unavailable", at: now() };
         continue;
       }
       const to = await target(member, info);
-      const text = deliveryText(chat, member, msg, missedFor(chat, member.handle, msg.id), { home, several: chatsOf(member.windowId!).length > 1 });
+      const offset = await sizeOf(to.transcript);
+      // Those awaits let a reveal, a delete, an archive, a Remove or a pause land: look again before anything is stamped sent.
+      const now1 = msg.deliveries[s.handle];
+      if (chats.get(chat.id) !== chat || chat.archived || member.left || !now1 || now1.state !== "queued" || now1.reason === "sent") continue;
+      messages = messages.filter((m) => { const d = m.deliveries[s.handle]; return d?.state === "queued" && d.reason !== "sent" && !m.blind; });
+      if (!messages.length) continue;
+      const last = messages.at(-1)!;
+      const packetIds = new Set(messages.map((m) => m.id));
+      const unseen = chat.messages.filter((m) => m.id > (member.lastSeq ?? 0) && m.id < last.id && !packetIds.has(m.id) && m.from !== member.handle && !m.system && !m.blind);
+      const peerTail = new Set(unseen.filter((m) => m.from !== "user" || m.auto).slice(-5).map((m) => m.id));
+      // Human steering between addressed messages is part of this wake too, never lost behind its cursor.
+      const lines = unseen.filter((m) => (m.from === "user" && !m.auto) || peerTail.has(m.id));
+      const text = packetText(chat, member, messages, { lines, older: unseen.length - lines.length }, { home, several: chatsOf(member.windowId!).length > 1 });
+      // What this wake carries of the mode and brief: noted once it has gone.
+      const told = { mode: chat.mode ?? "", brief: chat.brief?.rev ?? 0 };
       // Marked and saved before it goes: a crash in between leaves a message
       // that is never confirmed, never one that is sent twice. What the member
       // has seen moves only once it has gone.
-      msg.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe: { tag: tagOf(chat, msg.id), ...(to.transcript ? { path: to.transcript } : {}), offset: await sizeOf(to.transcript) } };
+      const probe = { tag: packetReceiptTag(text, last.id), ...(to.transcript ? { path: to.transcript } : {}), offset };
+      for (const message of messages) message.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe };
       await save(chat);
       let res: SendResult;
       try {
@@ -685,11 +857,16 @@ export function createChatService(deps: ChatServiceDeps) {
       }
       if (res.ok) {
         member.welcomed = true;
-        member.lastSeq = Math.max(member.lastSeq ?? 0, msg.id);
+        const bytes = new TextEncoder().encode(text).length;
+        member.payload = { count: (member.payload?.count ?? 0) + 1, bytes: (member.payload?.bytes ?? 0) + bytes, last: bytes };
+        member.rulesSent = CHAT_RULES_VERSION;
+        member.modeSent = told.mode;
+        member.briefSent = told.brief;
+        member.lastSeq = Math.max(member.lastSeq ?? 0, last.id);
         await save(chat);
         continue;
       }
-      msg.deliveries[s.handle] = res.reason === "offline"
+      for (const message of messages) message.deliveries[s.handle] = res.reason === "offline"
         ? { state: "queued", reason: "offline", at: now() }
         : { state: "failed", reason: res.detail ? `${res.reason}: ${res.detail}` : res.reason, at: now() };
       await save(chat);
@@ -728,11 +905,13 @@ export function createChatService(deps: ChatServiceDeps) {
       const l = live(m, states);
       const info = m.windowId && !m.left ? await deps.tmux.agentOfWindow(m.windowId) : null;
       const same = sameAgent(m, info);
-      // Another agent's state is not this member's.
-      const state = same ? (l?.state ?? info.state) : undefined;
+      const limit = await limitOf(m, info);
+      // Another agent's state is not this member's; one stopped by its usage limit isn't working, whatever its tab says.
+      const state = limit ? "done" : same ? (l?.state ?? info.state) : undefined;
       agents[m.handle] = {
         online: reachable(m, info),
         ...(state ? { state } : {}),
+        ...(limit ? { limit: { until: limit.until } } : {}),
         ...(l?.session ? { session: l.session } : {}),
         ...(info?.daemon ? { daemon: true } : {}),
         ...(info && !same ? { replaced: true } : {}),
@@ -741,7 +920,13 @@ export function createChatService(deps: ChatServiceDeps) {
     return { chat, agents };
   }
 
-  return { handle, hook, tick, busy, summaries, view, ready };
+  /** The browser's chat search: over every chat, archived too. */
+  async function search(query: string, opts: { chatId?: string; cursor?: number }) {
+    await ready();
+    return searchChats(chats.values(), query, opts);
+  }
+
+  return { handle, hook, tick, busy, summaries, view, ready, search };
 }
 
 export type ChatService = ReturnType<typeof createChatService>;

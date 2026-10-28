@@ -70,6 +70,8 @@ export interface Notes {
   readonly tab: NotesTab;
   toggle(): void;
   show(tab: NotesTab): void;
+  /** Open an exact note from global search, including notes whose window is gone. */
+  openNote(noteId: string): void;
   /** The owner may have changed: a state push, a focus move. */
   sync(): void;
   receive(m: Extract<ServerMessage, { t: "note" }>): void;
@@ -237,6 +239,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     get tab() { return tab; },
     toggle: () => (open ? hide() : show(tab)),
     show: (t) => show(t),
+    openNote(id) { show("all", false); explorer.openNote(id); },
     sync,
     receive(m) {
       if (m.windowId !== undefined) {

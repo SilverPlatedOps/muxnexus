@@ -94,6 +94,42 @@ describe("the hook", () => {
     expect(r).toEqual({ ok: false, output: "NOT POSTED: this tab isn't in a muxnexus chat. The user adds it from the Chats tab." });
   });
 
+  test("a mention given as the recipient and again at the start of the text posts once", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    expect((await say(svc, "codex", "say", "@claude1", "@claude1 done", "@claude1 later")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe("@claude1 done @claude1 later");
+  });
+
+  test("say --reply links the post to the message it answers, and refuses one that isn't there", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    await say(svc, "claude", "say", "@codex1 please review");
+    expect((await say(svc, "codex", "say", "--reply", "3", "@claude1 looks fine")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ text: "@claude1 looks fine", replyTo: 3 });
+    expect((await say(svc, "codex", "say", "--reply=#3", "again")).ok).toBe(true);
+    // The adapter's form: flags, then -- , then the text, which may itself hold "--reply".
+    expect((await say(svc, "codex", "say", "--reply", "3", "--", "use --reply 4 next time")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ text: "use --reply 4 next time", replyTo: 3 });
+    // After a leading --, everything is text, even what looks like a flag or another --.
+    expect((await say(svc, "codex", "say", "--", "--reply=12")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ text: "--reply=12" });
+    expect((await svc.view(id))!.chat.messages.at(-1)!.replyTo).toBeUndefined();
+    expect((await say(svc, "codex", "say", "--", "--")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe("--");
+    expect((await say(svc, "codex", "say", "--reply", "99", "nope")).output).toStartWith("NOT POSTED: #99 isn't a message");
+    expect((await say(svc, "codex", "say", "--reply", "x", "nope")).output).toStartWith("NOT POSTED: --reply takes a message id");
+  });
+
+  test("a typed tool call's text keeps a literal \\n; a shell line's becomes a line break", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    await svc.hook({ agent: "codex", pane: panes.codex!.pane, argv: ["say", "--", 'printf "a\\nb"'], literalText: true });
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe('printf "a\\nb"');
+    await say(svc, "codex", "say", "one\\ntwo");
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe("one\ntwo");
+  });
+
   test("say posts and reports the id, read and who answer", async () => {
     const svc = service();
     await newChat(svc, "claude", "codex");
@@ -131,7 +167,7 @@ describe("the user's example, end to end", () => {
     await svc.tick();
     expect(sends).toHaveLength(2);
     expect(sends[1]!).toMatchObject({ kind: "codex", target: { thread: "th-1", transcript: "/tmp/r.jsonl" } });
-    expect(sends[1]!.text).toContain("Missed:  @user → @claude1: please add the sync endpoint");
+    expect(sends[1]!.text).toContain("Context: @user → @claude1: please add the sync endpoint");
 
     await say(svc, "codex", "say", "two findings. What do you think? @claude");
     await say(svc, "claude", "say", "agreed, @user we are thinking option 1 or 2");
@@ -407,7 +443,7 @@ describe("an agent in two chats", () => {
     await newChat(svc, "claude");
     await svc.handle({ t: "chat-post", id: a, text: "@claude1 hi" });
     await svc.tick();
-    expect(sends[0]!.text.split("\n")[1]).toBe(`Reply with mux say --chat "shop review"; your tab's answer is invisible to the chat.`);
+    expect(sends[0]!.text.split("\n")[2]).toBe(`Reply: mux say --chat ${a} "text"`);
     expect(await say(svc, "claude", "say", "--chat", "shop review", "hello")).toEqual({ ok: true, output: `posted to "shop review" as #3 · context only: nobody was mentioned` });
   });
 });
@@ -574,9 +610,11 @@ describe("what an agent said in its tab", () => {
     await svc.handle({ t: "chat-post", id, text: "@codex1 what do you think?" });
     await svc.tick();
     expect(sends.at(-1)!.kind).toBe("codex");
-    expect(sends.at(-1)!.text).toContain("sub looks wrong");
+    expect(sends.at(-1)!.text).toContain("#3 @claude1: mux read");
     expect(sends.at(-1)!.text).not.toContain("TAB-ONLY");
-    expect((await say(svc, "codex", "read")).output).not.toContain("TAB-ONLY");
+    const history = (await say(svc, "codex", "read", "--since", "2", "--before", "4")).output;
+    expect(history).toContain("sub looks wrong");
+    expect(history).not.toContain("TAB-ONLY");
   });
 
   test("a turn the chat started that ended without a post shows what the agent said", async () => {

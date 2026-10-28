@@ -65,6 +65,8 @@ export function createChatStore(dir: string = CHATS_DIR) {
       const run = queue.then(async () => {
         await rm(`${path(id)}.tmp`, { force: true });
         await rm(path(id), { force: true });
+        // Its pasted images are its own: they go with it.
+        await rm(join(dir, id), { recursive: true, force: true });
       });
       queue = run.catch(() => {});
       return run;

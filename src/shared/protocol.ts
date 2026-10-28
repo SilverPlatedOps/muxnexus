@@ -1,4 +1,4 @@
-import type { AgentKind, Chat, ChatSummary } from "./chat";
+import type { AgentKind, Chat, ChatMode, ChatNotes, ChatSearchHit, ChatSummary } from "./chat";
 
 export interface WindowInfo {
   /**
@@ -210,7 +210,7 @@ export type ClientMessage =
   /** The chat this browser shows, or none: answered with `chat` now and on every change. */
   | { t: "chat-open"; id: string | null }
   | { t: "chat-create"; name?: string; members: ChatJoin[]; spawn?: ChatSpawn[] }
-  | { t: "chat-post"; id: string; text: string }
+  | { t: "chat-post"; id: string; text: string; replyTo?: number }
   | { t: "chat-add"; id: string; members: ChatJoin[]; spawn?: ChatSpawn[] }
   | { t: "chat-remove"; id: string; handle: string }
   | { t: "chat-role"; id: string; handle: string; role: string }
@@ -219,6 +219,18 @@ export type ClientMessage =
   /** Gone for good; `closeTabs` also shuts down the agents that joined it. */
   | { t: "chat-delete"; id: string; closeTabs: boolean }
   | { t: "chat-discard-held"; id: string }
+  /** What the chat is for, or null for the general rules: told to each agent on its next wake. */
+  | { t: "chat-mode"; id: string; mode: ChatMode | null }
+  /** The user's brief for the task; empty clears it. A changed brief is told to each agent on its next wake. */
+  | { t: "chat-brief"; id: string; text: string; expectRev?: number }
+  /** Chats' names, messages and notes matching `query`, from `cursor`; one chat's only with `chatId`. Answered with `chat-search-result`. */
+  | { t: "chat-search"; req: string; query: string; chatId?: string; cursor?: number }
+  /** The chat's notes, replacing revision `rev`; answered with `chat-notes-result` for `req`. */
+  | { t: "chat-notes"; id: string; text: string; rev: number; req: string }
+  /** An excerpt (an answer, a file part, a diff) put to agents with a question, labelled with where it came from. */
+  | { t: "chat-handoff"; id: string; to: string[]; question: string; excerpt: string; label: string; repo?: string; revision?: string }
+  /** Start an investigation round that wakes every agent, or end the open one and reveal what was posted. */
+  | { t: "chat-round"; id: string; action: "start" | "end"; topic?: string }
   /** Point a member whose tab closed at the tab its conversation was resumed in. */
   | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }
   | { t: "ping" };
@@ -248,6 +260,8 @@ export interface ChatMemberLive {
   /** Its tab now runs another agent than the one that joined. */
   replaced?: boolean;
   session?: string;
+  /** Its account hit the usage limit: until when, as the agent said it ("6:42 PM"; empty if it didn't). */
+  limit?: { until: string };
 }
 
 /** A note as the explorer lists it. */
@@ -476,6 +490,10 @@ export type ServerMessage =
    */
   | { t: "notice"; message: string }
   | { t: "chats"; chats: ChatSummary[] }
+  /** A page of a chat search; `next` is the cursor for the page after, when there is one. */
+  | { t: "chat-search-result"; req: string; ok: boolean; hits?: ChatSearchHit[]; next?: number; error?: string }
+  /** Whether a notes save landed: its new revision, or the revision that beat it. */
+  | { t: "chat-notes-result"; id: string; req: string; ok: boolean; notes?: ChatNotes; error?: string; conflict?: boolean }
   | { t: "chat"; chat: Chat; agents: Record<string, ChatMemberLive> }
   /** Sent to the browser that created a chat, so it can open it. */
   | { t: "chat-created"; id: string }

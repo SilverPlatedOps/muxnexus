@@ -16,7 +16,7 @@ import { NO_SERVER, resolveTranscript, SHELLS, shellQuote, type Tmux, TmuxError 
 export const PANE_FIELDS = [
   "session_name", "session_id", "@muxnexus_view", "@muxnexus_name", "@muxnexus_order", "window_id", "window_index",
   "window_name", "@muxnexus_window_name", "@muxnexus_note", "@muxnexus_note_empty", "pane_index", "pane_current_path",
-  "pane_current_command", "@muxnexus_session", "@muxnexus_from", "@muxnexus_agent", "@muxnexus_pending",
+  "pane_current_command", "@muxnexus_session", "@muxnexus_from", "@muxnexus_agent", "@muxnexus_pending", "@muxnexus_thread", "@muxnexus_pending_thread",
 ] as const;
 
 /**
@@ -28,6 +28,9 @@ export const PANE_FIELDS = [
  * run under plain `restore`, as every other conversation is.
  */
 const PENDING_OPTION = "@muxnexus_pending";
+
+/** The Codex twin of the above: `<thread id> [rollout path]`, never cleared, so a second reboot before Enter keeps the thread. */
+const PENDING_THREAD_OPTION = "@muxnexus_pending_thread";
 
 const SEP = "\x1f";
 
@@ -47,12 +50,24 @@ export interface SnapWindow {
   from?: ConversationInfo;
   /** A resume typed by `restore --no-start` and not yet run. */
   pending?: ConversationInfo;
+  /** The window's agent stamp (`<state> <since> <pid> <config dir>`): says which agent last stamped it. */
+  agent?: string;
+  /** A Codex window's thread; absent in snapshots taken before these were recorded. */
+  thread?: { id: string; path?: string };
+  /** A Codex resume typed by `restore --no-start` and not yet run: the thread it was brought back for. */
+  pendingThread?: { id: string; path?: string };
 }
 
 /** `<sessionId> <transcript path>`, the shape the tmux options hold. */
 function conversation(raw: string): ConversationInfo | undefined {
   const m = /^(\S+)\s+(.+)$/.exec(raw);
   return m ? { sessionId: m[1], transcriptPath: m[2] } : undefined;
+}
+
+/** `<thread id> [rollout path]`, as the Codex hook stamps it. */
+function thread(raw: string): SnapWindow["thread"] {
+  const m = /^(\S+)(?:\s+(.+))?$/.exec(raw);
+  return m ? { id: m[1]!, ...(m[2] ? { path: m[2] } : {}) } : undefined;
 }
 
 /**
@@ -83,6 +98,9 @@ export function parsePanes(out: string): SnapWindow[] {
       conversation: conversation(r["@muxnexus_session"]),
       from: conversation(r["@muxnexus_from"]),
       pending: conversation(r[PENDING_OPTION]),
+      agent: r["@muxnexus_agent"] || undefined,
+      thread: thread(r["@muxnexus_thread"]),
+      pendingThread: thread(r[PENDING_THREAD_OPTION]),
     });
   }
   return windows;
@@ -127,6 +145,8 @@ export interface RestoreStep {
   createSession: boolean;
   /** The conversation to resume, absent for a window that held a plain shell. */
   resume?: { configDir: string | null; transcript: string };
+  /** The Codex thread to resume, with its own home when it isn't `~/.codex`. */
+  codex?: { thread: string; home: string | null; path?: string };
 }
 
 /**
@@ -137,6 +157,29 @@ export interface RestoreStep {
 function configDirOf(transcript: string, home: string): string | null {
   const dir = transcript.split("/projects/")[0];
   return dir === join(home, ".claude") ? null : dir;
+}
+
+/** The CODEX_HOME a rollout belongs to: the directory holding its `sessions/`; null for the default `~/.codex`. */
+function codexHomeOf(rollout: string | undefined, home: string): string | null {
+  const dir = rollout?.split("/sessions/")[0];
+  return !dir || dir === rollout || dir === join(home, ".codex") ? null : dir;
+}
+
+/** How muxnexus opens a Codex tab (see AGENTS in server.ts): `--no-daemon` so a chat can reach it. Run under `env`, which skips shell functions as `command` does. */
+const CODEX_ARGS = `--no-daemon -c 'tui.alternate_screen="never"'`;
+
+/**
+ * Which agent a window holds now. A pane that went from Claude to Codex keeps
+ * both stamps, and the stale one must not win: the running command says, then
+ * the config directory of the last stamp.
+ */
+function isCodex(w: SnapWindow): boolean {
+  if (!w.thread && !w.pendingThread) return false;
+  if (!w.conversation && !w.pending) return true;
+  if (/^codex/.test(w.command)) return true;
+  if (!SHELLS.has(w.command) && w.command !== "") return false;
+  const dir = w.agent?.split(/\s+/)[3] ?? "";
+  return /codex/.test(dir);
 }
 
 /**
@@ -159,20 +202,27 @@ export function restorePlan(
     if (live.sessions.has(session)) continue;
     let opens = true;
     for (const w of [...group].sort((a, b) => a.index - b.index)) {
+      const codexWin = isCodex(w);
       const held = w.conversation ?? w.pending;
-      if (held && live.conversations.has(held.sessionId)) continue;
+      if (!codexWin && held && live.conversations.has(held.sessionId)) continue;
+      const heldThread = w.thread ?? w.pendingThread;
+      if (codexWin && heldThread && live.conversations.has(heldThread.id)) continue;
       // A stamped window back at its shell is an agent someone quit: it stays
       // quit. One that was only ever typed into never started, so its typed
       // resume is still the conversation it holds -- a second reboot before
       // anyone pressed Enter must not lose it.
-      const transcript = w.conversation
+      const transcript = codexWin ? null : w.conversation
         ? (SHELLS.has(w.command) ? null : resolveTranscript(w.conversation, w.from ?? null, opts.exists))
         : w.pending ? resolveTranscript(w.pending, null, opts.exists) : null;
+      // A Codex window that still ran codex holds its thread; one back at its shell was quit,
+      // unless its typed resume never ran: that is still the thread it was brought back for.
+      const codex = !codexWin ? null : w.thread ? (SHELLS.has(w.command) ? (w.pendingThread ?? null) : w.thread) : (w.pendingThread ?? null);
       steps.push({
         window: w,
         cwd: opts.exists(w.cwd) ? w.cwd : opts.home,
         createSession: opens,
         resume: transcript ? { configDir: configDirOf(transcript, opts.home), transcript } : undefined,
+        ...(codex ? { codex: { thread: codex.id, home: codexHomeOf(codex.path, opts.home), ...(codex.path ? { path: codex.path } : {}) } } : {}),
       });
       opens = false;
     }
@@ -201,7 +251,8 @@ export function liveFrom(windows: readonly SnapWindow[]): Live {
     // second restore must not type it into another tab too.
     conversations: new Set(windows.flatMap((w) => {
       const held = w.conversation ?? w.pending;
-      return held ? [held.sessionId] : [];
+      const thread = w.thread ?? w.pendingThread;
+      return [...(held ? [held.sessionId] : []), ...(thread ? [thread.id] : [])];
     })),
   };
 }
@@ -274,7 +325,7 @@ export async function loadSnapshots(dir: string): Promise<(Snapshot & { path: st
 export async function applyRestore(
   tmux: Tmux,
   snap: Snapshot,
-  opts: { resume?: boolean; start?: boolean } = {},
+  opts: { resume?: boolean; start?: boolean; codexBin?: string } = {},
 ): Promise<RestoreStep[]> {
   const steps = await planRestore(tmux, snap);
   let session = "";
@@ -299,6 +350,15 @@ export async function applyRestore(
     if (w.note) {
       await tmux.run(["set-option", "-w", "-t", id, "@muxnexus_note", w.note]);
       await tmux.run(["set-option", "-w", "-t", id, "@muxnexus_note_empty", w.noteEmpty || "1"]);
+    }
+    if (step.codex && opts.resume !== false) {
+      // Typed like the Claude resume; under --no-start it is stamped pending below.
+      const { thread: threadId, home: codexHome, path: rollout } = step.codex;
+      // The default home is addressed by unsetting CODEX_HOME, so a shell that has one can't switch accounts.
+      const prefix = codexHome ? `env CODEX_HOME=${shellQuote(codexHome)}` : "env -u CODEX_HOME";
+      const start = opts.start !== false;
+      await tmux.type(id, `${prefix} ${opts.codexBin ? shellQuote(opts.codexBin) : "codex"} ${CODEX_ARGS} resume ${shellQuote(threadId)}`, start);
+      if (!start) await tmux.run(["set-option", "-w", "-t", id, PENDING_THREAD_OPTION, `${threadId}${rollout ? ` ${rollout}` : ""}`]);
     }
     if (step.resume && opts.resume !== false) {
       // Typed rather than run as the window's command: when the agent exits the

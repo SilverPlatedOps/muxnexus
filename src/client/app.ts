@@ -25,6 +25,7 @@ import { sessionName, type WorldActions } from "./world-actions";
 import { createViewHost } from "./view-host";
 import { createDebugView } from "./views/debug";
 import { createChatUI, type ChatUI } from "./chat/ui";
+import { createGlobalSearch } from "./global-search";
 
 const SESSION_KEY = "muxnexus.session";
 const PHONE = "(max-width: 720px)";
@@ -64,6 +65,7 @@ const viewToggle = document.getElementById("view-toggle")!;
 const chatEl = document.getElementById("chat")!;
 /** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
 let chatUI: ChatUI | null = null;
+let globalSearch: ReturnType<typeof createGlobalSearch> | null = null;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
@@ -118,7 +120,7 @@ function showTerminal(on: boolean) {
   terminalOn = on;
   if (!on) closeFind();
   paintMain();
-  if (on && !views.showing()) {
+  if (on && !views.showing() && !chatUI?.isShowing()) {
     term.fit();
     term.focus();
   }
@@ -296,9 +298,10 @@ function hideReconnect() {
   statusEl.hidden = true;
 }
 
-function attach(session: string) {
+/** `rejoin`: the socket came back, and the workspace is taken up again behind whatever was showing, a chat included. */
+function attach(session: string, rejoin = false) {
   // A workspace picked while a chat is open leaves the chat (it can be gone back to).
-  chatUI?.leaveForWorkspace();
+  if (!rejoin) chatUI?.leaveForWorkspace();
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
@@ -657,11 +660,13 @@ const conn = new Connection(wsUrl, {
     memorySent = false;
     syncSystem();
     syncMemory();
-    if (desired) attach(desired);
+    if (desired) attach(desired, true);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
   onClose(nextDelayMs) {
     showReconnect(nextDelayMs);
+    globalSearch?.disconnected();
+    chatUI?.failed("Connection lost. Your text is kept here; reconnect before trying again.");
     // The server-side attachment is gone with the socket; clear `current` so
     // the reconnect's onOpen re-sends `attach` instead of treating it as a
     // same-session no-op (attach()'s current === session guard).
@@ -688,6 +693,7 @@ const conn = new Connection(wsUrl, {
         tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         paintAll();
+        globalSearch?.refresh();
         // The nudge names tabs by session and tab, which may just have changed.
         if (lastSwap) nudge.update(lastSwap, sessions);
         break;
@@ -728,6 +734,7 @@ const conn = new Connection(wsUrl, {
         break;
       case "note":
         notes.receive(m);
+        globalSearch?.update(m.noteId, m.text, m.updated);
         break;
       case "system":
         if (systemSent) system.receive(m.stats);
@@ -750,9 +757,11 @@ const conn = new Connection(wsUrl, {
         break;
       case "notes":
         notes.list(m.notes);
+        globalSearch?.receive(m.notes);
         break;
       case "note-deleted":
         notes.deleted(m.noteId);
+        globalSearch?.deleted(m.noteId);
         break;
       case "chats":
         chatUI?.setChats(m.chats);
@@ -765,8 +774,15 @@ const conn = new Connection(wsUrl, {
       case "chat-created":
         chatUI?.created(m.id);
         break;
+      case "chat-search-result":
+        globalSearch?.chatResult(m);
+        break;
+      case "chat-notes-result":
+        chatUI?.notesResult(m);
+        break;
       case "notice":
       case "error":
+        chatUI?.failed(m.message);
         sidebar.toast(m.message);
         break;
     }
@@ -884,7 +900,47 @@ chatUI = createChatUI({
   changed: () => { paintMain(); updateAttention(); if (terminalOn && !chatUI?.isShowing() && !views.showing()) term.fit(); },
   toast: (message) => sidebar.toast(message),
   onPhone,
+  find: () => globalSearch?.open(true),
 });
 chatUI.init();
+
+globalSearch = createGlobalSearch({
+  sessions: () => sessions,
+  requestNotes: () => conn.send({ t: "notes-list" }),
+  searchChats: (req, query, chatId, cursor) => conn.send({ t: "chat-search", req, query, ...(chatId ? { chatId } : {}), ...(cursor ? { cursor } : {}) }),
+  currentChat: () => chatUI?.current() ?? null,
+  open(hit) {
+    if (hit.kind === "note") { notes.openNote(hit.noteId); return; }
+    if (hit.kind === "chat" || hit.kind === "chat-message" || hit.kind === "chat-note") {
+      views.show(false);
+      chatUI?.reveal({ chatId: hit.chatId, ...(hit.messageId !== undefined ? { messageId: hit.messageId } : {}), ...(hit.kind === "chat-note" ? { notes: true } : {}) });
+      return;
+    }
+    views.show(false);
+    if (hit.kind === "workspace") attach(hit.session);
+    else {
+      chatUI?.leaveForWorkspace();
+      openWindow(hit.session, hit.windowId);
+    }
+  },
+});
+document.getElementById("global-search-open")!.onclick = () => globalSearch?.open();
+// Capture before xterm or the chat composer consumes the shortcut. Cmd+K keeps
+// its existing scoped sidebar search; Shift opens the cross-workspace search.
+document.addEventListener("keydown", (e) => {
+  if (!(e.metaKey && e.shiftKey && !e.altKey && e.key.toLowerCase() === "k")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  globalSearch?.open();
+}, true);
+// Cmd+F in a chat finds in it; a terminal, an editor or a dialog keeps its own.
+document.addEventListener("keydown", (e) => {
+  if (!(e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") || !chatUI?.isShowing()) return;
+  const at = document.activeElement;
+  if (at instanceof Element && at.closest(".xterm, .chat-dock, dialog, .cm-editor, #notes")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  globalSearch?.open(true);
+}, true);
 
 conn.connect();
