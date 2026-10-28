@@ -151,7 +151,10 @@ export function packetText(chat: Chat, to: ChatMember, messages: ChatMessage[], 
   const shared = deliveryContext(chat, to, last, { ...missed, lines: missed.lines.filter((m) => !gapIds.has(m.id)) }, opts).slice(1);
   const entries = [...messages, ...inlineGaps].sort((a, b) => a.id - b.id);
   const packetHeader = `[muxnexus · ${chat.name} · #${last.id} · batch of ${entries.length} messages; each author below]`;
-  return boundPacket(chat, to, last, [packetHeader, ...shared, ...entries.flatMap((m) => [header(chat, m), line(m)])].join("\n"), first.id);
+  // A reply quotes its parent as in a single wake, unless the parent is in this packet already.
+  const inPacket = new Set(entries.map((m) => m.id));
+  const quote = (m: ChatMessage) => (m.replyTo !== undefined && inPacket.has(m.replyTo) ? [] : replyQuote(chat, to, m));
+  return boundPacket(chat, to, last, [packetHeader, ...shared, ...entries.flatMap((m) => [header(chat, m), ...quote(m), line(m)])].join("\n"), first.id);
 }
 
 /** The probe follows the emitted header, including the bounded mailbox fallback. */

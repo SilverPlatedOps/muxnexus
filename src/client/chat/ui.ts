@@ -102,7 +102,7 @@ const store = {
 };
 
 /** Per chat: the member beside it, the scroll position, the unsent draft. */
-interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean; notes?: boolean }
+interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean; notes?: boolean; replyTo?: number }
 function remembered(id: string): Remembered {
   try { return (JSON.parse(store.get(STATE_KEY) ?? "{}") as Record<string, Remembered>)[id] ?? {}; } catch { return {}; }
 }
@@ -203,12 +203,16 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     paintChat();
   }
 
-  /** The message the next post answers. */
+  /** The message the next post answers: kept with the draft, so a switch or a reload keeps the link. */
   let replying: number | null = null;
+  function setReplying(id: number | null) {
+    replying = id;
+    if (chat) remember(chat.id, { replyTo: id ?? undefined });
+  }
   /** Reply to a line: the box says so, and an agent's line puts that agent among the recipients. */
   function startReply(id: number, from: string) {
     if (!chat) return;
-    replying = id;
+    setReplying(id);
     const m = chat.members.find((x) => x.handle === from && x.kind !== "user" && !x.left);
     if (m && !chips.includes(m.handle)) chips.push(m.handle);
     paintCompose();
@@ -628,7 +632,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     if (replying !== null) {
       const q = replyQuote(chat, replying);
       const drop = btn("chat-chip-x", "✕", "Don't reply to it (Esc)");
-      drop.onclick = () => { replying = null; paintCompose(); input.focus(); };
+      drop.onclick = () => { setReplying(null); paintCompose(); input.focus(); };
       replyBar.replaceChildren(el("span", "chat-reply-label", `Replying to #${q.id}${q.from ? ` ${q.from === "user" ? "you" : `@${q.from}`}` : ""}:`), el("span", "chat-reply-text", q.text), drop);
     }
     chipsEl.replaceChildren(...chips.map((h) => {
@@ -665,7 +669,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     // The path is what an agent opens; this chat shows it as the picture.
     const text = [typed, ...pasted.map((p) => `![pasted image](<${p.path}>)`)].filter(Boolean).join("\n\n");
     host.send({ t: "chat-post", id: chat.id, text, ...(replying !== null ? { replyTo: replying } : {}) });
-    replying = null;
+    setReplying(null);
     input.value = "";
     pasted = [];
     chips = [];
@@ -746,7 +750,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
   input.addEventListener("input", () => { choice = 0; paintSuggest(); paintCompose(); autosize(); if (chat) remember(chat.id, { draft: input.value }); });
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && replying !== null && suggest.hidden) { e.preventDefault(); replying = null; paintCompose(); return; }
+    if (e.key === "Escape" && replying !== null && suggest.hidden) { e.preventDefault(); setReplying(null); paintCompose(); return; }
     // ⌘ shortcuts (⌘J, ⌘K…) still work from the message box; plain keys stay in it.
     if (!e.metaKey) e.stopPropagation();
     if (!suggest.hidden && choices.length) {
@@ -1085,6 +1089,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       if (first) {
         const r = remembered(c.id);
         input.value = r.draft ?? "";
+        // Only to a line still in the chat: one deleted or never there drops the link, not the draft.
+        replying = r.replyTo !== undefined && c.messages.some((m) => m.id === r.replyTo && !m.system && !m.auto) ? r.replyTo : null;
         chips = (r.chips?.length ? r.chips : [prefill(c)].filter((x): x is string => !!x)).filter((h) => c.members.some((m) => m.handle === h && !m.left));
         offered = prefill(c);
         setNotesTab(r.notes === true);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { addMember, newChat, post, replyTarget, startRound } from "../src/server/chat/model";
-import { deliveryText, readText } from "../src/server/chat/text";
+import { deliveryText, packetText, readText } from "../src/server/chat/text";
 import { chatRules } from "../src/shared/chat-rules";
 
 const T = "2026-10-28T12:00:00.000Z";
@@ -35,6 +35,22 @@ describe("reply-to", () => {
     expect(replyTarget(c, blind.id, "codex1")).not.toBeNull();
     expect(replyTarget(c, blind.id, "claude1")).toBeNull();
     expect(replyTarget(c, blind.id, "user")).toBeNull();
+  });
+
+  test("a batched wake quotes each reply's parent too, unless the parent is in the batch or hidden from the reader", () => {
+    const c = chat();
+    const q = post(c, "user", "is the cache key per user?", T);
+    const codex = c.members.find((m) => m.handle === "codex1")!;
+    const a = post(c, "user", "@codex1 answer this", T, { replyTo: q.id });
+    const b = post(c, "user", "@codex1 and this one", T, { replyTo: a.id });
+    const batch = packetText(c, codex, [a, b], { lines: [], older: 0 });
+    expect(batch).toContain(`Re:      #${q.id} @user: is the cache key per user?`);
+    expect(batch.match(/^Re: /gm)).toHaveLength(1);
+    startRound(c, "why", T);
+    const blind = post(c, "claude1", "secret hypothesis", T);
+    const r1 = post(c, "user", "@codex1 one", T, { replyTo: blind.id });
+    const r2 = post(c, "user", "@codex1 two", T);
+    expect(packetText(c, codex, [r1, r2], { lines: [], older: 0 })).not.toContain("secret hypothesis");
   });
 
   test("agents are told how to reply", () => {
