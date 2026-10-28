@@ -258,6 +258,8 @@ export interface ChatMemberLive {
   /** Its tab now runs another agent than the one that joined. */
   replaced?: boolean;
   session?: string;
+  /** Its account hit the usage limit: until when, as the agent said it ("6:42 PM"; empty if it didn't). */
+  limit?: { until: string };
 }
 
 /** A note as the explorer lists it. */

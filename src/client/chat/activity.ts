@@ -36,8 +36,9 @@ export function createChatActivity() {
 
   return {
     el,
-    update(chat: Pick<Chat, "members"> | null, agents: Readonly<Record<string, ChatMemberLive>>) {
-      const text = activityLabel(workingMembers(chat, agents));
+    /** `shown`: agents whose header switch is in view and already says Working; the row names only the rest. */
+    update(chat: Pick<Chat, "members"> | null, agents: Readonly<Record<string, ChatMemberLive>>, shown: ReadonlySet<string> = new Set()) {
+      const text = activityLabel(workingMembers(chat, agents).filter((h) => !shown.has(h)));
       // Polls with the same activity must not restart animation or repeat announcements.
       if (text === previous) return;
       previous = text;

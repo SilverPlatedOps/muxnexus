@@ -1851,8 +1851,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-wrap { flex: 1; }
 .chat-wrap { display: flex; height: 100%; min-height: 0; }
 .chat-pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.chat-wrap.has-side .chat-pane { position: relative; flex: 0 0 var(--chat-pane, 48%); max-width: calc(100% - 320px); }
-.chat-divider { flex: none; width: 1px; background: var(--line); }
+.chat-wrap.dock-term .chat-pane { position: relative; flex: 0 0 var(--chat-pane, 48%); max-width: calc(100% - 320px); }
 .chat-side { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; background: var(--term); }
 .chat-side-head { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 10px; background: var(--chrome); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .chat-side-who { display: flex; align-items: center; gap: 6px; border: 1px solid var(--edge); border-radius: 6px; background: none; color: var(--fg-strong); font: 600 12px var(--mono); padding: 2px 8px; cursor: pointer; }
@@ -2004,7 +2003,6 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
   .chat-wrap.has-side .chat-pane { flex: 1 1 0; }
   .chat-wrap.has-side.show-side .chat-pane { display: none; }
   .chat-wrap.has-side:not(.show-side) .chat-side { display: none; }
-  .chat-divider { display: none; }
   .chat-lines { padding: 10px 10px; }
   .chat-line { grid-template-columns: 16px minmax(0, 1fr); }
   .chat-line .chat-body { grid-column: 2; }
@@ -2141,11 +2139,8 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 :is(.chat-details-toggle, .chat-round-pill):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chat-main { flex: 1; min-height: 0; display: flex; }
 .chat-convo { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.chat-details { position: relative; flex: 0 0 var(--chat-details, 300px); max-width: calc(100% - 360px); min-height: 0; overflow: hidden; padding: 12px 16px 20px; border-left: 1px solid var(--line); background: var(--panel); }
+.chat-details { flex: 1; min-height: 0; overflow: hidden; padding: 12px 16px 20px; border-left: 1px solid var(--line); background: var(--panel); }
 .chat-details[hidden] { display: none; }
-.chat-details-head { display: flex; align-items: center; margin-bottom: 6px; }
-.chat-details-head h2 { margin: 0; font: 600 14px var(--mono); color: var(--fg-strong); }
-.chat-details-head .sp { flex: 1; }
 .chat-details-label { margin: 14px 0 6px; font: 600 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .chat-details .chat-context { flex-direction: column; align-items: stretch; gap: 8px; padding: 0; border: 0; background: none; }
 .chat-details .chat-context > * { flex: none; }
@@ -2166,7 +2161,9 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-chip .agent-mark { width: 12px; height: 12px; margin-right: 3px; }
 /* Message actions show on hover or keyboard focus, so every answer isn't followed by a button. */
 .chat-message { position: relative; }
-.chat-message .chat-handoff-action { position: absolute; top: 2px; right: 6px; margin: 0; background: var(--panel); border-color: var(--edge); opacity: 0; transition: opacity .12s; }
+.chat-who-col { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.chat-who-col .chat-who { max-width: 100%; }
+.chat-message .chat-handoff-action { margin: 2px 0 0 -6px; padding: 1px 6px; opacity: 0; transition: opacity .12s; }
 .chat-message:hover .chat-handoff-action, .chat-message:focus-within .chat-handoff-action { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .chat-message .chat-handoff-action { transition: none; } }
 /* Prose reads in a proportional face; code, commands and handles stay monospace. */
@@ -2197,8 +2194,21 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-notes-theirs { flex: 0 0 100%; }
 .chat-notes-theirs summary { cursor: pointer; color: var(--muted); font: 12px var(--mono); }
 .chat-notes-theirs pre { max-height: 160px; overflow: auto; margin: 6px 0 0; padding: 8px; background: var(--well); border-radius: 4px; white-space: pre-wrap; font: 12px/1.5 var(--mono); }
-.chat-details-grip { left: 0; }
+.chat-details-grip { left: 0; display: none; }
+.chat-wrap.dock-details .chat-details-grip { display: block; }
+/* One dock on the right: a terminal takes what the chat leaves; details keep their own width. */
+.chat-dock { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.chat-dock[hidden] { display: none; }
+.chat-wrap.dock-term .chat-dock { flex: 1 1 0; }
+.chat-wrap.dock-details .chat-dock { flex: 0 0 var(--chat-details, 300px); max-width: calc(100% - 360px); }
+.chat-dock > .chat-details-tabs { flex: none; display: flex; align-items: center; margin: 0; padding: 0 6px 0 10px; background: var(--chrome); }
+.chat-dock > .chat-details-tabs .sp { flex: 1; }
+.chat-dock-term { display: inline-flex; align-items: center; gap: 6px; }
+.chat-dock-term[hidden] { display: none; }
+.chat-dock .chat-details { padding: 10px 16px 16px; border-left: 0; background: none; }
+.chat-dock .chat-side[hidden] { display: none; }
 /* The panel stays put so its grip does; what's in a tab scrolls. */
 .chat-details-setup { flex: 1; min-height: 0; overflow-y: auto; }
 .chat-pane-grip { right: -4px; display: none; }
-.chat-wrap.has-side.show-side .chat-pane-grip { display: block; }
+.chat-wrap.dock-term .chat-pane-grip { display: block; }
+.chat-agent-state.limited { color: var(--red); }

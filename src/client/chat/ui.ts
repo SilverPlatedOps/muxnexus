@@ -14,6 +14,7 @@ import {
   messageRows,
   parseCap,
   canOpen,
+  creditsText,
   nearAgent,
   prefill,
   prefillChips,
@@ -226,28 +227,40 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   const context = createChatContext((m) => host.send(m));
   const agentBar = el("nav", "chat-agent-bar");
   agentBar.setAttribute("aria-label", "Agent terminals");
-  /** Mode, brief, handoff, rounds, members and context: one panel beside the conversation, not rows above it. */
-  const details = el("aside", "chat-details");
+  /**
+   * The right side: one dock, one view at a time -- an agent's terminal, the
+   * chat's setup (mode, brief, handoff, rounds, members), or the user's notes --
+   * so the conversation is never squeezed between two panels.
+   */
+  const dock = el("aside", "chat-dock");
+  dock.id = "chat-dock";
+  dock.setAttribute("aria-label", "Terminal and chat details");
+  dock.hidden = true;
+  const details = el("div", "chat-details");
   details.id = "chat-details";
-  details.setAttribute("aria-label", "Chat details");
   details.hidden = true;
-  const detailsHead = el("header", "chat-details-head");
-  const detailsTitle = el("h2", "", "Chat details");
-  const detailsClose = btn("icon-btn", "✕", "Close chat details");
-  detailsClose.onclick = () => setDetails(false);
-  details.addEventListener("keydown", (e) => {
+  const dockClose = btn("icon-btn chat-dock-close", "✕", "Close this panel");
+  dockClose.onclick = () => {
+    if (dockView === "terminal") { closeSide(); if (chat) remember(chat.id, { member: undefined }); paintChat(); }
+    else setDetails(false);
+  };
+  dock.addEventListener("keydown", (e) => {
+    if (dockView !== "details") return;
     if (e.key !== "Escape" || (e.target as HTMLElement).closest("dialog")) return;
     e.stopPropagation();
     setDetails(false);
     head.querySelector<HTMLElement>(".chat-details-toggle")?.focus();
   });
-  detailsHead.append(detailsTitle, el("span", "sp"), detailsClose);
   const detailsMembers = el("section", "chat-details-members");
   const notes = createChatNotes((m) => host.send(m), (text) => context.shareBrief(text));
-  /** Setup (mode, brief, members) or Notes (the user's own): one tab of the panel at a time. */
-  const detailsTabs = el("div", "chat-details-tabs");
-  detailsTabs.setAttribute("role", "tablist");
-  detailsTabs.setAttribute("aria-label", "Chat details");
+  const dockTabs = el("div", "chat-details-tabs");
+  dockTabs.setAttribute("role", "tablist");
+  dockTabs.setAttribute("aria-label", "Terminal and chat details");
+  /** The open terminal's tab: there only while one is open. */
+  const termTab = btn("chat-details-tab chat-dock-term", "", "The agent terminal open beside the chat");
+  termTab.setAttribute("role", "tab");
+  termTab.hidden = true;
+  termTab.onclick = () => { setDock("terminal"); paintChat(); };
   const setup = el("div", "chat-details-setup");
   setup.id = "chat-details-setup";
   setup.setAttribute("role", "tabpanel");
@@ -258,33 +271,54 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const b = btn("chat-details-tab", label, label === "Notes" ? "Your own notes on this chat; agents never get them" : "Mode, brief, handoff, rounds and members");
     b.setAttribute("role", "tab");
     b.setAttribute("aria-controls", panel.id);
-    b.onclick = () => setNotesTab(i === 1, true);
-    b.onkeydown = (e) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      e.preventDefault();
-      setNotesTab(i === 0, false);
-      tabBtns[i === 0 ? 1 : 0]!.focus();
-    };
+    b.onclick = () => { setNotesTab(i === 1); setDetails(true); };
     return b;
   });
-  detailsTabs.append(...tabBtns);
+  dockTabs.append(termTab, ...tabBtns, el("span", "sp"), dockClose);
+  // Arrow keys move between the tabs there are.
+  dockTabs.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const tabs = [termTab, ...tabBtns].filter((b) => !b.hidden);
+    const at = tabs.indexOf(document.activeElement as HTMLButtonElement);
+    if (at < 0) return;
+    e.preventDefault();
+    const next = tabs[(at + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]!;
+    next.click();
+    next.focus();
+  });
   const detailsGrip = el("div", "grip chat-details-grip");
   detailsGrip.setAttribute("role", "separator");
   detailsGrip.setAttribute("aria-orientation", "vertical");
   detailsGrip.setAttribute("aria-label", "Resize chat details");
   detailsGrip.tabIndex = 0;
-  details.append(detailsGrip, detailsHead, detailsTabs, setup, notes.el);
+  details.append(setup, notes.el);
   let detailsOpen = false;
   let notesTab = false;
-  function setNotesTab(on: boolean, focus: boolean) {
+  let dockView: "terminal" | "details" | null = null;
+  function paintTabs() {
+    const sel = [dockView === "terminal", dockView === "details" && !notesTab, dockView === "details" && notesTab];
+    [termTab, ...tabBtns].forEach((b, i) => { b.setAttribute("aria-selected", String(sel[i])); b.tabIndex = sel[i] ? 0 : -1; b.classList.toggle("on", sel[i]!); });
+    dockClose.title = dockView === "terminal" ? "Close the terminal" : "Close chat details";
+  }
+  function setNotesTab(on: boolean) {
     notesTab = on;
     setup.hidden = on;
     notes.el.hidden = !on;
-    tabBtns.forEach((b, i) => { const sel = (i === 1) === on; b.setAttribute("aria-selected", String(sel)); b.tabIndex = sel ? 0 : -1; b.classList.toggle("on", sel); });
     if (chat) remember(chat.id, { notes: on });
-    if (focus && on) notes.focus();
+    paintTabs();
   }
-  setNotesTab(false, false);
+  function setDock(view: "terminal" | "details" | null) {
+    dockView = view;
+    detailsOpen = view === "details";
+    if (chat) remember(chat.id, { details: detailsOpen });
+    dock.hidden = !view;
+    side.hidden = view !== "terminal";
+    details.hidden = view !== "details";
+    wrap.classList.toggle("dock-term", view === "terminal");
+    wrap.classList.toggle("dock-details", view === "details");
+    paintTabs();
+    if (view === "terminal") requestAnimationFrame(() => sideView?.fit());
+  }
   const lines = el("div", "chat-lines");
   const strip = el("div", "chat-strip");
   const activity = createChatActivity();
@@ -301,7 +335,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   const convo = el("div", "chat-convo");
   convo.append(lines, strip, activity.el, compose);
   const main = el("div", "chat-main");
-  main.append(convo, details);
+  main.append(convo);
   /** The edge between the conversation and an agent's terminal: the conversation's width, dragged. */
   const paneGrip = el("div", "grip chat-pane-grip");
   paneGrip.setAttribute("role", "separator");
@@ -309,16 +343,16 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   paneGrip.setAttribute("aria-label", "Resize the chat beside the terminal");
   paneGrip.tabIndex = 0;
   pane.append(paneGrip);
-  makeResizable({ grip: detailsGrip, panel: details, host: main, cssVar: "--chat-details", storageKey: "muxnexus.chat-details-width", min: 240, max: 720, fallback: 300, edge: "left" });
+  makeResizable({ grip: detailsGrip, panel: dock, host: wrap, cssVar: "--chat-details", storageKey: "muxnexus.chat-details-width", min: 240, max: 720, fallback: 300, edge: "left" });
   pane.append(head, main);
-  const divider = el("div", "chat-divider");
   const side = el("section", "chat-side");
   const sideHead = el("header", "chat-side-head");
   const sideTerm = el("div", "chat-term");
   side.append(sideHead, sideTerm);
-  divider.hidden = true;
   side.hidden = true;
-  wrap.append(pane, divider, side);
+  dock.append(detailsGrip, dockTabs, side, details);
+  wrap.append(pane, dock);
+  setNotesTab(false);
   els.main.append(wrap);
   makeResizable({ grip: paneGrip, panel: pane, host: wrap, cssVar: "--chat-pane", storageKey: "muxnexus.chat-pane-width", min: 420, max: 2400, fallback: 640, edge: "right" });
 
@@ -351,19 +385,33 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   let headerSignature = "";
   let paintedChat: string | null = null;
 
+  /** Details in the dock, or back to the terminal there was (or nothing). */
   function setDetails(on: boolean) {
-    detailsOpen = on;
-    details.hidden = !on;
-    if (chat) remember(chat.id, { details: on });
+    setDock(on ? "details" : sideHandle ? "terminal" : null);
     paintChat();
-    if (on) (notesTab ? notes.focus() : details.querySelector<HTMLElement>(".chat-details-tab.on")?.focus({ preventScroll: true }));
+    if (on) (notesTab ? notes.focus() : tabBtns[0]!.focus({ preventScroll: true }));
   }
+
+  /** Agents whose header switch can be seen whole: their state is there, so the activity row needn't repeat it. */
+  function switchesInView(): Set<string> {
+    const bar = agentBar.getBoundingClientRect();
+    const out = new Set<string>();
+    // Measured only when someone is working: the row shows nothing otherwise.
+    if (!bar.width || !Object.values(agents).some((a) => a.state === "running")) return out;
+    for (const b of agentBar.querySelectorAll<HTMLElement>(".chat-agent-switch")) {
+      const r = b.getBoundingClientRect();
+      if (r.left >= bar.left - 1 && r.right <= bar.right + 1 && b.dataset.handle) out.add(b.dataset.handle);
+    }
+    return out;
+  }
+  agentBar.addEventListener("scroll", () => activity.update(chat, agents, switchesInView()), { passive: true });
+  window.addEventListener("resize", () => activity.update(chat, agents, switchesInView()));
 
   function paintChat() {
     context.update(chat);
     notes.update(chat);
-    activity.update(chat, agents);
     if (!chat) {
+      activity.update(null, agents);
       head.replaceChildren(el("span", "chat-name", openId ? "Loading…" : ""));
       lines.replaceChildren();
       agentBar.replaceChildren();
@@ -403,11 +451,14 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     for (const m of chat.members) {
       if (m.kind === "user" || m.left) continue;
       const live = agents[m.handle];
-      const state = live?.state === "input" ? "Needs you" : live?.state === "running" ? "Working" : live?.online ? "Idle" : "Offline";
+      const credits = live?.online && live.limit ? creditsText(live.limit) : "";
+      // Short on the switch; the time is in its tooltip and the member list.
+      const state = credits ? "Out of credits" : live?.state === "input" ? "Needs you" : live?.state === "running" ? "Working" : live?.online ? "Idle" : "Offline";
       const selected = sideHandle === m.handle && !!sideWindow;
-      const b = btn(`chat-agent-switch${selected ? " selected" : ""}`, "", `Open ${m.handle} terminal · ${state}`);
+      const b = btn(`chat-agent-switch${selected ? " selected" : ""}`, "", `Open ${m.handle} terminal · ${credits || state}`);
       b.setAttribute("aria-pressed", String(selected));
-      b.append(agentMark(m.kind, m.shape), el("span", "chat-agent-handle", m.handle), el("span", `chat-agent-state${live?.state === "input" ? " needs-you" : live?.state === "running" ? " working" : ""}`, state));
+      b.dataset.handle = m.handle;
+      b.append(agentMark(m.kind, m.shape), el("span", "chat-agent-handle", m.handle), el("span", `chat-agent-state${credits ? " limited" : live?.state === "input" ? " needs-you" : live?.state === "running" ? " working" : ""}`, state));
       b.disabled = !canOpen(m, live);
       if (b.disabled) b.title = memberStatus(chat, m, live).text;
       b.onclick = () => openSide(m.handle);
@@ -422,6 +473,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 24;
     const rows = messageRows(chat);
     const nodes: HTMLElement[] = [];
+    activity.update(chat, agents, switchesInView());
     const present = new Set<string>();
     if (paintedChat !== chat.id) { rowCache.clear(); lines.replaceChildren(); }
     for (const r of rows) {
@@ -462,14 +514,16 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         t.title = Object.entries(m.deliveries).map(([h, d]) => `${h}: ${d.state === "queued" && d.reason === "sent" ? "sent, not yet seen" : d.state}${d.reason && d.reason !== "sent" ? ` (${d.reason})` : ""}`).join("\n");
         body.append(t);
       }
-      line.append(shape, who, body);
-      const handoff = btn("chat-handoff-action", "Hand off…", "Send this answer or selected text to another agent");
+      // Under the name, in the gutter: shown on hover or focus, it never covers the text.
+      const whoCol = el("div", "chat-who-col");
+      line.append(shape, whoCol, body);
+      const handoff = btn("chat-handoff-action", "Hand off", "Send this answer or selected text to another agent");
       handoff.onclick = () => {
         const selection = window.getSelection();
         const excerpt = selection && !selection.isCollapsed && selection.anchorNode && group.contains(selection.anchorNode) && selection.focusNode && group.contains(selection.focusNode) ? selection.toString() : r.text;
         context.handoff(excerpt, `Message #${r.id} from ${r.from}`);
       };
-      body.append(handoff);
+      whoCol.append(who, handoff);
       built.push(line);
       const fold = tabFold(r);
       if (fold) built.push(fold);
@@ -656,15 +710,16 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       host.toast(m.left ? `${handle} has left` : m.windowId ? `${handle} is offline` : `${handle} has no tab: it didn't start`);
       return;
     }
-    if (sideHandle === handle && sideWindow === m.windowId && sideConn) { sideOn = true; wrap.classList.add("show-side"); sideView?.focus(); return; }
+    if (sideHandle === handle && sideWindow === m.windowId && sideConn) { sideOn = true; wrap.classList.add("show-side"); setDock("terminal"); paintChat(); sideView?.focus(); return; }
     sideHandle = handle;
     sideWindow = m.windowId ?? null;
     remember(chat.id, { member: handle });
-    side.hidden = false;
-    divider.hidden = false;
     wrap.classList.add("has-side");
     sideOn = true;
     wrap.classList.add("show-side");
+    termTab.hidden = false;
+    termTab.replaceChildren(agentMark(m.kind, m.shape), ` ${handle}`);
+    setDock("terminal");
     paintSideHead(m, session);
     sideView ??= createTerminal(sideTerm, {
       windowId: () => sideWindow ?? undefined,
@@ -695,13 +750,14 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   function paintSideHead(m: ChatMember, session: string) {
     const who = btn("chat-side-who", "", "Show another member's terminal");
-    who.append(agentMark(m.kind, m.shape), ` ${m.handle} · ${session} ▾`);
+    // Role and folder say which agent this is; the tmux session's name can read like a chat's.
+    const folder = m.folder?.split("/").filter(Boolean).pop();
+    who.append(agentMark(m.kind, m.shape), ` ${[m.handle, m.role, folder].filter(Boolean).join(" · ")} ▾`);
+    who.title = `Show another member's terminal · ${m.handle} runs in session ${session}${m.folder ? `, ${m.folder}` : ""}`;
     who.onclick = (e) => { e.stopPropagation(); toggleMenu(who, membersMenu(true)); };
     const expand = btn("chat-side-btn", "⤢ Expand", "Open this tab in its workspace");
     expand.onclick = () => expandTo(m.handle);
-    const close = btn("chat-side-btn", "✕", "Close the terminal");
-    close.onclick = () => { closeSide(); if (chat) remember(chat.id, { member: undefined }); paintChat(); };
-    sideHead.replaceChildren(who, el("span", "sp"), expand, close);
+    sideHead.replaceChildren(who, el("span", "sp"), expand);
   }
 
   function closeSide() {
@@ -711,9 +767,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     sideView = null;
     sideWindow = null;
     sideHandle = null;
-    side.hidden = true;
-    divider.hidden = true;
+    termTab.hidden = true;
     wrap.classList.remove("has-side", "show-side");
+    if (dockView === "terminal") setDock(null);
   }
 
   // ---- menus --------------------------------------------------------------------
@@ -957,11 +1013,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         input.value = r.draft ?? "";
         chips = (r.chips?.length ? r.chips : [prefill(c)].filter((x): x is string => !!x)).filter((h) => c.members.some((m) => m.handle === h && !m.left));
         offered = prefill(c);
-        detailsOpen = r.details === true;
-        details.hidden = !detailsOpen;
-        setNotesTab(r.notes === true, false);
+        setNotesTab(r.notes === true);
         autosize();
         if (r.member && showing && !host.onPhone()) openSide(r.member);
+        if (r.details) setDock("details");
+        else if (dockView === "details") setDock(sideHandle ? "terminal" : null);
       } else {
         ({ chips, offered } = prefillChips({ chips, draft: input.value, offered }, c));
       }

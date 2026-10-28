@@ -68,6 +68,8 @@ export interface ChatMember {
   /** What the chat has handed this member, measured and never kept: deliveries, UTF-8 bytes in all and in the latest. */
   payload?: { count: number; bytes: number; last: number };
   left?: boolean;
+  /** The usage-limit stop the chat has told the user about, by when it happened: said once, not on every tick. */
+  limited?: string;
   /** An agent started from the chat, before its tab came up, or after it failed to. */
   spawn?: "pending" | "failed";
   spawnError?: string;

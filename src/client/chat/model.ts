@@ -68,7 +68,23 @@ export interface Row {
   tab: { text: string; lines: number } | null;
 }
 
-const tabOf = (text: string | undefined) => (text ? { text, lines: text.split("\n").length } : null);
+const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9_]{4,}/g) ?? []);
+/**
+ * What the agent said in its tab, when it adds to the post: a tab that mostly
+ * restates it (most of its words are in the post) isn't shown, since it tells the user nothing new.
+ */
+export function tabOf(text: string | undefined, post = ""): { text: string; lines: number } | null {
+  if (!text) return null;
+  const tab = words(text);
+  // Only a tab no longer than the post can merely restate it.
+  if (post && tab.size && text.length <= post.length * 1.2) {
+    const said = words(post);
+    let shared = 0;
+    for (const w of tab) if (said.has(w)) shared++;
+    if (shared / tab.size >= 0.6) return null;
+  }
+  return { text, lines: text.split("\n").length };
+}
 
 function exception(handle: string, state: string, reason?: string): string | null {
   if (state === "failed" && reason?.startsWith("not confirmed: ")) return `✕ not confirmed for ${handle} · ${reason.slice("not confirmed: ".length)}`;
@@ -103,7 +119,7 @@ export function messageRows(chat: Chat): Row[] {
       exceptions: ds.flatMap(([h, d]) => exception(h, d.state, d.reason) ?? []),
       turnStart: m.from !== last,
       at: m.at,
-      tab: tabOf(m.tabText),
+      tab: tabOf(m.tabText, m.text),
     });
     last = m.from;
   }
@@ -143,13 +159,18 @@ export function heldCount(chat: Chat): number {
 const KIND: Record<string, string> = { claude: "Claude", codex: "Codex" };
 const STATE: Record<string, string> = { running: "working", input: "waiting on you", done: "idle" };
 
+/** An agent stopped by its account's usage limit, as its status reads. */
+export function creditsText(limit: { until: string }): string {
+  return `out of credits${limit.until ? ` until ${limit.until}` : ""}`;
+}
+
 export function mentionChoices(chat: Chat, agents: Record<string, ChatMemberLive>, query: string): { handle: string; meta: string }[] {
   const q = query.toLowerCase();
   return chat.members
     .filter((m) => m.kind !== "user" && !m.left && m.handle.toLowerCase().startsWith(q))
     .map((m) => {
       const live = agents[m.handle];
-      const state = live?.online === false ? "offline" : STATE[live?.state ?? ""] ?? "idle";
+      const state = live?.online === false ? "offline" : live?.limit ? creditsText(live.limit) : STATE[live?.state ?? ""] ?? "idle";
       return { handle: m.handle, meta: [KIND[m.kind], live?.session ?? m.session, m.role, state].filter(Boolean).join(" · ") };
     });
 }
@@ -191,6 +212,7 @@ export function memberStatus(chat: Chat, m: ChatMember, live: ChatMemberLive | u
     }
     return { text: `${live?.replaced ? "another agent runs in its tab" : "offline"} · ${waiting} waiting`, fix: "reconnect" };
   }
+  if (live.limit) return { text: creditsText(live.limit), fix: "open", alarm: true };
   if (live.state === "input") return { text: "needs attention", fix: "open", alarm: true };
   return { text: STATE[live.state ?? ""] ?? "idle" };
 }

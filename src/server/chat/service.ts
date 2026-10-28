@@ -6,6 +6,7 @@ import { CHAT_MODES, MAX_NOTES, type AgentKind, type Chat, type ChatMember, type
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
+import { usageLimit, type UsageLimit } from "./limits";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
 import { addMember, discardHeld, leave, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
@@ -155,6 +156,12 @@ export function createChatService(deps: ChatServiceDeps) {
   const reachable = (m: ChatMember, info: WindowAgentInfo | null | undefined) =>
     sameAgent(m, info) && !info.daemon && (info.fresh === true || (info.pid !== undefined && alive(info.pid)));
   const idOf = (info: WindowAgentInfo) => info.conversation?.sessionId ?? info.thread?.id;
+  /** A Codex member whose last turn ended on the usage limit, while that limit still holds. */
+  const limitOf = async (m: ChatMember, info: WindowAgentInfo | null | undefined): Promise<UsageLimit | null> => {
+    if (m.kind !== "codex" || !sameAgent(m, info) || !info.thread?.path) return null;
+    const l = await usageLimit(info.thread.path);
+    return l && (l.untilMs === undefined || l.untilMs > Date.parse(now())) ? l : null;
+  };
   const chats = new Map<string, Chat>();
   let loaded: Promise<void> | null = null;
   const ready = () => (loaded ??= deps.store.list().then((list) => { for (const c of list) chats.set(c.id, c); }));
@@ -604,6 +611,7 @@ export function createChatService(deps: ChatServiceDeps) {
       if (!infos.has(w)) infos.set(w, await deps.tmux.agentOfWindow(w));
       return infos.get(w) ?? null;
     };
+    const limits = new Map<string, UsageLimit>();
     const idle = (m: ChatMember, info: WindowAgentInfo | null) => {
       const state = live(m, states)?.state ?? info?.state;
       return state === undefined || state === "done";
@@ -653,6 +661,17 @@ export function createChatService(deps: ChatServiceDeps) {
             changed.add(chat.id);
           }
           continue;
+        }
+        // Out of credits: said once in the chat, and its messages wait until the limit lifts.
+        const limit = await limitOf(m, info);
+        if (limit) {
+          limits.set(`${chat.id} ${m.handle}`, limit);
+          const key = `${limit.at} ${limit.until}`;
+          if (m.limited !== key) {
+            m.limited = key;
+            post(chat, m.handle, `${m.handle} is out of usage credits${limit.until ? ` until ${limit.until}` : ""}; messages to it wait until then`, now(), { system: true });
+            changed.add(chat.id);
+          }
         }
         if (sameAgent(m, info)) {
           // A Codex that joined before its first turn: its process and thread, once it has them.
@@ -725,14 +744,14 @@ export function createChatService(deps: ChatServiceDeps) {
       }
     }
 
-    const view = (_c: Chat, m: ChatMember): AgentView => {
+    const view = (c: Chat, m: ChatMember): AgentView => {
       const info = m.windowId ? (infos.get(m.windowId) ?? null) : null;
-      // A Codex tab with no conversation yet has no thread to queue to: its messages wait.
+      // A Codex tab with no conversation yet has no thread to queue to: its messages wait. So do one out of credits.
       const threadless = info?.kind === "codex" && !info.daemon && !info.thread;
       return {
         kind: m.kind as AgentKind,
         online: reachable(m, info),
-        idle: !threadless && idle(m, info),
+        idle: !threadless && !limits.has(`${c.id} ${m.handle}`) && idle(m, info),
         ...(info?.daemon ? { daemon: true } : {}),
       };
     };
@@ -745,7 +764,8 @@ export function createChatService(deps: ChatServiceDeps) {
           const m = chat.members.find((x) => x.handle === handle);
           if (!m) continue;
           const info = m.windowId ? infos.get(m.windowId) : undefined;
-          const why = !view(chat, m).online ? "offline" : info?.kind === "codex" && !info.thread ? "no conversation yet" : undefined;
+          const limit = limits.get(`${chat.id} ${m.handle}`);
+          const why = !view(chat, m).online ? "offline" : info?.kind === "codex" && !info.thread ? "no conversation yet" : limit ? `out of credits${limit.until ? ` until ${limit.until}` : ""}` : undefined;
           if (d.reason !== why) {
             if (why) d.reason = why;
             else delete d.reason;
@@ -855,11 +875,13 @@ export function createChatService(deps: ChatServiceDeps) {
       const l = live(m, states);
       const info = m.windowId && !m.left ? await deps.tmux.agentOfWindow(m.windowId) : null;
       const same = sameAgent(m, info);
-      // Another agent's state is not this member's.
-      const state = same ? (l?.state ?? info.state) : undefined;
+      const limit = await limitOf(m, info);
+      // Another agent's state is not this member's; one stopped by its usage limit isn't working, whatever its tab says.
+      const state = limit ? "done" : same ? (l?.state ?? info.state) : undefined;
       agents[m.handle] = {
         online: reachable(m, info),
         ...(state ? { state } : {}),
+        ...(limit ? { limit: { until: limit.until } } : {}),
         ...(l?.session ? { session: l.session } : {}),
         ...(info?.daemon ? { daemon: true } : {}),
         ...(info && !same ? { replaced: true } : {}),
