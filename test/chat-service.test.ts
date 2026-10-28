@@ -115,6 +115,15 @@ describe("the hook", () => {
     expect((await say(svc, "codex", "say", "--reply", "x", "nope")).output).toStartWith("NOT POSTED: --reply takes a message id");
   });
 
+  test("a typed tool call's text keeps a literal \\n; a shell line's becomes a line break", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    await svc.hook({ agent: "codex", pane: panes.codex!.pane, argv: ["say", "--", 'printf "a\\nb"'], literalText: true });
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe('printf "a\\nb"');
+    await say(svc, "codex", "say", "one\\ntwo");
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe("one\ntwo");
+  });
+
   test("say posts and reports the id, read and who answer", async () => {
     const svc = service();
     await newChat(svc, "claude", "codex");

@@ -35,6 +35,8 @@ export interface HookRequest {
   sessionId?: string;
   cwd?: string;
   argv: string[];
+  /** The text comes from a typed tool call, not a shell line: a literal `\n` in it stays as written. */
+  literalText?: boolean;
 }
 
 /** The browser's chat messages that change a chat. */
@@ -84,6 +86,7 @@ export function parseHookRequest(v: unknown): HookRequest | null {
   if (!r || (r.agent !== "claude" && r.agent !== "codex") || !str(r.pane)) return null;
   if (!Array.isArray(r.argv) || !r.argv.every(str)) return null;
   if ((r.sessionId !== undefined && !str(r.sessionId)) || (r.cwd !== undefined && !str(r.cwd))) return null;
+  if (r.literalText !== undefined && typeof r.literalText !== "boolean") return null;
   return r as unknown as HookRequest;
 }
 
@@ -526,7 +529,7 @@ export function createChatService(deps: ChatServiceDeps) {
         }
         if (words[0] === "--") words = words.slice(1);
         // `mux say "@codex1" <<EOF` with the text opening on @codex1 too: one mention, not two.
-        const text = unescapeNewlines(words.join(" ").trim()).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
+        const text = (req.literalText ? words.join(" ").trim() : unescapeNewlines(words.join(" ").trim())).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
         if (!text) return { ok: false, output: `NOT POSTED: nothing to say. Usage: mux say "<text>"` };
         if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
         const msg = post(chat, member.handle, text, t, replyTo !== undefined ? { replyTo } : {});
@@ -553,7 +556,8 @@ export function createChatService(deps: ChatServiceDeps) {
         if (!round.participants.includes(member.handle)) return { ok: false, output: "NOT POSTED: you weren't asked in this round. Use mux say." };
         const usage = `mux submit --chat ${chat.id} ${round.id} "<your hypothesis and evidence>"`;
         if (args[0] !== round.id) return { ok: false, output: `NOT POSTED: the open round is ${round.id}. Usage: ${usage}` };
-        const text = unescapeNewlines(args.slice(1).join(" ").trim());
+        const raw = args.slice(1).join(" ").trim();
+        const text = req.literalText ? raw : unescapeNewlines(raw);
         if (!text) return { ok: false, output: `NOT POSTED: nothing to submit. Usage: ${usage}` };
         if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
         const msg = post(chat, member.handle, text, t, { submit: true });
