@@ -1,4 +1,4 @@
-import type { AgentKind, Chat, ChatMode, ChatSummary } from "./chat";
+import type { AgentKind, Chat, ChatMode, ChatNotes, ChatSummary } from "./chat";
 
 export interface WindowInfo {
   /**
@@ -222,7 +222,9 @@ export type ClientMessage =
   /** What the chat is for, or null for the general rules: told to each agent on its next wake. */
   | { t: "chat-mode"; id: string; mode: ChatMode | null }
   /** The user's brief for the task; empty clears it. A changed brief is told to each agent on its next wake. */
-  | { t: "chat-brief"; id: string; text: string }
+  | { t: "chat-brief"; id: string; text: string; expectRev?: number }
+  /** The chat's notes, replacing revision `rev`; answered with `chat-notes-result` for `req`. */
+  | { t: "chat-notes"; id: string; text: string; rev: number; req: string }
   /** An excerpt (an answer, a file part, a diff) put to agents with a question, labelled with where it came from. */
   | { t: "chat-handoff"; id: string; to: string[]; question: string; excerpt: string; label: string; repo?: string; revision?: string }
   /** Start an investigation round that wakes every agent, or end the open one and reveal what was posted. */
@@ -484,6 +486,8 @@ export type ServerMessage =
    */
   | { t: "notice"; message: string }
   | { t: "chats"; chats: ChatSummary[] }
+  /** Whether a notes save landed: its new revision, or the revision that beat it. */
+  | { t: "chat-notes-result"; id: string; req: string; ok: boolean; notes?: ChatNotes; error?: string; conflict?: boolean }
   | { t: "chat"; chat: Chat; agents: Record<string, ChatMemberLive> }
   /** Sent to the browser that created a chat, so it can open it. */
   | { t: "chat-created"; id: string }

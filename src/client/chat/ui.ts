@@ -28,6 +28,7 @@ import {
 } from "./model";
 import { openPicker } from "./picker";
 import { renderMarkdown } from "./markdown";
+import { createChatNotes } from "./notes";
 import { createChatContext } from "./context";
 import { chatRules } from "../../shared/chat-rules";
 import { createChatActivity } from "./activity";
@@ -94,7 +95,7 @@ const store = {
 };
 
 /** Per chat: the member beside it, the scroll position, the unsent draft. */
-interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean }
+interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean; notes?: boolean }
 function remembered(id: string): Remembered {
   try { return (JSON.parse(store.get(STATE_KEY) ?? "{}") as Record<string, Remembered>)[id] ?? {}; } catch { return {}; }
 }
@@ -241,8 +242,43 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   });
   detailsHead.append(detailsTitle, el("span", "sp"), detailsClose);
   const detailsMembers = el("section", "chat-details-members");
-  details.append(detailsHead, context.el, detailsMembers);
+  const notes = createChatNotes((m) => host.send(m), (text) => context.shareBrief(text));
+  /** Setup (mode, brief, members) or Notes (the user's own): one tab of the panel at a time. */
+  const detailsTabs = el("div", "chat-details-tabs");
+  detailsTabs.setAttribute("role", "tablist");
+  detailsTabs.setAttribute("aria-label", "Chat details");
+  const setup = el("div", "chat-details-setup");
+  setup.id = "chat-details-setup";
+  setup.setAttribute("role", "tabpanel");
+  setup.append(context.el, detailsMembers);
+  notes.el.id = "chat-details-notes";
+  notes.el.setAttribute("role", "tabpanel");
+  const tabBtns = ([["Setup", setup], ["Notes", notes.el]] as const).map(([label, panel], i) => {
+    const b = btn("chat-details-tab", label, label === "Notes" ? "Your own notes on this chat; agents never get them" : "Mode, brief, handoff, rounds and members");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-controls", panel.id);
+    b.onclick = () => setNotesTab(i === 1, true);
+    b.onkeydown = (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      setNotesTab(i === 0, false);
+      tabBtns[i === 0 ? 1 : 0]!.focus();
+    };
+    return b;
+  });
+  detailsTabs.append(...tabBtns);
+  details.append(detailsHead, detailsTabs, setup, notes.el);
   let detailsOpen = false;
+  let notesTab = false;
+  function setNotesTab(on: boolean, focus: boolean) {
+    notesTab = on;
+    setup.hidden = on;
+    notes.el.hidden = !on;
+    tabBtns.forEach((b, i) => { const sel = (i === 1) === on; b.setAttribute("aria-selected", String(sel)); b.tabIndex = sel ? 0 : -1; b.classList.toggle("on", sel); });
+    if (chat) remember(chat.id, { notes: on });
+    if (focus && on) notes.focus();
+  }
+  setNotesTab(false, false);
   const lines = el("div", "chat-lines");
   const strip = el("div", "chat-strip");
   const activity = createChatActivity();
@@ -305,11 +341,12 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     details.hidden = !on;
     if (chat) remember(chat.id, { details: on });
     paintChat();
-    if (on) details.querySelector<HTMLElement>("select, button:not(.icon-btn)")?.focus({ preventScroll: true });
+    if (on) (notesTab ? notes.focus() : details.querySelector<HTMLElement>(".chat-details-tab.on")?.focus({ preventScroll: true }));
   }
 
   function paintChat() {
     context.update(chat);
+    notes.update(chat);
     activity.update(chat, agents);
     if (!chat) {
       head.replaceChildren(el("span", "chat-name", openId ? "Loading…" : ""));
@@ -888,6 +925,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   return {
     failed(message: string) { context.failed(message); },
+    notesResult: notes.result,
     setChats(list: ChatSummary[]) {
       chats = list;
       if (openId && !chats.some((c) => c.id === openId)) open(null);
@@ -906,6 +944,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         offered = prefill(c);
         detailsOpen = r.details === true;
         details.hidden = !detailsOpen;
+        setNotesTab(r.notes === true, false);
         autosize();
         if (r.member && showing && !host.onPhone()) openSide(r.member);
       } else {
@@ -921,6 +960,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     connected() {
       host.send({ t: "chats", on: true });
       if (openId) host.send({ t: "chat-open", id: openId });
+      notes.reconnected();
     },
     asking: () => chatsAsking(chats, showing ? openId : null),
     tabChats: () => tabChats(chats),

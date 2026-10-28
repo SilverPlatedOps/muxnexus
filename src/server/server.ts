@@ -763,6 +763,18 @@ export function createServer(opts: ServerOptions): RunningServer {
           ws.data.sentChat = null;
           await pushChats();
           return;
+        case "chat-notes": {
+          // Answered by request, ok or not: the editor says Saved only on this.
+          if (!chat) return send(ws, { t: "chat-notes-result", id: m.id, req: m.req, ok: false, error: "Chats are off on this server." });
+          const parsed = parseChatMessage(m as unknown as { t: string } & Record<string, unknown>);
+          if (!parsed || parsed.t !== "chat-notes") return send(ws, { t: "chat-notes-result", id: String(m.id), req: String(m.req), ok: false, error: "invalid chat-notes" });
+          const r = await chat.handle(parsed).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e), notes: undefined, conflict: undefined }));
+          send(ws, r.ok
+            ? { t: "chat-notes-result", id: parsed.id, req: parsed.req, ok: true, notes: r.notes }
+            : { t: "chat-notes-result", id: parsed.id, req: parsed.req, ok: false, error: r.error, notes: r.notes, ...(r.conflict ? { conflict: true } : {}) });
+          if (r.ok) await pushChats();
+          return;
+        }
         case "chat-create":
         case "chat-post":
         case "chat-add":

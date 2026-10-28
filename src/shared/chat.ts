@@ -123,6 +123,14 @@ export interface ChatBrief {
   at: string;
 }
 
+/** The user's own notes on a chat: never sent to agents, versioned so two browsers can't overwrite each other. */
+export interface ChatNotes {
+  text: string;
+  rev: number;
+  updatedAt: string;
+}
+export const MAX_NOTES = 100_000;
+
 /** An investigation where each agent posts its evidence before seeing a peer's. */
 export interface ChatRound {
   /** Names the round in `mux submit`, so a post from an older turn can't stand in for an answer. */
@@ -156,6 +164,7 @@ export interface Chat {
   mode?: ChatMode;
   brief?: ChatBrief;
   round?: ChatRound;
+  notes?: ChatNotes;
 }
 
 /** What a sidebar row says about a chat. */

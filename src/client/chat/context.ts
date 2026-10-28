@@ -55,16 +55,30 @@ export function createChatContext(send: (m: ClientMessage) => boolean) {
     if (i instanceof HTMLTextAreaElement) i.rows = 5;
     l.append(i); parent.append(l); return i;
   }
-  function editBrief() {
+  /** The brief editor; from notes, it starts on the shared text and says what it replaces. */
+  function editBrief(from?: string) {
     if (!chat) return;
     const c = chat;
-    const d = dialog("Shared task brief");
-    d.body.append(node("p", "chat-task-hint", "Your goal, constraints, decisions and open questions. Agents receive changes on their next wake. They can propose edits in chat."));
-    const i = field(d.body, "Brief · up to 4,000 characters", c.brief?.text ?? "", true);
+    // The revision this edit starts from: a brief saved meanwhile from elsewhere turns it back.
+    const expectRev = c.brief?.rev ?? 0;
+    const d = dialog(from === undefined ? "Shared task brief" : "Share notes as brief");
+    d.body.append(node("p", "chat-task-hint", from === undefined
+      ? "Your goal, constraints, decisions and open questions. Agents receive changes on their next wake. They can propose edits in chat."
+      : c.brief?.text ? `This replaces the current brief (v${c.brief.rev}). Your notes stay as they are.` : "This becomes the chat's brief. Your notes stay as they are."));
+    const i = field(d.body, "Brief · up to 4,000 characters", from ?? c.brief?.text ?? "", true);
     i.maxLength = 4000;
     d.body.append(node("p", "chat-task-hint", "Leave empty to clear the brief. Saving does not wake agents."));
-    const save = button("Save brief", () => {}); save.type = "submit"; save.classList.add("pri"); d.foot.append(save);
-    d.form.onsubmit = (e) => { e.preventDefault(); submit(d, save, { t: "chat-brief", id: c.id, text: i.value }, (next) => (next.brief?.text ?? "") === i.value.trim()); };
+    const error = node("p", "chat-task-error"); error.setAttribute("role", "alert"); d.body.append(error);
+    const save = button(from === undefined ? "Save brief" : "Replace brief", () => {}); save.type = "submit"; save.classList.add("pri"); d.foot.append(save);
+    d.form.onsubmit = (e) => {
+      e.preventDefault();
+      if (i.value.length > 4000) { error.textContent = `That's ${i.value.length.toLocaleString("en-US")} characters; shorten it to 4,000.`; return; }
+      error.textContent = "";
+      // The same words are no new revision, so no update would come to confirm them.
+      const live = chat?.id === c.id ? chat : c;
+      if (i.value.trim() === (live.brief?.text ?? "") && (live.brief?.rev ?? 0) === expectRev) return d.dismiss();
+      submit(d, save, { t: "chat-brief", id: c.id, text: i.value, expectRev }, (next) => (next.brief?.text ?? "") === i.value.trim());
+    };
     i.focus();
   }
   function startRound() {
@@ -111,6 +125,7 @@ export function createChatContext(send: (m: ClientMessage) => boolean) {
   }
   return {
     el, handoff,
+    shareBrief(text: string) { editBrief(text); },
     failed(message: string) { pending?.fail(message); pending = null; },
     update(next: Chat | null) {
       if (next && pending?.chatId === next.id && pending.acknowledged(next)) pending.done();
@@ -133,7 +148,7 @@ export function createChatContext(send: (m: ClientMessage) => boolean) {
       select.onchange = () => {
         if (!send({ t: "chat-mode", id: next.id, mode: select.value === "general" ? null : select.value as ChatMode })) select.value = next.mode ?? "general";
       };
-      const brief = button(next.brief?.text ? `Brief · v${next.brief.rev}` : "Add brief", editBrief);
+      const brief = button(next.brief?.text ? `Brief · v${next.brief.rev}` : "Add brief", () => editBrief());
       const hand = button("Hand off…", () => handoff());
       hand.disabled = next.round?.state === "open" || !next.members.some((m) => m.kind !== "user" && !m.left);
       if (hand.disabled) hand.title = next.round?.state === "open" ? "Reveal the independent round before sharing context" : "Add an agent first";

@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CHAT_RULES_VERSION } from "../../shared/chat-rules";
-import { CHAT_MODES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatMode, type ChatSummary } from "../../shared/chat";
+import { CHAT_MODES, MAX_NOTES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatMode, type ChatNotes, type ChatSummary } from "../../shared/chat";
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
@@ -65,7 +65,8 @@ export function parseChatMessage(m: { t: string } & Record<string, unknown>): Ch
       case "chat-delete": return str(m.id) && typeof m.closeTabs === "boolean";
       case "chat-discard-held": return str(m.id);
       case "chat-mode": return str(m.id) && (m.mode === null || CHAT_MODES.includes(m.mode as ChatMode));
-      case "chat-brief": return str(m.id) && str(m.text);
+      case "chat-brief": return str(m.id) && str(m.text) && (m.expectRev === undefined || (Number.isSafeInteger(m.expectRev) && (m.expectRev as number) >= 0));
+      case "chat-notes": return str(m.id) && str(m.text) && Number.isSafeInteger(m.rev) && (m.rev as number) >= 0 && str(m.req) && (m.req as string).length <= 64;
       case "chat-handoff": return str(m.id) && Array.isArray(m.to) && m.to.every(str) && str(m.question) && str(m.excerpt) && str(m.label) && (m.repo === undefined || str(m.repo)) && (m.revision === undefined || str(m.revision));
       case "chat-round": return str(m.id) && (m.action === "start" || m.action === "end") && (m.topic === undefined || str(m.topic));
       case "chat-reconnect": return str(m.id) && str(m.handle) && (m.windowId === undefined || str(m.windowId));
@@ -108,7 +109,7 @@ export interface ChatServiceDeps {
   home?: string;
 }
 
-type Result = { ok: true; chatId?: string; notice?: string } | { ok: false; error: string };
+type Result = { ok: true; chatId?: string; notice?: string; notes?: ChatNotes } | { ok: false; error: string; notes?: ChatNotes; conflict?: true };
 
 /** A spawned agent whose tab never stamped within this long is reported as not started. */
 const SPAWN_TIMEOUT_MS = 90_000;
@@ -159,6 +160,8 @@ export function createChatService(deps: ChatServiceDeps) {
   const ready = () => (loaded ??= deps.store.list().then((list) => { for (const c of list) chats.set(c.id, c); }));
   // A chat deleted while a tick or hook still held it stays deleted.
   const save = (chat: Chat) => (chats.get(chat.id) === chat ? deps.store.save(chat) : Promise.resolve());
+  /** A notes save on its way to disk, per chat: the next waits for it, so a revision is never handed out twice. */
+  const notesSaving = new Map<string, Promise<unknown>>();
 
   const live = (m: ChatMember, states: Map<string, WindowLive>) => (m.windowId ? states.get(m.windowId) : undefined);
 
@@ -375,7 +378,39 @@ export function createChatService(deps: ChatServiceDeps) {
       case "chat-mode":
         setMode(chat, m.mode ?? undefined, now());
         break;
+      case "chat-notes": {
+        while (notesSaving.has(chat.id)) await notesSaving.get(chat.id);
+        if (chats.get(chat.id) !== chat) return { ok: false, error: "No such chat." };
+        const current = chat.notes ?? { text: "", rev: 0, updatedAt: "" };
+        if (m.text.length > MAX_NOTES) return { ok: false, error: `The notes are ${m.text.length.toLocaleString("en-US")} characters; they hold ${MAX_NOTES.toLocaleString("en-US")}.`, notes: current };
+        if (m.rev !== current.rev) return { ok: false, conflict: true, error: "These notes changed in another window.", notes: current };
+        // The same words again (a retry, a blur) are no new revision.
+        if (m.text === current.text) return { ok: true, chatId: chat.id, notes: current };
+        // Kept in the chat before it is written, so a post saved meanwhile carries
+        // it too; taken back if the write fails, so nothing shows a revision the disk lacks.
+        const before = chat.notes;
+        const next = { text: m.text, rev: current.rev + 1, updatedAt: now() };
+        chat.notes = next;
+        const writing = save(chat);
+        notesSaving.set(chat.id, writing.catch(() => {}));
+        try {
+          await writing;
+          // Deleted while it was written: nothing was kept, so nothing is called saved.
+          if (chats.get(chat.id) !== chat) return { ok: false, error: "No such chat." };
+        } catch (e) {
+          if (chat.notes === next) {
+            if (before) chat.notes = before;
+            else delete chat.notes;
+          }
+          return { ok: false, error: `Couldn't save the notes: ${e instanceof Error ? e.message : String(e)}`, notes: current };
+        } finally {
+          notesSaving.delete(chat.id);
+        }
+        return { ok: true, chatId: chat.id, notes: next };
+      }
       case "chat-brief":
+        // A brief edited from a stale copy is turned back, not written over the newer one.
+        if (m.expectRev !== undefined && m.expectRev !== (chat.brief?.rev ?? 0)) return { ok: false, error: "The brief changed in another window. Reopen it to see the current one." };
         if (m.text.length > MAX_BRIEF) return { ok: false, error: `The brief is ${m.text.length.toLocaleString("en-US")} characters; keep it under ${MAX_BRIEF.toLocaleString("en-US")}, and point to a file for more.` };
         setBrief(chat, m.text, now());
         break;

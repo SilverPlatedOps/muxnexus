@@ -773,6 +773,9 @@ const conn = new Connection(wsUrl, {
       case "chat-created":
         chatUI?.created(m.id);
         break;
+      case "chat-notes-result":
+        chatUI?.notesResult(m);
+        break;
       case "notice":
       case "error":
         chatUI?.failed(m.message);
