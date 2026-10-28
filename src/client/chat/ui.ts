@@ -73,6 +73,8 @@ export interface ChatEls {
 
 const TAB_KEY = "muxnexus.sideTab";
 const OPEN_KEY = "muxnexus.chat";
+/** Whether the open chat was in view, rather than left for a workspace: a reload comes back to it. */
+const SHOWING_KEY = "muxnexus.chatShowing";
 const STATE_KEY = "muxnexus.chatState";
 
 
@@ -189,6 +191,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     openId = id;
     showing = id !== null;
     store.set(OPEN_KEY, id);
+    store.set(SHOWING_KEY, id ? "1" : null);
     chat = null;
     agents = {};
     host.send({ t: "chat-open", id });
@@ -230,6 +233,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     if (!showing) return;
     saveDraft();
     showing = false;
+    store.set(SHOWING_KEY, null);
     closeSide();
     paintList();
     host.changed();
@@ -1090,7 +1094,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     tab: () => tab,
     focus: () => input.focus(),
     fit: () => sideView?.fit(),
-    init() { setTab(tab); },
+    init() {
+      setTab(tab);
+      // Back where the page was: in the chat it showed.
+      if (openId && store.get(SHOWING_KEY)) open(openId);
+    },
   };
 }
 

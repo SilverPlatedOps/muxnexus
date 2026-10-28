@@ -120,7 +120,7 @@ function showTerminal(on: boolean) {
   terminalOn = on;
   if (!on) closeFind();
   paintMain();
-  if (on && !views.showing()) {
+  if (on && !views.showing() && !chatUI?.isShowing()) {
     term.fit();
     term.focus();
   }
@@ -298,9 +298,10 @@ function hideReconnect() {
   statusEl.hidden = true;
 }
 
-function attach(session: string) {
+/** `rejoin`: the socket came back, and the workspace is taken up again behind whatever was showing, a chat included. */
+function attach(session: string, rejoin = false) {
   // A workspace picked while a chat is open leaves the chat (it can be gone back to).
-  chatUI?.leaveForWorkspace();
+  if (!rejoin) chatUI?.leaveForWorkspace();
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
@@ -659,7 +660,7 @@ const conn = new Connection(wsUrl, {
     memorySent = false;
     syncSystem();
     syncMemory();
-    if (desired) attach(desired);
+    if (desired) attach(desired, true);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
   onClose(nextDelayMs) {
