@@ -41,3 +41,11 @@ describe("reply-to", () => {
     expect(chatRules(0).join("\n")).toContain("mux say --reply <id>");
   });
 });
+
+test("the browser's quote of a parent is one plain line, and says when the parent is gone", async () => {
+  const { replyQuote } = await import("../src/client/chat/model");
+  const c = chat();
+  const p = post(c, "codex1", "**Chat details** holds\nthe `mode`", T);
+  expect(replyQuote(c, p.id)).toEqual({ id: p.id, from: "codex1", text: "Chat details holds the mode" });
+  expect(replyQuote(c, 999).text).toBe("(no longer in the chat)");
+});

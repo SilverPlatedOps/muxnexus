@@ -15,6 +15,7 @@ import {
   parseCap,
   canOpen,
   creditsText,
+  replyQuote,
   nearAgent,
   prefill,
   prefillChips,
@@ -202,6 +203,17 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     paintChat();
   }
 
+  /** The message the next post answers. */
+  let replying: number | null = null;
+  /** Reply to a line: the box says so, and an agent's line puts that agent among the recipients. */
+  function startReply(id: number, from: string) {
+    if (!chat) return;
+    replying = id;
+    const m = chat.members.find((x) => x.handle === from && x.kind !== "user" && !x.left);
+    if (m && !chips.includes(m.handle)) chips.push(m.handle);
+    paintCompose();
+    input.focus();
+  }
   /** A search result to show once its chat has loaded: a message to scroll to, or the notes. */
   let revealing: { chatId: string; messageId?: number; notes?: boolean } | null = null;
   function applyReveal() {
@@ -363,7 +375,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   const helper = el("span", "chat-helper");
   const suggest = el("div", "chat-suggest");
   suggest.hidden = true;
-  compose.append(chipsEl, input, helper, suggest);
+  /** The message the next post answers, shown above the box until it goes or is dropped. */
+  const replyBar = el("div", "chat-reply-bar");
+  replyBar.hidden = true;
+  compose.append(replyBar, chipsEl, input, helper, suggest);
   const convo = el("div", "chat-convo");
   convo.append(lines, strip, activity.el, compose);
   const main = el("div", "chat-main");
@@ -554,13 +569,22 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       // Under the name, in the gutter: shown on hover or focus, it never covers the text.
       const whoCol = el("div", "chat-who-col");
       line.append(shape, whoCol, body);
+      const reply = btn("chat-handoff-action chat-reply-action", "Reply", `Answer #${r.id}: your post links to it`);
+      reply.onclick = () => startReply(r.id, r.from);
       const handoff = btn("chat-handoff-action", "Hand off", "Send this answer or selected text to another agent");
       handoff.onclick = () => {
         const selection = window.getSelection();
         const excerpt = selection && !selection.isCollapsed && selection.anchorNode && group.contains(selection.anchorNode) && selection.focusNode && group.contains(selection.focusNode) ? selection.toString() : r.text;
         context.handoff(excerpt, `Message #${r.id} from ${r.from}`);
       };
-      whoCol.append(who, handoff);
+      whoCol.append(who, reply, handoff);
+      if (r.replyTo) {
+        const q = r.replyTo;
+        const quote = btn("chat-reply-quote", "", `Go to #${q.id}`);
+        quote.append(el("span", "chat-reply-label", `↪ #${q.id}${q.from ? ` ${q.from === "user" ? "you" : `@${q.from}`}` : ""}`), el("span", "chat-reply-text", q.text));
+        quote.onclick = () => { if (chat) { revealing = { chatId: chat.id, messageId: q.id }; applyReveal(); } };
+        body.prepend(quote);
+      }
       built.push(line);
       const fold = tabFold(r);
       if (fold) built.push(fold);
@@ -600,6 +624,13 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   function paintCompose() {
     if (!chat) return;
+    replyBar.hidden = replying === null;
+    if (replying !== null) {
+      const q = replyQuote(chat, replying);
+      const drop = btn("chat-chip-x", "✕", "Don't reply to it (Esc)");
+      drop.onclick = () => { replying = null; paintCompose(); input.focus(); };
+      replyBar.replaceChildren(el("span", "chat-reply-label", `Replying to #${q.id}${q.from ? ` ${q.from === "user" ? "you" : `@${q.from}`}` : ""}:`), el("span", "chat-reply-text", q.text), drop);
+    }
     chipsEl.replaceChildren(...chips.map((h) => {
       const m = chat!.members.find((x) => x.handle === h);
       const c = el("span", "chat-chip");
@@ -633,7 +664,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     if (uploading) { host.toast("Wait for the image to finish uploading"); return; }
     // The path is what an agent opens; this chat shows it as the picture.
     const text = [typed, ...pasted.map((p) => `![pasted image](<${p.path}>)`)].filter(Boolean).join("\n\n");
-    host.send({ t: "chat-post", id: chat.id, text });
+    host.send({ t: "chat-post", id: chat.id, text, ...(replying !== null ? { replyTo: replying } : {}) });
+    replying = null;
     input.value = "";
     pasted = [];
     chips = [];
@@ -714,6 +746,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
   input.addEventListener("input", () => { choice = 0; paintSuggest(); paintCompose(); autosize(); if (chat) remember(chat.id, { draft: input.value }); });
   input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && replying !== null && suggest.hidden) { e.preventDefault(); replying = null; paintCompose(); return; }
     // ⌘ shortcuts (⌘J, ⌘K…) still work from the message box; plain keys stay in it.
     if (!e.metaKey) e.stopPropagation();
     if (!suggest.hidden && choices.length) {
@@ -1046,6 +1079,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       if (c.id !== openId) return;
       const first = chat === null;
       if (chat && chat.id !== c.id) pasted = [];
+      if (first) replying = null;
       chat = c;
       agents = a;
       if (first) {

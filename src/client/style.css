@@ -2233,3 +2233,13 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-agent-state.working { display: inline-flex; align-items: center; gap: 5px; }
 .chat-agent-state .chat-activity-dots { height: 10px; gap: 2px; }
 .chat-agent-state .chat-activity-dots i { width: 3px; height: 3px; }
+
+/* ---- reply-to: the quote on a reply, the bar above the box ---- */
+.chat-reply-quote { display: flex; gap: 6px; max-width: 100%; margin: 0 0 3px; padding: 1px 8px; border: 0; border-left: 2px solid var(--edge); background: none; color: var(--muted); font: 11.5px/1.5 var(--mono); text-align: left; cursor: pointer; }
+.chat-reply-quote:hover { border-left-color: var(--accent); color: var(--fg); }
+.chat-reply-quote:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-reply-label { flex: none; color: var(--dim); }
+.chat-reply-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-reply-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-left: 2px solid var(--accent); background: var(--group); color: var(--muted); font: 11.5px var(--mono); }
+.chat-reply-bar[hidden] { display: none; }
+.chat-reply-bar .chat-reply-text { flex: 1; }

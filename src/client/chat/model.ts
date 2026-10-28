@@ -66,6 +66,8 @@ export interface Row {
   at: string;
   /** What the agent said in its own tab that turn, folded under the line. */
   tab: { text: string; lines: number; similar?: true } | null;
+  /** The message this one answers, as its quote shows it. */
+  replyTo?: { id: number; from: string; text: string };
 }
 
 const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9_]{4,}/g) ?? []);
@@ -84,6 +86,14 @@ export function tabOf(text: string | undefined, post = ""): { text: string; line
   let shared = 0;
   for (const w of mine) if (said.has(w)) shared++;
   return shared / mine.size >= 0.6 ? { ...tab, similar: true } : tab;
+}
+
+/** The start of a replied-to message, on one line; a parent gone from the chat still shows its number. */
+export function replyQuote(chat: Pick<Chat, "messages">, id: number): { id: number; from: string; text: string } {
+  const p = chat.messages.find((m) => m.id === id);
+  // Markdown's marks read as noise in a one-line quote.
+  const flat = p ? p.text.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim() : "";
+  return { id, from: p?.from ?? "", text: p ? (flat.length > 120 ? `${flat.slice(0, 119)}…` : flat) : "(no longer in the chat)" };
 }
 
 function exception(handle: string, state: string, reason?: string): string | null {
@@ -120,6 +130,7 @@ export function messageRows(chat: Chat): Row[] {
       turnStart: m.from !== last,
       at: m.at,
       tab: tabOf(m.tabText, m.text),
+      ...(m.replyTo !== undefined ? { replyTo: replyQuote(chat, m.replyTo) } : {}),
     });
     last = m.from;
   }
