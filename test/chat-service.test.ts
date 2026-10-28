@@ -131,7 +131,7 @@ describe("the user's example, end to end", () => {
     await svc.tick();
     expect(sends).toHaveLength(2);
     expect(sends[1]!).toMatchObject({ kind: "codex", target: { thread: "th-1", transcript: "/tmp/r.jsonl" } });
-    expect(sends[1]!.text).toContain("Missed:  @user → @claude1: please add the sync endpoint");
+    expect(sends[1]!.text).toContain("Context: @user → @claude1: please add the sync endpoint");
 
     await say(svc, "codex", "say", "two findings. What do you think? @claude");
     await say(svc, "claude", "say", "agreed, @user we are thinking option 1 or 2");
@@ -407,7 +407,7 @@ describe("an agent in two chats", () => {
     await newChat(svc, "claude");
     await svc.handle({ t: "chat-post", id: a, text: "@claude1 hi" });
     await svc.tick();
-    expect(sends[0]!.text.split("\n")[1]).toBe(`Reply with mux say --chat "shop review"; your tab's answer is invisible to the chat. Use Markdown with real line breaks (a quoted heredoc for multiline posts).`);
+    expect(sends[0]!.text.split("\n")[2]).toBe(`Reply: mux say --chat ${a} "text"`);
     expect(await say(svc, "claude", "say", "--chat", "shop review", "hello")).toEqual({ ok: true, output: `posted to "shop review" as #3 · context only: nobody was mentioned` });
   });
 });
@@ -574,9 +574,11 @@ describe("what an agent said in its tab", () => {
     await svc.handle({ t: "chat-post", id, text: "@codex1 what do you think?" });
     await svc.tick();
     expect(sends.at(-1)!.kind).toBe("codex");
-    expect(sends.at(-1)!.text).toContain("sub looks wrong");
+    expect(sends.at(-1)!.text).toContain("#3 @claude1: mux read");
     expect(sends.at(-1)!.text).not.toContain("TAB-ONLY");
-    expect((await say(svc, "codex", "read")).output).not.toContain("TAB-ONLY");
+    const history = (await say(svc, "codex", "read", "--since", "2", "--before", "4")).output;
+    expect(history).toContain("sub looks wrong");
+    expect(history).not.toContain("TAB-ONLY");
   });
 
   test("a turn the chat started that ended without a post shows what the agent said", async () => {

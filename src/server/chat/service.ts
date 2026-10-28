@@ -1,15 +1,16 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { CHAT_RULES_VERSION } from "../../shared/chat-rules";
 import { CHAT_MODES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatMode, type ChatSummary } from "../../shared/chat";
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
-import { addMember, discardHeld, leave, missedFor, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
+import { addMember, discardHeld, leave, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
 import type { ChatStore } from "./store";
-import { deliveryText, handoffText, readText, unescapeNewlines, whoText } from "./text";
+import { packetText, packetReceiptTag, joinMessage, handoffText, readText, unescapeNewlines, whoText } from "./text";
 import { said as saidIn, type Said, type Where } from "./turns";
 
 /**
@@ -499,9 +500,23 @@ export function createChatService(deps: ChatServiceDeps) {
         return { ok: true, output: left.length ? `submitted as #${msg.id}; held until ${left.map((h) => `@${h}`).join(" ")} submit${left.length === 1 ? "s" : ""} or @user ends the round` : `submitted as #${msg.id}; the round is revealed` };
       }
       case "read": {
-        const n = Number(args[0] ?? 20);
-        return { ok: true, output: readText(chat, Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 20, member.handle) };
+        let n = 20;
+        const range: { since?: number; before?: number; human?: boolean } = {};
+        let count = false;
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i]!;
+          if (arg === "--human") range.human = true;
+          else if (arg === "--since" || arg === "--before") {
+            const v = args[++i];
+            if (v === undefined || !/^\d+$/.test(v) || !Number.isSafeInteger(Number(v))) return { ok: false, output: "Usage: mux read [n] [--since ID] [--before ID] [--human]" };
+            range[arg === "--since" ? "since" : "before"] = Number(v);
+          } else if (!count && /^\d+$/.test(arg) && Number(arg) > 0 && Number.isSafeInteger(Number(arg))) {
+            n = Math.min(Number(arg), 200); count = true;
+          } else return { ok: false, output: "Usage: mux read [n] [--since ID] [--before ID] [--human]" };
+        }
+        return { ok: true, output: readText(chat, n, member.handle, range) };
       }
+      case "rules": return { ok: true, output: [joinMessage(chat, member, { home }), chat.brief?.text ? `\nBrief from @user (rev ${chat.brief.rev}):\n${chat.brief.text}` : "\nNo pinned brief."].join("\n") };
       case "who": {
         const states = await deps.states();
         return { ok: true, output: whoText(chat, (m) => STATE_WORDS[live(m, states)?.state ?? ""] ?? "offline", { home }) };
@@ -714,7 +729,9 @@ export function createChatService(deps: ChatServiceDeps) {
       // Earlier sends were awaited: a delete, a Remove, an archive or a pause may have landed since.
       const chat = chats.get(s.chatId);
       if (!chat) continue;
-      const msg = chat.messages.find((x) => x.id === s.msgId)!;
+      let messages = (s.msgIds ?? [s.msgId]).map((id) => chat.messages.find((x) => x.id === id)).filter((m): m is ChatMessage => !!m);
+      if (!messages.length) continue;
+      const msg = messages[0]!;
       const member = chat.members.find((x) => x.handle === s.handle)!;
       const d = msg.deliveries[s.handle];
       if (!d || d.state !== "queued" || d.reason === "sent" || member.left || chat.archived) continue;
@@ -722,7 +739,7 @@ export function createChatService(deps: ChatServiceDeps) {
       const adapter = deps.adapters[member.kind as AgentKind];
       changed.add(chat.id);
       if (!info || !adapter) {
-        msg.deliveries[s.handle] = { state: "failed", reason: adapter ? "offline" : "unavailable", at: now() };
+        for (const message of messages) message.deliveries[s.handle] = { state: "failed", reason: adapter ? "offline" : "unavailable", at: now() };
         continue;
       }
       const to = await target(member, info);
@@ -730,13 +747,22 @@ export function createChatService(deps: ChatServiceDeps) {
       // Those awaits let a reveal, a delete, an archive, a Remove or a pause land: look again before anything is stamped sent.
       const now1 = msg.deliveries[s.handle];
       if (chats.get(chat.id) !== chat || chat.archived || member.left || !now1 || now1.state !== "queued" || now1.reason === "sent") continue;
-      const text = deliveryText(chat, member, msg, missedFor(chat, member.handle, msg.id), { home, several: chatsOf(member.windowId!).length > 1 });
+      messages = messages.filter((m) => { const d = m.deliveries[s.handle]; return d?.state === "queued" && d.reason !== "sent" && !m.blind; });
+      if (!messages.length) continue;
+      const last = messages.at(-1)!;
+      const packetIds = new Set(messages.map((m) => m.id));
+      const unseen = chat.messages.filter((m) => m.id > (member.lastSeq ?? 0) && m.id < last.id && !packetIds.has(m.id) && m.from !== member.handle && !m.system && !m.blind);
+      const peerTail = new Set(unseen.filter((m) => m.from !== "user" || m.auto).slice(-5).map((m) => m.id));
+      // Human steering between addressed messages is part of this wake too, never lost behind its cursor.
+      const lines = unseen.filter((m) => (m.from === "user" && !m.auto) || peerTail.has(m.id));
+      const text = packetText(chat, member, messages, { lines, older: unseen.length - lines.length }, { home, several: chatsOf(member.windowId!).length > 1 });
       // What this wake carries of the mode and brief: noted once it has gone.
       const told = { mode: chat.mode ?? "", brief: chat.brief?.rev ?? 0 };
       // Marked and saved before it goes: a crash in between leaves a message
       // that is never confirmed, never one that is sent twice. What the member
       // has seen moves only once it has gone.
-      msg.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe: { tag: tagOf(chat, msg.id), ...(to.transcript ? { path: to.transcript } : {}), offset } };
+      const probe = { tag: packetReceiptTag(text, last.id), ...(to.transcript ? { path: to.transcript } : {}), offset };
+      for (const message of messages) message.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe };
       await save(chat);
       let res: SendResult;
       try {
@@ -748,13 +774,14 @@ export function createChatService(deps: ChatServiceDeps) {
         member.welcomed = true;
         const bytes = new TextEncoder().encode(text).length;
         member.payload = { count: (member.payload?.count ?? 0) + 1, bytes: (member.payload?.bytes ?? 0) + bytes, last: bytes };
+        member.rulesSent = CHAT_RULES_VERSION;
         member.modeSent = told.mode;
         member.briefSent = told.brief;
-        member.lastSeq = Math.max(member.lastSeq ?? 0, msg.id);
+        member.lastSeq = Math.max(member.lastSeq ?? 0, last.id);
         await save(chat);
         continue;
       }
-      msg.deliveries[s.handle] = res.reason === "offline"
+      for (const message of messages) message.deliveries[s.handle] = res.reason === "offline"
         ? { state: "queued", reason: "offline", at: now() }
         : { state: "failed", reason: res.detail ? `${res.reason}: ${res.detail}` : res.reason, at: now() };
       await save(chat);

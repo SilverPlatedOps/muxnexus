@@ -2119,3 +2119,12 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-picker-dialog .chat-modal { max-height: 84vh; }
 .chat-picker-dialog::backdrop { background: transparent; }
 .chat-task-status { flex: 1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* Agent activity is session state, separate from the message history. */
+.chat-activity { display: flex; flex: none; align-items: center; gap: 8px; min-height: 28px; padding: 4px 14px; background: var(--panel); color: var(--muted); font: 11px/1.5 var(--mono); }
+.chat-activity-label { min-width: 0; overflow-wrap: anywhere; }
+.chat-activity-dots { display: inline-flex; flex: none; align-items: center; gap: 3px; height: 12px; }
+.chat-activity-dots i { display: block; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .45; animation: chat-working-dot 1.2s ease-in-out infinite; }
+.chat-activity-dots i:nth-child(2) { animation-delay: .15s; }
+.chat-activity-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes chat-working-dot { 0%, 60%, 100% { opacity: .45; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .chat-activity-dots i { animation: none; opacity: .65; transform: none; } }

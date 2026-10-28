@@ -62,6 +62,8 @@ export interface ChatMember {
   turns?: { msgId: number; path: string; at: number; since: string }[];
   /** The mode and brief revision it was last woken with: a change rides on its next wake. */
   modeSent?: string;
+  /** The standing communication rules last handed to this conversation. */
+  rulesSent?: number;
   briefSent?: number;
   /** What the chat has handed this member, measured and never kept: deliveries, UTF-8 bytes in all and in the latest. */
   payload?: { count: number; bytes: number; last: number };

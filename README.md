@@ -295,6 +295,10 @@ remains in its settings menu. The **Terminals** buttons above the conversation
 open and switch the agent terminal beside the chat without choosing recipients
 for your message. Recipient chips in the composer control who gets your post.
 
+Agents use short prose by default and add formatting when it helps. A live row
+above the message box shows which agents are working, with animated dots;
+permission waits and offline agents have their existing distinct states.
+
 Chat answers render Markdown, including tables and code blocks with Copy.
 Long answers and the additional text from an agent's own tab can be expanded.
 Links to source files resolve relative to the author's terminal when available.
@@ -320,7 +324,13 @@ answers. This controls muxnexus chat sharing; it cannot erase context agents
 already have or isolate shared files. Handoffs to round participants wait until
 the round is revealed.
 
-**Context sent** reports delivery counts and UTF-8 payload bytes as collected
+Queued messages for the same agent and room share a bounded wake. Standing
+instructions aren't repeated every time; older peer context is retrieved by
+message ID, and human instructions remain inline or explicitly required.
+See [docs/chat-gateway.md](docs/chat-gateway.md) for delivery guarantees,
+measurements and on-demand context commands.
+
+**Context sent** reports wake counts and UTF-8 payload bytes as collected
 since this feature was installed. These are transport measurements, not token
 usage or the size of an agent's full context.
 

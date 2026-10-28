@@ -151,7 +151,7 @@ export function createChatContext(send: (m: ClientMessage) => boolean) {
       const measured = next.members.filter((m) => m.kind !== "user" && m.payload);
       if (measured.length) {
         const stats = node("details", "chat-context-stats"); stats.open = statsOpen; stats.ontoggle = () => { statsOpen = stats.open; }; stats.append(node("summary", "", "Context sent"));
-        for (const m of measured) stats.append(node("p", "chat-task-hint", `${m.handle}: ${m.payload!.count} deliveries · ${m.payload!.bytes.toLocaleString()} bytes total · ${m.payload!.last.toLocaleString()} bytes last wake`));
+        for (const m of measured) stats.append(node("p", "chat-task-hint", `${m.handle}: ${m.payload!.count} wakes · ${m.payload!.bytes.toLocaleString()} bytes total · ${m.payload!.last.toLocaleString()} bytes last wake`));
         stats.append(node("p", "chat-task-hint", "UTF-8 payload bytes from muxnexus, not tokens or the agent’s full context. Recorded from this update onward."));
         el.append(stats);
       }

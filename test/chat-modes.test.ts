@@ -54,7 +54,7 @@ describe("mode", () => {
   test("a chat with no mode keeps the general rules", () => {
     const c = chatWith("claude", "codex");
     const text = joinMessage(c, member(c, "codex1"), { home: HOME });
-    expect(text).toContain("- Driver: say what to review");
+    expect(text).toContain("- Work within the user's request.");
     expect(text).not.toContain("Brainstorm:");
   });
 
@@ -62,9 +62,9 @@ describe("mode", () => {
     const c = chatWith("claude", "codex");
     setMode(c, "brainstorm", T);
     const text = joinMessage(c, member(c, "codex1"), { home: HOME });
-    expect(text).toContain("an agreement-only post wakes everyone");
-    expect(text).not.toContain("- Driver: say what to review");
-    expect(text).toContain("- mux stop is for when");
+    expect(text).toContain("If you only agree, say nothing.");
+    expect(text).not.toContain("- Work within the user's request.");
+    expect(text).toContain("- mux stop ends the exchange");
   });
 
   test("changing the mode is a system line that wakes nobody", () => {
@@ -266,7 +266,8 @@ describe("blind round", () => {
     const a = member(c, "claude1");
     a.welcomed = true;
     const msg = post(c, "codex1", "@claude1 hi", T);
-    expect(deliveryText(c, a, msg, { lines: [note], older: 0 })).toContain("Missed:  muxnexus (the room, not the user): @claude1 The round is over");
+    expect(deliveryText(c, a, msg, { lines: [note], older: 0 })).toContain(`History (retrieve if relevant): #${note.id} @muxnexus`);
+    expect(deliveryText(c, a, note, { lines: [], older: 0 })).toContain("muxnexus (the room, not the user): @claude1 The round is over");
   });
 
   test("a room notice doesn't count as the human answering a question to them", () => {

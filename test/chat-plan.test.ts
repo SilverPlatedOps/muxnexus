@@ -15,14 +15,13 @@ const view = (over: Partial<Record<string, Partial<AgentView>>> = {}) =>
   (_c: Chat, m: ChatMember): AgentView => ({ online: true, idle: true, kind: m.kind as "claude" | "codex", ...over[m.windowId!] });
 
 describe("nextSends", () => {
-  test("claude gets every queued message at once, oldest first", () => {
+  test("claude gets adjacent queued messages as one packet, oldest first", () => {
     const c = chat("a", ["claude", "@1"]);
     const m1 = post(c, "user", "@claude1 one", T);
     const m2 = post(c, "user", "@claude1 two", T);
     const plan = nextSends([c], view({ "@1": { idle: false } }));
     expect(plan.send).toEqual([
-      { chatId: "a", msgId: m1.id, handle: "claude1" },
-      { chatId: "a", msgId: m2.id, handle: "claude1" },
+      { chatId: "a", msgId: m1.id, handle: "claude1", msgIds: [m1.id, m2.id] },
     ]);
     expect(plan.fail).toEqual([]);
   });
