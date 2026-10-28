@@ -23,6 +23,12 @@ describe("chat Markdown", () => {
     expect(all.some((n) => ["script", "img", "iframe"].includes(n.tag))).toBe(false);
     expect(text(nodes)).toContain("<script>");
   });
+  test("a bare address becomes a link, without its trailing punctuation; other schemes stay text", () => {
+    const all = walk(markdownNodes("Open https://github.com/a/b/compare/main...x?expand=1. Or javascript:alert(1) and ftp://x.test"));
+    expect(all.filter((n) => n.tag === "a").map((n) => n.attrs?.href)).toEqual(["https://github.com/a/b/compare/main...x?expand=1"]);
+    const link = all.find((n) => n.tag === "a")!;
+    expect(link.attrs).toMatchObject({ target: "_blank", rel: "noopener noreferrer" });
+  });
   test("code inside a link label never creates a nested link", () => {
     const all = walk(markdownNodes("[`src/a.ts`](https://example.com)", "@7"));
     expect(all.filter((n) => n.tag === "a")).toHaveLength(1);

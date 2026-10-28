@@ -64,6 +64,11 @@ export function markdownNodes(source: string, windowId?: string): MarkdownNode[]
       const label = n.name === "Autolink" ? [textNode(url ? raw(url) : raw(n))] : labelNodes(n);
       return href ? [{ tag: "a", attrs: { href, target: "_blank", rel: "noopener noreferrer" }, children: label }] : label;
     }
+    // A bare address in the text (no brackets), as GitHub reads it: a link, through the same scheme check.
+    if (n.name === "URL" && n.parent?.name !== "Link" && n.parent?.name !== "Autolink") {
+      const href = chatLink(raw(n), windowId);
+      return href ? [{ tag: "a", attrs: { href, target: "_blank", rel: "noopener noreferrer" }, children: [textNode(raw(n))] }] : [textNode(raw(n))];
+    }
     // Images and HTML are text: remote images must never load as a side effect of a post.
     if (/^(?:Image|HTMLBlock|HTMLTag|Comment|ProcessingInstruction)$/.test(n.name)) return [textNode(raw(n))];
     if (n.name === "HorizontalRule") return [{ tag: "hr" }];
