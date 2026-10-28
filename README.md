@@ -157,8 +157,10 @@ muxnexus snapshots        # what is on disk, newest first
 ```
 
 Each window comes back in its old directory and order, under its old session and
-tab names, wearing its note, with `claude --resume` typed for the conversation it
-held on the account it was on.
+tab names, wearing its note, with the agent's resume command typed for the
+conversation it held, using its Claude account or Codex home. New snapshots
+record Codex threads too; older snapshots cannot recover thread IDs they never
+recorded.
 
 Plain `restore` runs every resume, so every agent comes back at once -- each
 one a few hundred megabytes, before you have looked at any of them. With
@@ -215,6 +217,8 @@ story grows into this, use theirs.
 | `Cmd+B` | Toggle the sidebar |
 | `Cmd+J` | Jump to the next session waiting on you (`Cmd+Shift+J` too, for iPad Safari) |
 | `Cmd+F` | Find in scrollback |
+| `Cmd+K` | Focus the existing sidebar search |
+| `Cmd+Shift+K` | Search across workspaces, tabs, repository paths, and saved notes |
 | `Cmd+C` | Copy the selection (no selection: nothing) |
 | `Cmd+V` | Paste (bracketed paste, forwarded by tmux) |
 | wheel | Scrolls the program if it takes the mouse (Claude Code does); otherwise scrolls the tab's tmux history, which closes again at the bottom or when you type |
@@ -281,6 +285,49 @@ If Codex is signed in with ChatGPT, it gets a row too, with its 5-hour and weekl
 windows, read from ChatGPT's usage endpoint with the token in
 `~/.codex/auth.json` — read, never refreshed; Codex keeps that one current
 itself. Codex tabs wear its badge like any other account.
+
+## Agent chats
+
+The **Chats** sidebar starts a room with existing agents or new Claude/Codex tabs.
+Before launch, the picker previews each agent's workspace, folder, account and
+role. Double-click a chat name in the list or header to rename it; **Rename…**
+remains in its settings menu. The **Terminals** buttons above the conversation
+open and switch the agent terminal beside the chat without choosing recipients
+for your message. Recipient chips in the composer control who gets your post.
+
+Chat answers render Markdown, including tables and code blocks with Copy.
+Long answers and the additional text from an agent's own tab can be expanded.
+Links to source files resolve relative to the author's terminal when available.
+HTML and remote images remain text.
+
+Choose **Brainstorm**, **Review** or **Investigate** above the chat to give agents
+instructions for that activity. **General** preserves the original rules. A
+changed mode reaches existing agents on their next wake. **Add brief** stores a
+short, user-edited task description; agents receive a changed revision on their
+next wake. Saving a brief or mode wakes nobody. The brief preview names agents
+still awaiting that revision; sent does not mean read.
+
+**Hand off…** lets you choose recipients, ask a specific question, and preview
+an excerpt or diff with its repository and revision. The same action below a
+message pre-fills its text, or your selection within it. Mentions inside an
+excerpt do not add recipients.
+
+In Investigate mode, **Independent round…** asks all current agents for their
+own evidence. New answers are withheld from peer delivery and `mux read` until
+all participants submit with the round-specific command shown to them, or you
+choose **Reveal answers**. You can still see the
+answers. This controls muxnexus chat sharing; it cannot erase context agents
+already have or isolate shared files. Handoffs to round participants wait until
+the round is revealed.
+
+**Context sent** reports delivery counts and UTF-8 payload bytes as collected
+since this feature was installed. These are transport measurements, not token
+usage or the size of an agent's full context.
+
+The search button at the top of the sidebar, or **Cmd+Shift+K**, searches
+workspace and tab names, repository paths, and existing note contents together.
+Arrow keys select a result, Enter opens it, and Escape closes search. Existing
+sidebar, note and scrollback searches remain available for narrower searches.
 
 ## Starting Codex in a new tab
 

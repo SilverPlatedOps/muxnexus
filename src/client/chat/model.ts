@@ -83,7 +83,7 @@ export function messageRows(chat: Chat): Row[] {
   let last: string | null = null;
   for (const m of chat.messages) {
     const member = chat.members.find((x) => x.handle === m.from);
-    if (m.system) {
+    if (m.system || m.auto) {
       rows.push({ id: m.id, kind: "system", from: m.from, shape: "·", colour: null, me: false, text: m.text, parts: [{ text: m.text }], tick: null, exceptions: [], turnStart: false, at: m.at, tab: tabOf(m.tabText) });
       continue;
     }

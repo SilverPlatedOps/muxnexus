@@ -90,6 +90,8 @@ export interface ExplorerHooks {
 }
 
 export interface Explorer {
+  /** Pick an exact note from another search surface. */
+  openNote(noteId: string): void;
   /** The tab came into view: fetch the list afresh, and focus the search if asked. */
   activate(focusSearch: boolean): void;
   /** Send any edit not yet saved: the tab is going out of view. */
@@ -277,6 +279,7 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
   paint();
 
   return {
+    openNote(id) { pick(id); if (selected === id) editor.focus(); },
     activate(focusSearch) {
       hooks.request();
       if (focusSearch) {

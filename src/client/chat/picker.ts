@@ -57,12 +57,13 @@ export function openPicker(o: PickerOpts) {
   let folded = true;
   let name = "";
 
-  const back = el("div", "chat-modal-back");
+  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const back = el("dialog", "chat-modal-back chat-picker-dialog");
   const modal = el("div", "chat-modal");
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-label", o.mode === "create" ? "New chat" : "Add agents");
+  back.setAttribute("aria-label", o.mode === "create" ? "New chat" : "Add agents");
   back.append(modal);
-  const close = () => back.remove();
+  const close = () => { previewAbort.abort(); back.close(); back.remove(); previous?.focus({ preventScroll: true }); };
+  back.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
   back.onclick = (e) => { if (e.target === back) close(); };
   modal.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") close(); });
 
@@ -78,9 +79,13 @@ export function openPicker(o: PickerOpts) {
     return `@${kind}${before + index + 1}`;
   }
 
+  let previewAbort = new AbortController();
   function paint() {
+    previewAbort.abort();
+    previewAbort = new AbortController();
     const headEl = el("header", "chat-modal-head", o.mode === "create" ? "New chat" : "Add agents");
     const x = btn("icon-btn", "✕");
+    x.setAttribute("aria-label", "Close agent picker");
     x.onclick = close;
     headEl.append(el("span", "sp"), x);
 
@@ -144,6 +149,7 @@ export function openPicker(o: PickerOpts) {
         let prof: HTMLSelectElement | null = null;
         if (s.kind === "claude" && o.profiles.length > 1) {
           prof = el("select", "chat-staged-profile");
+          prof.setAttribute("aria-label", "Claude account");
           for (const p of o.profiles) {
             const opt = el("option", "", p);
             opt.value = p;
@@ -195,6 +201,7 @@ export function openPicker(o: PickerOpts) {
     if (o.mode === "create") {
       const n = el("input", "chat-modal-name");
       n.placeholder = "Name: taken from the members if empty";
+      n.setAttribute("aria-label", "Chat name");
       n.value = name;
       n.oninput = () => { name = n.value; };
       extra.append(n);
@@ -229,7 +236,27 @@ export function openPicker(o: PickerOpts) {
       });
       close();
     };
-    foot.append(el("span", "note", "Members can read the whole chat."), el("span", "sp"), go);
+    foot.append(el("span", "note", "Selected agents join; staged agents launch when you submit."), el("span", "sp"), go);
+
+    const preflight = el("details", "chat-preflight");
+    preflight.open = true;
+    preflight.append(el("summary", "", `Ready to ${o.mode === "create" ? "create" : "add"} · ${picked.size + staged.length} agent${picked.size + staged.length === 1 ? "" : "s"}`));
+    const preview = el("dl");
+    for (const p of picked.values()) {
+      const value = () => [p.agent.kind === "codex" ? "Codex" : "Claude", `account: ${p.agent.profile ?? "current"}`, p.agent.session, p.agent.folder ?? "folder not reported", p.role.trim() ? `role: ${p.role.trim()}` : ""].filter(Boolean).join(" · ");
+      const detail = el("dd", "", value());
+      preview.append(el("dt", "", p.agent.name), detail);
+      modal.addEventListener("input", () => { detail.textContent = value(); }, { signal: previewAbort.signal });
+    }
+    for (const s of staged) {
+      const value = () => [s.kind === "codex" ? "Codex" : "Claude", `account: ${s.profile ?? "current"}`, s.session, s.folder.trim() || "workspace folder", s.role.trim() ? `role: ${s.role.trim()}` : ""].filter(Boolean).join(" · ");
+      const detail = el("dd", "", value());
+      preview.append(el("dt", "", `New ${s.kind}`), detail);
+      // Inputs update the same staging object; keep the preflight exact as they change.
+      modal.addEventListener("input", () => { detail.textContent = value(); }, { signal: previewAbort.signal });
+      modal.addEventListener("change", () => { detail.textContent = value(); }, { signal: previewAbort.signal });
+    }
+    preflight.append(preview);
 
     const folders = el("datalist");
     folders.id = "chat-folders";
@@ -238,11 +265,12 @@ export function openPicker(o: PickerOpts) {
       opt.value = tilde(f);
       folders.append(opt);
     }
-    modal.replaceChildren(headEl, search, list, spawn, fold, extra, foot, folders);
+    modal.replaceChildren(headEl, search, list, spawn, fold, extra, preflight, foot, folders);
     if (document.activeElement === document.body || !modal.contains(document.activeElement)) search.focus();
   }
 
   // On the page first, so the search can take focus.
   document.body.append(back);
+  back.showModal();
   paint();
 }

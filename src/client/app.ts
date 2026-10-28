@@ -25,6 +25,7 @@ import { sessionName, type WorldActions } from "./world-actions";
 import { createViewHost } from "./view-host";
 import { createDebugView } from "./views/debug";
 import { createChatUI, type ChatUI } from "./chat/ui";
+import { createGlobalSearch } from "./global-search";
 
 const SESSION_KEY = "muxnexus.session";
 const PHONE = "(max-width: 720px)";
@@ -64,6 +65,7 @@ const viewToggle = document.getElementById("view-toggle")!;
 const chatEl = document.getElementById("chat")!;
 /** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
 let chatUI: ChatUI | null = null;
+let globalSearch: ReturnType<typeof createGlobalSearch> | null = null;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
@@ -662,6 +664,8 @@ const conn = new Connection(wsUrl, {
   },
   onClose(nextDelayMs) {
     showReconnect(nextDelayMs);
+    globalSearch?.disconnected();
+    chatUI?.failed("Connection lost. Your text is kept here; reconnect before trying again.");
     // The server-side attachment is gone with the socket; clear `current` so
     // the reconnect's onOpen re-sends `attach` instead of treating it as a
     // same-session no-op (attach()'s current === session guard).
@@ -688,6 +692,7 @@ const conn = new Connection(wsUrl, {
         tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         paintAll();
+        globalSearch?.refresh();
         // The nudge names tabs by session and tab, which may just have changed.
         if (lastSwap) nudge.update(lastSwap, sessions);
         break;
@@ -728,6 +733,7 @@ const conn = new Connection(wsUrl, {
         break;
       case "note":
         notes.receive(m);
+        globalSearch?.update(m.noteId, m.text, m.updated);
         break;
       case "system":
         if (systemSent) system.receive(m.stats);
@@ -750,9 +756,11 @@ const conn = new Connection(wsUrl, {
         break;
       case "notes":
         notes.list(m.notes);
+        globalSearch?.receive(m.notes);
         break;
       case "note-deleted":
         notes.deleted(m.noteId);
+        globalSearch?.deleted(m.noteId);
         break;
       case "chats":
         chatUI?.setChats(m.chats);
@@ -767,6 +775,7 @@ const conn = new Connection(wsUrl, {
         break;
       case "notice":
       case "error":
+        chatUI?.failed(m.message);
         sidebar.toast(m.message);
         break;
     }
@@ -886,5 +895,28 @@ chatUI = createChatUI({
   onPhone,
 });
 chatUI.init();
+
+globalSearch = createGlobalSearch({
+  sessions: () => sessions,
+  requestNotes: () => conn.send({ t: "notes-list" }),
+  open(hit) {
+    if (hit.kind === "note") { notes.openNote(hit.noteId); return; }
+    views.show(false);
+    if (hit.kind === "workspace") attach(hit.session);
+    else {
+      chatUI?.leaveForWorkspace();
+      openWindow(hit.session, hit.windowId);
+    }
+  },
+});
+document.getElementById("global-search-open")!.onclick = () => globalSearch?.open();
+// Capture before xterm or the chat composer consumes the shortcut. Cmd+K keeps
+// its existing scoped sidebar search; Shift opens the cross-workspace search.
+document.addEventListener("keydown", (e) => {
+  if (!(e.metaKey && e.shiftKey && !e.altKey && e.key.toLowerCase() === "k")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  globalSearch?.open();
+}, true);
 
 conn.connect();

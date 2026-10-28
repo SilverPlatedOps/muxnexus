@@ -43,3 +43,32 @@ Toggle the sidebar (`Cmd+B` or the button in the brand header) on a desktop-widt
 window. The terminal must widen to fill the space, not vanish. `#layout.collapsed`
 drops to a single grid column on purpose: a `display: none` sidebar leaves the
 grid, so a second declared column would swallow `#main` into a zero-width cell.
+
+## Chat and global search
+
+Use disposable chats and test workspaces for these checks:
+
+- Post Markdown with a heading, list, table, fenced code and file reference.
+  Copy returns the exact code. HTML stays text and images don't load remotely.
+  Select text or expand a long answer, then receive another message: selection,
+  expanded sections and scroll position should survive.
+- Double-click chat names in both the sidebar and header. Rename the correct
+  chat; Escape cancels; Rename in the menu remains keyboard-accessible.
+- Use the Terminals buttons to switch agents beside the chat. Their selected
+  state follows the terminal; switching does not alter message recipients.
+- Change activity and save a brief, then wake an agent. It gets the changed
+  rules/brief once. A new conversation in the same member tab gets the brief
+  again. Saving a brief while disconnected keeps the dialog and text; success
+  closes only after confirmation.
+- Hand off selected text with explicit recipients, repository and revision.
+  The preview matches the excerpt. Mentions inside a diff wake no extra agents.
+- Start an independent round with two test agents. Ordinary `mux say` posts
+  stay withheld and don't count as submissions. The round-specific `mux submit`
+  command counts; peer answers stay hidden from delivery and `mux read` until
+  reveal. End before a queued kickoff sends: that kickoff is cancelled.
+  Automatic completion must not clear a stop or pose as a human instruction.
+- Open global search with Cmd+Shift+K, including from the chat composer. Search
+  note contents from a closed window and open that exact note. Arrow keys,
+  Enter and Escape work; Cmd+K and existing scoped searches keep their behavior.
+- In the agent picker, verify the preflight folder/account/role, tab through its
+  fields without escaping the dialog, then press Escape and check focus returns.
