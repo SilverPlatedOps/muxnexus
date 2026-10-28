@@ -9,7 +9,7 @@ import { processAlive, type WindowAgentInfo } from "../tmux";
 import { usageLimit, type UsageLimit } from "./limits";
 import { searchChats } from "./search";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
-import { addMember, discardHeld, leave, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
+import { addMember, replyTarget, discardHeld, leave, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
 import type { ChatStore } from "./store";
 import { packetText, packetReceiptTag, joinMessage, handoffText, readText, unescapeNewlines, whoText } from "./text";
@@ -59,7 +59,7 @@ export function parseChatMessage(m: { t: string } & Record<string, unknown>): Ch
     switch (m.t) {
       case "chat-create": return (m.name === undefined || str(m.name)) && joins(m.members) && spawns(m.spawn);
       case "chat-add": return str(m.id) && joins(m.members) && spawns(m.spawn);
-      case "chat-post": return str(m.id) && str(m.text);
+      case "chat-post": return str(m.id) && str(m.text) && (m.replyTo === undefined || (Number.isSafeInteger(m.replyTo) && (m.replyTo as number) > 0));
       case "chat-remove": return str(m.id) && str(m.handle);
       case "chat-role": return str(m.id) && str(m.handle) && str(m.role);
       case "chat-settings": return str(m.id) && (m.name === undefined || str(m.name)) && (m.cap === undefined || typeof m.cap === "number");
@@ -346,7 +346,11 @@ export function createChatService(deps: ChatServiceDeps) {
         const text = m.text.trim();
         if (!text) return { ok: false, error: "Nothing to send." };
         if (text.length > MAX_TEXT) return { ok: false, error: `That's ${tooLong(text.length)}` };
-        post(chat, "user", text, now());
+        if (m.replyTo !== undefined) {
+          const bad = replyTarget(chat, m.replyTo, "user");
+          if (bad) return { ok: false, error: bad };
+        }
+        post(chat, "user", text, now(), m.replyTo !== undefined ? { replyTo: m.replyTo } : {});
         break;
       }
       case "chat-add": {
@@ -505,11 +509,24 @@ export function createChatService(deps: ChatServiceDeps) {
     const t = now();
     switch (cmd) {
       case "say": {
+        // `mux say --reply 12 "…"`: the message this answers. Anywhere before the text.
+        let words = args;
+        let replyTo: number | undefined;
+        const flag = words.findIndex((w) => w === "--reply" || w.startsWith("--reply="));
+        if (flag >= 0) {
+          const raw = words[flag]!.includes("=") ? words[flag]!.split("=")[1]! : words[flag + 1] ?? "";
+          const id = Number(raw.replace(/^#/, ""));
+          if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, output: `NOT POSTED: --reply takes a message id, like --reply 12. Usage: mux say --reply <id> "<text>"` };
+          const bad = replyTarget(chat, id, member.handle);
+          if (bad) return { ok: false, output: `NOT POSTED: ${bad} See mux read.` };
+          replyTo = id;
+          words = words.filter((_, i) => i !== flag && (words[flag]!.includes("=") || i !== flag + 1));
+        }
         // `mux say "@codex1" <<EOF` with the text opening on @codex1 too: one mention, not two.
-        const text = unescapeNewlines(args.join(" ").trim()).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
+        const text = unescapeNewlines(words.join(" ").trim()).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
         if (!text) return { ok: false, output: `NOT POSTED: nothing to say. Usage: mux say "<text>"` };
         if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
-        const msg = post(chat, member.handle, text, t);
+        const msg = post(chat, member.handle, text, t, replyTo !== undefined ? { replyTo } : {});
         delete member.awaiting;
         delete member.sawRunning;
         delete member.wake;

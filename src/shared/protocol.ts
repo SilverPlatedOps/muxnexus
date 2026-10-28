@@ -210,7 +210,7 @@ export type ClientMessage =
   /** The chat this browser shows, or none: answered with `chat` now and on every change. */
   | { t: "chat-open"; id: string | null }
   | { t: "chat-create"; name?: string; members: ChatJoin[]; spawn?: ChatSpawn[] }
-  | { t: "chat-post"; id: string; text: string }
+  | { t: "chat-post"; id: string; text: string; replyTo?: number }
   | { t: "chat-add"; id: string; members: ChatJoin[]; spawn?: ChatSpawn[] }
   | { t: "chat-remove"; id: string; handle: string }
   | { t: "chat-role"; id: string; handle: string; role: string }

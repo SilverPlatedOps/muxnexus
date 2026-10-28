@@ -101,6 +101,17 @@ describe("the hook", () => {
     expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe("@claude1 done @claude1 later");
   });
 
+  test("say --reply links the post to the message it answers, and refuses one that isn't there", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    await say(svc, "claude", "say", "@codex1 please review");
+    expect((await say(svc, "codex", "say", "--reply", "3", "@claude1 looks fine")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)).toMatchObject({ text: "@claude1 looks fine", replyTo: 3 });
+    expect((await say(svc, "codex", "say", "--reply=#3", "again")).ok).toBe(true);
+    expect((await say(svc, "codex", "say", "--reply", "99", "nope")).output).toStartWith("NOT POSTED: #99 isn't a message");
+    expect((await say(svc, "codex", "say", "--reply", "x", "nope")).output).toStartWith("NOT POSTED: --reply takes a message id");
+  });
+
   test("say posts and reports the id, read and who answer", async () => {
     const svc = service();
     await newChat(svc, "claude", "codex");

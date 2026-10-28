@@ -36,7 +36,8 @@ function line(m: ChatMessage): string {
   if (m.auto) return `muxnexus (the room, not the user): ${m.text}`.split("\n").join(`\n${indent}`);
   // The mentions it opens with are already in the arrow; leave the words.
   const rest = m.to.length ? m.text.replace(/^(\s*@[A-Za-z][A-Za-z0-9_-]*[,:]?\s*)+/, "") : m.text;
-  const head = m.to.length ? `@${m.from} → ${m.to.map((h) => `@${h}`).join(" ")}: ` : `@${m.from}: `;
+  const re = m.replyTo !== undefined ? ` (re #${m.replyTo})` : "";
+  const head = m.to.length ? `@${m.from} → ${m.to.map((h) => `@${h}`).join(" ")}${re}: ` : `@${m.from}${re}: `;
   return (head + rest).split("\n").join(`\n${indent}`);
 }
 
@@ -123,8 +124,16 @@ function boundPacket(chat: Chat, to: ChatMember, last: ChatMessage, text: string
   ].join("\n");
 }
 
+/** The start of the message a reply answers, so the answer reads without a lookup; none for what the reader can't see. */
+function replyQuote(chat: Chat, to: ChatMember, msg: ChatMessage): string[] {
+  const parent = msg.replyTo !== undefined ? chat.messages.find((m) => m.id === msg.replyTo) : undefined;
+  if (!parent || parent.system || (parent.blind && chat.round?.state === "open" && parent.from !== to.handle)) return [];
+  const first = parent.text.replace(/\s+/g, " ").trim();
+  return block("Re:", [`#${parent.id} @${parent.from}: ${first.length > 160 ? `${first.slice(0, 159)}…` : first}`]);
+}
+
 export function deliveryText(chat: Chat, to: ChatMember, msg: ChatMessage, missed: { lines: ChatMessage[]; older: number }, opts: Opts = {}): string {
-  return boundPacket(chat, to, msg, [...deliveryContext(chat, to, msg, missed, opts), ...block("Now:", [line(msg)])].join("\n"));
+  return boundPacket(chat, to, msg, [...deliveryContext(chat, to, msg, missed, opts), ...replyQuote(chat, to, msg), ...block("Now:", [line(msg)])].join("\n"));
 }
 
 /** One wake for a burst of addressed messages, with standing context carried once. */
@@ -187,7 +196,7 @@ export function readText(chat: Chat, n: number, viewer?: string, range: { since?
       return true; // One long message stays intact; the rest continue on the next page.
     });
   }
-  const lines = selected.map((m) => m.system ? `#${m.id} · ${m.text}` : m.auto ? `#${m.id} muxnexus (the room, not the user): ${m.text}` : `#${m.id} @${m.from}: ${m.text}`);
+  const lines = selected.map((m) => m.system ? `#${m.id} · ${m.text}` : m.auto ? `#${m.id} muxnexus (the room, not the user): ${m.text}` : `#${m.id} @${m.from}${m.replyTo !== undefined ? ` (re #${m.replyTo})` : ""}: ${m.text}`);
   if (range.since !== undefined && selected.length < matching.length && selected.length) {
     lines.push(`More context: mux read ${n} --chat ${chat.id} --since ${selected.at(-1)!.id}${range.before !== undefined ? ` --before ${range.before}` : ""}${range.human ? " --human" : ""}`);
   }

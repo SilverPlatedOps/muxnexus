@@ -96,6 +96,8 @@ export interface ChatMessage {
   tabText?: string;
   /** An agent's post in an open investigation round: its peers don't get it until the round is revealed. */
   blind?: true;
+  /** The message this one answers, by id: shown with it, and named in the wake. */
+  replyTo?: number;
   /** The user's excerpt handed to an agent: where it came from. */
   handoff?: { label: string; repo?: string; revision?: string };
   /** One per agent recipient. */

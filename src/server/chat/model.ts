@@ -74,7 +74,18 @@ function setPending(chat: Chat, from: "queued" | "held", to: "queued" | "held" |
  * with everything after it. Only mentioned agents still in the chat, never the
  * sender, get a delivery.
  */
-export function post(chat: Chat, from: string, text: string, now: string, opts: { system?: boolean; handoff?: ChatMessage["handoff"]; to?: string[]; submit?: boolean; auto?: boolean } = {}): ChatMessage {
+/**
+ * What a reply can point at: a message in this chat that isn't a room line.
+ * A blind post can be answered only by its author until the round is revealed.
+ */
+export function replyTarget(chat: Chat, id: number, from: string): string | null {
+  const parent = chat.messages.find((m) => m.id === id);
+  if (!parent || parent.system || parent.auto) return `#${id} isn't a message in this chat.`;
+  if (parent.blind && chat.round?.state === "open" && from !== "user" && parent.from !== from) return `#${id} isn't a message in this chat.`;
+  return null;
+}
+
+export function post(chat: Chat, from: string, text: string, now: string, opts: { system?: boolean; handoff?: ChatMessage["handoff"]; to?: string[]; submit?: boolean; auto?: boolean; replyTo?: number } = {}): ChatMessage {
   const system = opts.system === true;
   const to = system ? [] : (opts.to ?? resolveMentions(chat, text).to);
   // In an open round an agent's post is held back from the other participants until the reveal.
@@ -110,6 +121,7 @@ export function post(chat: Chat, from: string, text: string, now: string, opts: 
     ...(opts.auto ? { auto: true as const } : {}),
     ...(round ? { blind: true as const } : {}),
     ...(opts.handoff ? { handoff: opts.handoff } : {}),
+    ...(opts.replyTo !== undefined && !system ? { replyTo: opts.replyTo } : {}),
     deliveries,
   };
   chat.messages.push(msg);
