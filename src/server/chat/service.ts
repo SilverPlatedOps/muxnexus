@@ -1,15 +1,15 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentKind, Chat, ChatMember, ChatMessage, ChatSummary } from "../../shared/chat";
+import { CHAT_MODES, type AgentKind, type Chat, type ChatMember, type ChatMessage, type ChatMode, type ChatSummary } from "../../shared/chat";
 import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../../shared/protocol";
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
-import { addMember, discardHeld, leave, missedFor, newChat, post, resolveMentions, setCap, stop, summary } from "./model";
+import { addMember, discardHeld, leave, missedFor, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
 import type { ChatStore } from "./store";
-import { deliveryText, readText, whoText } from "./text";
+import { deliveryText, handoffText, readText, unescapeNewlines, whoText } from "./text";
 import { said as saidIn, type Said, type Where } from "./turns";
 
 /**
@@ -63,6 +63,10 @@ export function parseChatMessage(m: { t: string } & Record<string, unknown>): Ch
       case "chat-archive": return str(m.id) && typeof m.archived === "boolean";
       case "chat-delete": return str(m.id) && typeof m.closeTabs === "boolean";
       case "chat-discard-held": return str(m.id);
+      case "chat-mode": return str(m.id) && (m.mode === null || CHAT_MODES.includes(m.mode as ChatMode));
+      case "chat-brief": return str(m.id) && str(m.text);
+      case "chat-handoff": return str(m.id) && Array.isArray(m.to) && m.to.every(str) && str(m.question) && str(m.excerpt) && str(m.label) && (m.repo === undefined || str(m.repo)) && (m.revision === undefined || str(m.revision));
+      case "chat-round": return str(m.id) && (m.action === "start" || m.action === "end") && (m.topic === undefined || str(m.topic));
       case "chat-reconnect": return str(m.id) && str(m.handle) && (m.windowId === undefined || str(m.windowId));
       default: return false;
     }
@@ -117,6 +121,8 @@ const GONE_MS = 30_000;
 const TURN_MS = 30 * 60_000;
 /** The longest chat line: a delivery is one argument to `codex queue`, and a review fits well inside. */
 export const MAX_TEXT = 32_000;
+/** The longest brief: it rides on a wake whenever it changes, so it stays short. */
+export const MAX_BRIEF = 4_000;
 const tooLong = (n: number) => `too long: ${n.toLocaleString("en-US")} characters, and a chat line holds ${MAX_TEXT.toLocaleString("en-US")}. Put it in a file and point to it.`;
 
 export function isLoopback(address: string | undefined | null): boolean {
@@ -365,6 +371,36 @@ export function createChatService(deps: ChatServiceDeps) {
       case "chat-discard-held":
         discardHeld(chat, now());
         break;
+      case "chat-mode":
+        setMode(chat, m.mode ?? undefined, now());
+        break;
+      case "chat-brief":
+        if (m.text.length > MAX_BRIEF) return { ok: false, error: `The brief is ${m.text.length.toLocaleString("en-US")} characters; keep it under ${MAX_BRIEF.toLocaleString("en-US")}, and point to a file for more.` };
+        setBrief(chat, m.text, now());
+        break;
+      case "chat-handoff": {
+        const live = new Set(chat.members.filter((x) => x.kind !== "user" && !x.left).map((x) => x.handle));
+        const to = [...new Set(m.to)];
+        if (to.length === 0 || to.some((h) => !live.has(h))) return { ok: false, error: "Pick agents that are still in the chat." };
+        if (!m.question.trim() || !m.excerpt.trim()) return { ok: false, error: "A handoff needs a question and an excerpt." };
+        // A participant in an open blind round isn't handed another's answer: it would anchor it.
+        if (chat.round?.state === "open" && to.some((h) => chat.round!.participants.includes(h))) return { ok: false, error: "A blind round is open: end it before handing an excerpt to a participant." };
+        const label = m.label.trim() || "excerpt";
+        const source = { label, ...(m.repo?.trim() ? { repo: m.repo.trim() } : {}), ...(m.revision?.trim() ? { revision: m.revision.trim() } : {}) };
+        const text = handoffText(to, m.question, m.excerpt, source);
+        if (text.length > MAX_TEXT) return { ok: false, error: `That's ${tooLong(text.length)}` };
+        // Named by the user, not read out of the excerpt: an `@Override` in a diff wakes nobody.
+        post(chat, "user", text, now(), { handoff: source, to });
+        break;
+      }
+      case "chat-round":
+        if (m.action === "end") {
+          if (!reveal(chat, now())) return { ok: false, error: "No round is open." };
+        } else {
+          const err = startRound(chat, (m.topic ?? "").trim() || "what is going on here", now());
+          if (err) return { ok: false, error: err };
+        }
+        break;
       case "chat-reconnect": {
         // Only the member's own conversation, in an agent of its kind, in a tab
         // no other member holds: Reconnect never swaps one agent for another.
@@ -422,7 +458,7 @@ export function createChatService(deps: ChatServiceDeps) {
     const t = now();
     switch (cmd) {
       case "say": {
-        const text = args.join(" ").trim();
+        const text = unescapeNewlines(args.join(" ").trim());
         if (!text) return { ok: false, output: `NOT POSTED: nothing to say. Usage: mux say "<text>"` };
         if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
         const msg = post(chat, member.handle, text, t);
@@ -443,9 +479,28 @@ export function createChatService(deps: ChatServiceDeps) {
         const where = mine.length > 1 ? `posted to "${chat.name}" as #${msg.id}` : `posted as #${msg.id}`;
         return { ok: true, output: [where, ...notes].join(" · ") };
       }
+      case "submit": {
+        const round = chat.round;
+        if (round?.state !== "open") return { ok: false, output: "NOT POSTED: no round is open. Use mux say." };
+        if (!round.participants.includes(member.handle)) return { ok: false, output: "NOT POSTED: you weren't asked in this round. Use mux say." };
+        const usage = `mux submit --chat ${chat.id} ${round.id} "<your hypothesis and evidence>"`;
+        if (args[0] !== round.id) return { ok: false, output: `NOT POSTED: the open round is ${round.id}. Usage: ${usage}` };
+        const text = unescapeNewlines(args.slice(1).join(" ").trim());
+        if (!text) return { ok: false, output: `NOT POSTED: nothing to submit. Usage: ${usage}` };
+        if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
+        const msg = post(chat, member.handle, text, t, { submit: true });
+        delete member.awaiting;
+        delete member.sawRunning;
+        delete member.wake;
+        const path = info ? transcriptOf(info) : undefined;
+        if (path) (member.turns ??= []).push({ msgId: msg.id, path, at: await sizeOf(path), since: t });
+        await save(chat);
+        const left = round.state === "open" ? round.participants.filter((h) => !round.submitted.includes(h)) : [];
+        return { ok: true, output: left.length ? `submitted as #${msg.id}; held until ${left.map((h) => `@${h}`).join(" ")} submit${left.length === 1 ? "s" : ""} or @user ends the round` : `submitted as #${msg.id}; the round is revealed` };
+      }
       case "read": {
         const n = Number(args[0] ?? 20);
-        return { ok: true, output: readText(chat, Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 20) };
+        return { ok: true, output: readText(chat, Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 20, member.handle) };
       }
       case "who": {
         const states = await deps.states();
@@ -460,7 +515,7 @@ export function createChatService(deps: ChatServiceDeps) {
         await save(chat);
         return { ok: true, output: `left "${chat.name}"` };
       default:
-        return { ok: false, output: `NOT POSTED: unknown command "${cmd ?? ""}". Use mux say, read, who, stop or leave.` };
+        return { ok: false, output: `NOT POSTED: unknown command "${cmd ?? ""}". Use mux say, submit, read, who, stop or leave.` };
     }
   }
 
@@ -671,11 +726,17 @@ export function createChatService(deps: ChatServiceDeps) {
         continue;
       }
       const to = await target(member, info);
+      const offset = await sizeOf(to.transcript);
+      // Those awaits let a reveal, a delete, an archive, a Remove or a pause land: look again before anything is stamped sent.
+      const now1 = msg.deliveries[s.handle];
+      if (chats.get(chat.id) !== chat || chat.archived || member.left || !now1 || now1.state !== "queued" || now1.reason === "sent") continue;
       const text = deliveryText(chat, member, msg, missedFor(chat, member.handle, msg.id), { home, several: chatsOf(member.windowId!).length > 1 });
+      // What this wake carries of the mode and brief: noted once it has gone.
+      const told = { mode: chat.mode ?? "", brief: chat.brief?.rev ?? 0 };
       // Marked and saved before it goes: a crash in between leaves a message
       // that is never confirmed, never one that is sent twice. What the member
       // has seen moves only once it has gone.
-      msg.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe: { tag: tagOf(chat, msg.id), ...(to.transcript ? { path: to.transcript } : {}), offset: await sizeOf(to.transcript) } };
+      msg.deliveries[s.handle] = { state: "queued", reason: "sent", at: now(), probe: { tag: tagOf(chat, msg.id), ...(to.transcript ? { path: to.transcript } : {}), offset } };
       await save(chat);
       let res: SendResult;
       try {
@@ -685,6 +746,10 @@ export function createChatService(deps: ChatServiceDeps) {
       }
       if (res.ok) {
         member.welcomed = true;
+        const bytes = new TextEncoder().encode(text).length;
+        member.payload = { count: (member.payload?.count ?? 0) + 1, bytes: (member.payload?.bytes ?? 0) + bytes, last: bytes };
+        member.modeSent = told.mode;
+        member.briefSent = told.brief;
         member.lastSeq = Math.max(member.lastSeq ?? 0, msg.id);
         await save(chat);
         continue;

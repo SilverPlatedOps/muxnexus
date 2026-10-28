@@ -3,6 +3,7 @@
  * mux: how an agent talks in a muxnexus chat.
  *
  *   mux say "<text>"      post; @handle wakes that member
+ *   mux submit <round> "<evidence>"  answer an independent round
  *   mux read [n]          older messages
  *   mux who               members, folders, roles, what each is doing
  *   mux stop "<reason>"   end the exchange for everyone until @user writes

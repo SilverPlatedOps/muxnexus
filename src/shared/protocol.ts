@@ -1,4 +1,4 @@
-import type { AgentKind, Chat, ChatSummary } from "./chat";
+import type { AgentKind, Chat, ChatMode, ChatSummary } from "./chat";
 
 export interface WindowInfo {
   /**
@@ -219,6 +219,14 @@ export type ClientMessage =
   /** Gone for good; `closeTabs` also shuts down the agents that joined it. */
   | { t: "chat-delete"; id: string; closeTabs: boolean }
   | { t: "chat-discard-held"; id: string }
+  /** What the chat is for, or null for the general rules: told to each agent on its next wake. */
+  | { t: "chat-mode"; id: string; mode: ChatMode | null }
+  /** The user's brief for the task; empty clears it. A changed brief is told to each agent on its next wake. */
+  | { t: "chat-brief"; id: string; text: string }
+  /** An excerpt (an answer, a file part, a diff) put to agents with a question, labelled with where it came from. */
+  | { t: "chat-handoff"; id: string; to: string[]; question: string; excerpt: string; label: string; repo?: string; revision?: string }
+  /** Start an investigation round that wakes every agent, or end the open one and reveal what was posted. */
+  | { t: "chat-round"; id: string; action: "start" | "end"; topic?: string }
   /** Point a member whose tab closed at the tab its conversation was resumed in. */
   | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }
   | { t: "ping" };

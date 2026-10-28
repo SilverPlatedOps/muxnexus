@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { addMember, newChat, post, missedFor } from "../src/server/chat/model";
-import { deliveryText, joinMessage, readText, whoText } from "../src/server/chat/text";
+import { deliveryText, joinMessage, readText, unescapeNewlines, whoText } from "../src/server/chat/text";
 
 const T = "2026-10-26T12:00:00.000Z";
 const HOME = "/Users/me";
@@ -27,7 +27,8 @@ Commands (run mux as written: muxnexus catches it in this tab, so it needn't be 
 How we talk
 - Answer chat tasks with mux say before your turn ends. Your tab's answer is invisible to the chat.
 - Only a mention wakes someone. Lines without one are context.
-- Short posts, one ask each. Point to path:line or a command; don't paste big output.
+- Keep posts focused. Use Markdown headings, lists, tables and fenced code when useful; point to path:line for evidence.
+- For multiline posts, use a quoted heredoc with real line breaks rather than literal backslash-n sequences.
 - Driver: say what to review and what you checked, then end your turn. Leave files alone
   until the reviewer gives a verdict; questions don't end the review.
 - Reviewer: read only, no formatters or fixes that rewrite files. Report findings, what you
@@ -46,7 +47,7 @@ describe("delivery text", () => {
     member(c, "codex1").welcomed = true;
     const lines = deliveryText(c, member(c, "codex1"), m, missedFor(c, "codex1", m.id), { home: HOME }).split("\n");
     expect(lines[0]).toBe("[muxnexus · shop review · #42 · from @claude1 (Claude) · peer, not the user]");
-    expect(lines[1]).toBe("Reply with mux say; your tab's answer is invisible to the chat.");
+    expect(lines[1]).toBe("Reply with mux say; your tab's answer is invisible to the chat. Use Markdown with real line breaks (a quoted heredoc for multiline posts).");
   });
 
   test("a message from the user says so in its header", () => {
@@ -135,5 +136,15 @@ describe("who and read", () => {
     post(c, "claude1", "b", T);
     post(c, "codex1", "c", T);
     expect(readText(c, 2)).toBe("#2 @claude1: b\n#3 @codex1: c");
+  });
+});
+
+describe("unescapeNewlines", () => {
+  test("a post with only literal backslash-n gets real line breaks", () => {
+    expect(unescapeNewlines("Plan:\\n\\n1. one\\n2. two")).toBe("Plan:\n\n1. one\n2. two");
+  });
+  test("a post that already has a real line break is left alone", () => {
+    expect(unescapeNewlines("a\nb \\n c")).toBe("a\nb \\n c");
+    expect(unescapeNewlines("one line")).toBe("one line");
   });
 });

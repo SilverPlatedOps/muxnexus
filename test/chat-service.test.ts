@@ -407,7 +407,7 @@ describe("an agent in two chats", () => {
     await newChat(svc, "claude");
     await svc.handle({ t: "chat-post", id: a, text: "@claude1 hi" });
     await svc.tick();
-    expect(sends[0]!.text.split("\n")[1]).toBe(`Reply with mux say --chat "shop review"; your tab's answer is invisible to the chat.`);
+    expect(sends[0]!.text.split("\n")[1]).toBe(`Reply with mux say --chat "shop review"; your tab's answer is invisible to the chat. Use Markdown with real line breaks (a quoted heredoc for multiline posts).`);
     expect(await say(svc, "claude", "say", "--chat", "shop review", "hello")).toEqual({ ok: true, output: `posted to "shop review" as #3 · context only: nobody was mentioned` });
   });
 });

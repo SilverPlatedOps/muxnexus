@@ -740,6 +740,10 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "chat-archive":
         case "chat-delete":
         case "chat-discard-held":
+        case "chat-mode":
+        case "chat-brief":
+        case "chat-handoff":
+        case "chat-round":
         case "chat-reconnect": {
           if (!chat) return send(ws, { t: "error", message: "Chats are off on this server." });
           const parsed = parseChatMessage(m as unknown as { t: string } & Record<string, unknown>);

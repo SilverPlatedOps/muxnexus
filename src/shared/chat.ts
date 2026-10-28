@@ -60,6 +60,11 @@ export interface ChatMember {
   wake?: { path: string; from?: number; tag: string; sent: string };
   /** Its posts whose turns haven't ended: then what it said in its tab goes under the last post of each turn. */
   turns?: { msgId: number; path: string; at: number; since: string }[];
+  /** The mode and brief revision it was last woken with: a change rides on its next wake. */
+  modeSent?: string;
+  briefSent?: number;
+  /** What the chat has handed this member, measured and never kept: deliveries, UTF-8 bytes in all and in the latest. */
+  payload?: { count: number; bytes: number; last: number };
   left?: boolean;
   /** An agent started from the chat, before its tab came up, or after it failed to. */
   spawn?: "pending" | "failed";
@@ -77,12 +82,18 @@ export interface ChatMessage {
   to: string[];
   /** A line the room writes itself: joins, leaves, stops. Delivers nothing. */
   system?: boolean;
+  /** A notice the room sends on no human's turn: delivered, but it never lifts a pause or resets the count. */
+  auto?: true;
   /**
    * What the agent said in its own tab in the turn that made this line, when
    * that adds to the line: so the user can see whether a post holds all it
    * concluded. For the user's eyes only, never delivered to an agent.
    */
   tabText?: string;
+  /** An agent's post in an open investigation round: its peers don't get it until the round is revealed. */
+  blind?: true;
+  /** The user's excerpt handed to an agent: where it came from. */
+  handoff?: { label: string; repo?: string; revision?: string };
   /** One per agent recipient. */
   deliveries: Record<string, Delivery>;
 }
@@ -91,6 +102,38 @@ export interface ChatPause {
   reason: "cap" | "stop";
   detail?: string;
   by?: string;
+}
+
+/** What a chat is for; it sets the rules agents are told. Absent: the general rules. */
+export type ChatMode = "brainstorm" | "review" | "investigate";
+export const CHAT_MODES: readonly ChatMode[] = ["brainstorm", "review", "investigate"];
+/** One line on what each mode asks of the agents, for the picker. */
+export const MODE_HINT: Record<ChatMode, string> = {
+  brainstorm: "Add new evidence or ideas, challenge, no agreement-only replies; one synthesis at the end.",
+  review: "Driver says what to review and the base; reviewer reads only and ends with findings and a verdict.",
+  investigate: "Competing hypotheses with evidence; the user can run a blind round so agents don't anchor on each other.",
+};
+
+/** The user's short statement of the task, versioned so agents can be told when it changes. */
+export interface ChatBrief {
+  text: string;
+  rev: number;
+  at: string;
+}
+
+/** An investigation where each agent posts its evidence before seeing a peer's. */
+export interface ChatRound {
+  /** Names the round in `mux submit`, so a post from an older turn can't stand in for an answer. */
+  id: string;
+  /** The user line that asked for it: if it never went out, the round's end cancels it. */
+  kickoff?: number;
+  topic: string;
+  /** The agents asked, by handle. */
+  participants: string[];
+  /** Those who have posted since it started. */
+  submitted: string[];
+  state: "open" | "revealed";
+  startedAt: string;
 }
 
 export interface Chat {
@@ -108,6 +151,9 @@ export interface Chat {
   paused?: ChatPause;
   /** The agent the user's message box pre-fills. */
   lastSpokeToUser?: string;
+  mode?: ChatMode;
+  brief?: ChatBrief;
+  round?: ChatRound;
 }
 
 /** What a sidebar row says about a chat. */
