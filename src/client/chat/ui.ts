@@ -302,6 +302,13 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   convo.append(lines, strip, activity.el, compose);
   const main = el("div", "chat-main");
   main.append(convo, details);
+  /** The edge between the conversation and an agent's terminal: the conversation's width, dragged. */
+  const paneGrip = el("div", "grip chat-pane-grip");
+  paneGrip.setAttribute("role", "separator");
+  paneGrip.setAttribute("aria-orientation", "vertical");
+  paneGrip.setAttribute("aria-label", "Resize the chat beside the terminal");
+  paneGrip.tabIndex = 0;
+  pane.append(paneGrip);
   makeResizable({ grip: detailsGrip, panel: details, host: main, cssVar: "--chat-details", storageKey: "muxnexus.chat-details-width", min: 240, max: 720, fallback: 300, edge: "left" });
   pane.append(head, main);
   const divider = el("div", "chat-divider");
@@ -313,6 +320,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   side.hidden = true;
   wrap.append(pane, divider, side);
   els.main.append(wrap);
+  makeResizable({ grip: paneGrip, panel: pane, host: wrap, cssVar: "--chat-pane", storageKey: "muxnexus.chat-pane-width", min: 420, max: 2400, fallback: 640, edge: "right" });
 
   /** Recipients picked as chips; the draft holds the rest. */
   let chips: string[] = [];
