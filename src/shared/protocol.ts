@@ -1,4 +1,4 @@
-import type { AgentKind, Chat, ChatMode, ChatNotes, ChatSummary } from "./chat";
+import type { AgentKind, Chat, ChatMode, ChatNotes, ChatSearchHit, ChatSummary } from "./chat";
 
 export interface WindowInfo {
   /**
@@ -223,6 +223,8 @@ export type ClientMessage =
   | { t: "chat-mode"; id: string; mode: ChatMode | null }
   /** The user's brief for the task; empty clears it. A changed brief is told to each agent on its next wake. */
   | { t: "chat-brief"; id: string; text: string; expectRev?: number }
+  /** Chats' names, messages and notes matching `query`, from `cursor`; one chat's only with `chatId`. Answered with `chat-search-result`. */
+  | { t: "chat-search"; req: string; query: string; chatId?: string; cursor?: number }
   /** The chat's notes, replacing revision `rev`; answered with `chat-notes-result` for `req`. */
   | { t: "chat-notes"; id: string; text: string; rev: number; req: string }
   /** An excerpt (an answer, a file part, a diff) put to agents with a question, labelled with where it came from. */
@@ -488,6 +490,8 @@ export type ServerMessage =
    */
   | { t: "notice"; message: string }
   | { t: "chats"; chats: ChatSummary[] }
+  /** A page of a chat search; `next` is the cursor for the page after, when there is one. */
+  | { t: "chat-search-result"; req: string; ok: boolean; hits?: ChatSearchHit[]; next?: number; error?: string }
   /** Whether a notes save landed: its new revision, or the revision that beat it. */
   | { t: "chat-notes-result"; id: string; req: string; ok: boolean; notes?: ChatNotes; error?: string; conflict?: boolean }
   | { t: "chat"; chat: Chat; agents: Record<string, ChatMemberLive> }

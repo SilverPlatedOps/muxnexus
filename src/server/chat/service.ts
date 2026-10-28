@@ -7,6 +7,7 @@ import type { AgentState, ChatMemberLive, ChatSpawn, ClientMessage } from "../..
 import { profileLabel } from "../usage";
 import { processAlive, type WindowAgentInfo } from "../tmux";
 import { usageLimit, type UsageLimit } from "./limits";
+import { searchChats } from "./search";
 import { claudeSocket, hasTag, type Adapter, type AgentTarget, type SendResult } from "./adapters";
 import { addMember, discardHeld, leave, newChat, post, reveal, resolveMentions, setBrief, setCap, setMode, startRound, stop, summary } from "./model";
 import { nextSends, type AgentView } from "./plan";
@@ -37,7 +38,7 @@ export interface HookRequest {
 }
 
 /** The browser's chat messages that change a chat. */
-export type ChatClientMessage = Exclude<Extract<ClientMessage, { t: `chat-${string}` }>, { t: "chat-open" }>;
+export type ChatClientMessage = Exclude<Extract<ClientMessage, { t: `chat-${string}` }>, { t: "chat-open" | "chat-search" }>;
 export type SpawnRequest = ChatSpawn;
 export type MemberLive = ChatMemberLive;
 
@@ -890,7 +891,13 @@ export function createChatService(deps: ChatServiceDeps) {
     return { chat, agents };
   }
 
-  return { handle, hook, tick, busy, summaries, view, ready };
+  /** The browser's chat search: over every chat, archived too. */
+  async function search(query: string, opts: { chatId?: string; cursor?: number }) {
+    await ready();
+    return searchChats(chats.values(), query, opts);
+  }
+
+  return { handle, hook, tick, busy, summaries, view, ready, search };
 }
 
 export type ChatService = ReturnType<typeof createChatService>;

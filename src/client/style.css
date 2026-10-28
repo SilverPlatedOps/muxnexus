@@ -2212,3 +2212,18 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-pane-grip { right: -4px; display: none; }
 .chat-wrap.dock-term .chat-pane-grip { display: block; }
 .chat-agent-state.limited { color: var(--red); }
+
+/* ---- chat search: scope switch, more results, the message found ---- */
+.global-search-head h2 { margin-right: auto; }
+.global-search-scopes { display: flex; border: 1px solid var(--edge); border-radius: 6px; overflow: hidden; min-width: 0; }
+.global-search-scopes .seg { height: 26px; max-width: 260px; padding: 0 10px; border: 0; background: none; color: var(--muted); font: 12px var(--mono); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.global-search-scopes .seg[hidden] { display: none; }
+.global-search-scopes .seg.on { background: var(--sel); color: var(--fg-strong); }
+.global-search-more { display: block; width: 100%; margin-top: 6px; padding: 8px; border: 1px dashed var(--edge); border-radius: 4px; background: none; color: var(--accent); font: 12px var(--mono); cursor: pointer; }
+.chat-find { flex: none; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font: 500 12px var(--mono); cursor: pointer; }
+.chat-find:hover { color: var(--fg-strong); background: var(--hover); border-color: var(--edge); }
+.chat-find:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chat-message.chat-hit { border-radius: 6px; animation: chat-hit 2.6s ease-out; }
+.chat-message.chat-hit:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes chat-hit { from { background: color-mix(in oklab, var(--accent) 28%, transparent); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .chat-message.chat-hit { animation: none; background: color-mix(in oklab, var(--accent) 16%, transparent); } }

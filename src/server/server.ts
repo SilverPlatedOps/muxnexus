@@ -2,6 +2,7 @@ import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo, SwapHolder, SwapNotice, SystemStats } from "../shared/protocol";
 import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
+import { SEARCH_LIMITS } from "../shared/chat";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -763,6 +764,22 @@ export function createServer(opts: ServerOptions): RunningServer {
           ws.data.sentChat = null;
           await pushChats();
           return;
+        case "chat-search": {
+          const q = m as unknown as Record<string, unknown>;
+          const req = typeof q.req === "string" && q.req.length <= 64 ? q.req : "";
+          const ok = req && typeof q.query === "string" && q.query.length <= SEARCH_LIMITS.query
+            && (q.chatId === undefined || typeof q.chatId === "string")
+            && (q.cursor === undefined || (Number.isSafeInteger(q.cursor) && (q.cursor as number) >= 0));
+          if (!ok) return send(ws, { t: "chat-search-result", req, ok: false, error: `A search is at most ${SEARCH_LIMITS.query} characters.` });
+          if (!chat) return send(ws, { t: "chat-search-result", req, ok: false, error: "Chats are off on this server." });
+          try {
+            const r = await chat.search(q.query as string, { ...(q.chatId ? { chatId: q.chatId as string } : {}), ...(q.cursor ? { cursor: q.cursor as number } : {}) });
+            send(ws, { t: "chat-search-result", req, ok: true, hits: r.hits, ...(r.next !== undefined ? { next: r.next } : {}) });
+          } catch (e) {
+            send(ws, { t: "chat-search-result", req, ok: false, error: e instanceof Error ? e.message : String(e) });
+          }
+          return;
+        }
         case "chat-notes": {
           // Answered by request, ok or not: the editor says Saved only on this.
           if (!chat) return send(ws, { t: "chat-notes-result", id: m.id, req: m.req, ok: false, error: "Chats are off on this server." });

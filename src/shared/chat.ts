@@ -169,6 +169,19 @@ export interface Chat {
   notes?: ChatNotes;
 }
 
+/** A chat's name, a message in it, or its notes, matching a search: ids to open it by, and a short excerpt, never the transcript. */
+export interface ChatSearchHit {
+  kind: "chat" | "message" | "note";
+  chatId: string;
+  chatName: string;
+  archived: boolean;
+  messageId?: number;
+  from?: string;
+  at?: string;
+  excerpt: string;
+}
+export const SEARCH_LIMITS = { query: 256, page: 50, excerpt: 240 } as const;
+
 /** What a sidebar row says about a chat. */
 export type ChatGlyph = "input" | "running" | "unread" | "seen" | "paused";
 

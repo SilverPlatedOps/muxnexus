@@ -773,6 +773,9 @@ const conn = new Connection(wsUrl, {
       case "chat-created":
         chatUI?.created(m.id);
         break;
+      case "chat-search-result":
+        globalSearch?.chatResult(m);
+        break;
       case "chat-notes-result":
         chatUI?.notesResult(m);
         break;
@@ -896,14 +899,22 @@ chatUI = createChatUI({
   changed: () => { paintMain(); updateAttention(); if (terminalOn && !chatUI?.isShowing() && !views.showing()) term.fit(); },
   toast: (message) => sidebar.toast(message),
   onPhone,
+  find: () => globalSearch?.open(true),
 });
 chatUI.init();
 
 globalSearch = createGlobalSearch({
   sessions: () => sessions,
   requestNotes: () => conn.send({ t: "notes-list" }),
+  searchChats: (req, query, chatId, cursor) => conn.send({ t: "chat-search", req, query, ...(chatId ? { chatId } : {}), ...(cursor ? { cursor } : {}) }),
+  currentChat: () => chatUI?.current() ?? null,
   open(hit) {
     if (hit.kind === "note") { notes.openNote(hit.noteId); return; }
+    if (hit.kind === "chat" || hit.kind === "chat-message" || hit.kind === "chat-note") {
+      views.show(false);
+      chatUI?.reveal({ chatId: hit.chatId, ...(hit.messageId !== undefined ? { messageId: hit.messageId } : {}), ...(hit.kind === "chat-note" ? { notes: true } : {}) });
+      return;
+    }
     views.show(false);
     if (hit.kind === "workspace") attach(hit.session);
     else {
@@ -920,6 +931,15 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   e.stopImmediatePropagation();
   globalSearch?.open();
+}, true);
+// Cmd+F in a chat finds in it; a terminal, an editor or a dialog keeps its own.
+document.addEventListener("keydown", (e) => {
+  if (!(e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") || !chatUI?.isShowing()) return;
+  const at = document.activeElement;
+  if (at instanceof Element && at.closest(".xterm, .chat-dock, dialog, .cm-editor, #notes")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  globalSearch?.open(true);
 }, true);
 
 conn.connect();

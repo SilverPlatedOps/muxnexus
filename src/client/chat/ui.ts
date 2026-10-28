@@ -55,6 +55,8 @@ export interface ChatHost {
   changed(): void;
   toast(message: string): void;
   onPhone(): boolean;
+  /** Find in this chat: the search, scoped to it. */
+  find(): void;
 }
 
 export interface ChatEls {
@@ -195,6 +197,32 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     paintList();
     host.changed();
     paintChat();
+  }
+
+  /** A search result to show once its chat has loaded: a message to scroll to, or the notes. */
+  let revealing: { chatId: string; messageId?: number; notes?: boolean } | null = null;
+  function applyReveal() {
+    if (!revealing || !chat || chat.id !== revealing.chatId) return;
+    const r = revealing;
+    revealing = null;
+    if (r.notes) { setNotesTab(true); setDetails(true); return; }
+    if (r.messageId === undefined) return;
+    const row = lines.querySelector<HTMLElement>(`.chat-message[data-message-id="${r.messageId}"]`);
+    if (!row) { host.toast("That message is no longer in the chat."); return; }
+    row.scrollIntoView({ block: "center" });
+    row.classList.remove("chat-hit");
+    void row.offsetWidth;
+    row.classList.add("chat-hit");
+    row.tabIndex = -1;
+    row.focus({ preventScroll: true });
+    setTimeout(() => row.classList.remove("chat-hit"), 2600);
+  }
+  /** Open a chat at a search result. The chat already open isn't reloaded, so its draft stays. */
+  function reveal(target: { chatId: string; messageId?: number; notes?: boolean }) {
+    revealing = target;
+    setTab("chats");
+    if (openId === target.chatId && showing && chat) applyReveal();
+    else open(target.chatId);
   }
 
   /** You clicked a workspace: the chat stays open on the server side for the way back. */
@@ -433,6 +461,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     detailsBtn.onclick = () => setDetails(!detailsOpen);
     const round = chat.round?.state === "open" ? btn("chat-round-pill", `Round ${chat.round.submitted.length}/${chat.round.participants.length}`, "Independent round open: peer answers withheld until all submit. Open details to reveal.") : null;
     if (round) round.onclick = () => setDetails(true);
+    const find = btn("chat-find", "Find", "Find in this chat's messages and notes (⌘F)");
+    find.onclick = () => host.find();
     const more = btn("chat-more icon-btn", "⋯", "Chat settings");
     more.onclick = (e) => { e.stopPropagation(); toggleMenu(more, settingsMenu()); };
     const narrowSwitch = el("div", "chat-switch");
@@ -446,7 +476,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     // On a phone the top bar's menu button is out of sight: the chat brings its own.
     const burger = btn("chat-burger icon-btn", "☰", "Show the sidebar");
     burger.onclick = () => document.getElementById("hamburger")?.click();
-    head.replaceChildren(burger, name, agentBar, el("span", "sp"), narrowSwitch, ...(round ? [round] : []), detailsBtn, more);
+    head.replaceChildren(burger, name, agentBar, el("span", "sp"), narrowSwitch, ...(round ? [round] : []), find, detailsBtn, more);
     agentBar.replaceChildren();
     for (const m of chat.members) {
       if (m.kind === "user" || m.left) continue;
@@ -997,6 +1027,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   return {
     failed(message: string) { context.failed(message); },
     notesResult: notes.result,
+    reveal,
+    /** The chat in view, for a search scoped to it. */
+    current: () => (showing && chat ? { id: chat.id, name: chat.name } : null),
     setChats(list: ChatSummary[]) {
       chats = list;
       if (openId && !chats.some((c) => c.id === openId)) open(null);
@@ -1022,6 +1055,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         ({ chips, offered } = prefillChips({ chips, draft: input.value, offered }, c));
       }
       paintChat();
+      applyReveal();
     },
     created(id: string) { setTab("chats"); open(id); },
     open,

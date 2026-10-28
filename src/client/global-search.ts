@@ -1,4 +1,5 @@
-import type { NoteSummary, SessionInfo } from "../shared/protocol";
+import { SEARCH_LIMITS, type ChatSearchHit } from "../shared/chat";
+import type { NoteSummary, ServerMessage, SessionInfo } from "../shared/protocol";
 import { sessionLabel, tabLabel } from "./labels";
 import { excerpt } from "./explorer";
 import { queryWords } from "./find";
@@ -6,7 +7,23 @@ import { queryWords } from "./find";
 export type GlobalHit =
   | { kind: "workspace"; key: string; title: string; detail: string; session: string }
   | { kind: "tab"; key: string; title: string; detail: string; session: string; windowId: string }
-  | { kind: "note"; key: string; title: string; detail: string; noteId: string };
+  | { kind: "note"; key: string; title: string; detail: string; noteId: string }
+  | { kind: "chat"; key: string; title: string; detail: string; chatId: string; messageId?: undefined }
+  | { kind: "chat-note"; key: string; title: string; detail: string; chatId: string; messageId?: undefined }
+  | { kind: "chat-message"; key: string; title: string; detail: string; chatId: string; messageId: number };
+
+type ChatResult = Extract<ServerMessage, { t: "chat-search-result" }>;
+/** Typing settles this long before the server is asked. */
+const CHAT_DEBOUNCE_MS = 200;
+
+/** A server chat hit as a row: what matched, then where and from whom; archived chats say so. */
+export function chatHit(h: ChatSearchHit): GlobalHit {
+  const where = `${h.archived ? "Archived · " : ""}${h.chatName}`;
+  const when = h.at ? new Date(h.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  if (h.kind === "chat") return { kind: "chat", key: `chat:${h.chatId}`, title: h.chatName, detail: h.archived ? "Archived chat" : "Chat", chatId: h.chatId };
+  if (h.kind === "note") return { kind: "chat-note", key: `chat-note:${h.chatId}`, title: h.excerpt, detail: `${where} · your notes${when ? ` · ${when}` : ""}`, chatId: h.chatId };
+  return { kind: "chat-message", key: `chat-message:${h.chatId}:${h.messageId}`, title: h.excerpt, detail: [where, h.from === "user" ? "you" : h.from, when].filter(Boolean).join(" · "), chatId: h.chatId, messageId: h.messageId! };
+}
 
 /** Search display names, repository paths and note contents without changing scoped searches. */
 export function globalHits(sessions: readonly SessionInfo[], notes: readonly NoteSummary[], query: string): GlobalHit[] {
@@ -26,13 +43,17 @@ export function globalHits(sessions: readonly SessionInfo[], notes: readonly Not
     const title = `${n.session} › ${n.window}`;
     if (matches(`${title} ${n.text}`)) hits.push({ kind: "note", key: `note:${n.noteId}`, title, detail: excerpt(n.text, query), noteId: n.noteId });
   }
-  const order = { workspace: 0, tab: 1, note: 2 };
+  const order: Record<GlobalHit["kind"], number> = { workspace: 0, tab: 1, note: 2, chat: 3, "chat-message": 4, "chat-note": 5 };
   return hits.sort((a, b) => order[a.kind] - order[b.kind]);
 }
 
 export interface GlobalSearchHost {
   sessions(): readonly SessionInfo[];
   requestNotes(): boolean;
+  /** Ask the server for chat hits; false when it can't be sent. */
+  searchChats(req: string, query: string, chatId?: string, cursor?: number): boolean;
+  /** The chat in view, for This chat. */
+  currentChat(): { id: string; name: string } | null;
   open(hit: GlobalHit): void;
 }
 
@@ -44,6 +65,14 @@ export function createGlobalSearch(host: GlobalSearchHost) {
   let hits: GlobalHit[] = [];
   let selected = 0;
   let previous: HTMLElement | null = null;
+  /** Everything, or one chat's messages and notes. */
+  let scope: { id: string; name: string } | null = null;
+  let chatHits: GlobalHit[] = [];
+  let chatReq = "";
+  let chatState: "idle" | "loading" | "error" = "idle";
+  let chatError = "";
+  let chatNext: number | undefined;
+  let chatTimer: ReturnType<typeof setTimeout> | undefined;
   const dialog = document.createElement("dialog");
   dialog.className = "global-search";
   dialog.setAttribute("aria-labelledby", "global-search-title");
@@ -57,7 +86,23 @@ export function createGlobalSearch(host: GlobalSearchHost) {
   close.className = "btn";
   close.textContent = "Close";
   close.onclick = () => dismiss();
-  head.append(title, close);
+  const scopes = document.createElement("div");
+  scopes.className = "global-search-scopes";
+  scopes.setAttribute("role", "radiogroup");
+  scopes.setAttribute("aria-label", "Search in");
+  const everywhere = document.createElement("button");
+  everywhere.type = "button";
+  everywhere.className = "seg";
+  everywhere.textContent = "Everything";
+  everywhere.setAttribute("role", "radio");
+  everywhere.onclick = () => setScope(null);
+  const here = document.createElement("button");
+  here.type = "button";
+  here.className = "seg";
+  here.setAttribute("role", "radio");
+  here.onclick = () => setScope(host.currentChat());
+  scopes.append(everywhere, here);
+  head.append(title, scopes, close);
   const input = document.createElement("input");
   input.type = "search";
   input.className = "global-search-input";
@@ -106,10 +151,44 @@ export function createGlobalSearch(host: GlobalSearchHost) {
     } else input.removeAttribute("aria-activedescendant");
   }
 
+  /** Chat hits for the box as it stands: the last answer is dropped at once, so a scope never shows another's results. */
+  function askChats(cursor?: number) {
+    clearTimeout(chatTimer);
+    if (cursor === undefined) { chatHits = []; chatNext = undefined; }
+    const query = input.value.trim().slice(0, SEARCH_LIMITS.query);
+    if (!query) { chatReq = ""; chatState = "idle"; return; }
+    chatReq = crypto.randomUUID();
+    chatState = "loading";
+    const req = chatReq;
+    const send = () => {
+      if (req !== chatReq) return;
+      if (!host.searchChats(req, query, scope?.id, cursor)) { chatState = "error"; chatError = "not connected"; paint(); }
+    };
+    if (cursor === undefined) chatTimer = setTimeout(send, CHAT_DEBOUNCE_MS);
+    else send();
+  }
+
+  function setScope(next: { id: string; name: string } | null) {
+    scope = next;
+    title.textContent = scope ? "Find in chat" : "Search everything";
+    input.placeholder = scope ? `Messages and notes in ${scope.name}` : "Workspaces, tabs, notes and chats";
+    const chat = host.currentChat();
+    here.hidden = !chat;
+    here.textContent = chat ? `This chat · ${chat.name}` : "";
+    everywhere.setAttribute("aria-checked", String(!scope));
+    here.setAttribute("aria-checked", String(!!scope));
+    everywhere.classList.toggle("on", !scope);
+    here.classList.toggle("on", !!scope);
+    selected = 0;
+    askChats();
+    paint();
+    input.focus();
+  }
+
   function paint() {
     if (!dialog.open) return;
     const oldKey = hits[selected]?.key;
-    hits = globalHits(host.sessions(), notes, input.value);
+    hits = [...(scope ? [] : globalHits(host.sessions(), notes, input.value)), ...chatHits];
     list.replaceChildren();
     let group = "";
     hits.forEach((hit, i) => {
@@ -118,7 +197,7 @@ export function createGlobalSearch(host: GlobalSearchHost) {
         const heading = document.createElement("div");
         heading.className = "global-search-group";
         heading.setAttribute("role", "presentation");
-        heading.textContent = { workspace: "Workspaces", tab: "Tabs", note: "Notes" }[hit.kind];
+        heading.textContent = { workspace: "Workspaces", tab: "Tabs", note: "Notes", chat: "Chats", "chat-message": "Chat messages", "chat-note": "Chat notes" }[hit.kind];
         list.append(heading);
       }
       const row = document.createElement("button");
@@ -138,11 +217,22 @@ export function createGlobalSearch(host: GlobalSearchHost) {
       row.onclick = () => choose(i);
       list.append(row);
     });
-    status.textContent = `${hits.length} result${hits.length === 1 ? "" : "s"}${loading ? " · Loading notes…" : !available ? " · Notes unavailable: reconnect and reopen search" : !hits.length ? " · No matches" : ""}`;
+    if (chatNext !== undefined) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "global-search-more";
+      more.textContent = "More chat results";
+      more.onmousedown = (e) => e.preventDefault();
+      more.onclick = () => { askChats(chatNext); paint(); };
+      list.append(more);
+    }
+    const chats = chatState === "loading" ? " · Searching chats…" : chatState === "error" ? ` · Chat search failed: ${chatError}` : "";
+    const empty = !hits.length && chatState !== "loading" && input.value.trim() ? " · No matches" : "";
+    status.textContent = `${hits.length} result${hits.length === 1 ? "" : "s"}${!scope && loading ? " · Loading notes…" : !scope && !available ? " · Notes unavailable: reconnect and reopen search" : ""}${chats}${empty}`;
     select(Math.max(0, hits.findIndex((h) => h.key === oldKey)));
   }
 
-  input.oninput = () => { selected = 0; hits = []; paint(); };
+  input.oninput = () => { selected = 0; hits = []; askChats(); paint(); };
   dialog.addEventListener("keydown", (e) => {
     // No key, including Escape, may fall through into the terminal.
     e.stopPropagation();
@@ -158,7 +248,8 @@ export function createGlobalSearch(host: GlobalSearchHost) {
   } });
 
   return {
-    open() {
+    /** `inChat`: Find in chat, scoped to the chat in view. */
+    open(inChat = false) {
       if (dialog.open || document.querySelector(".modal-back, .chat-modal-back, dialog[open]")) return;
       previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       input.value = "";
@@ -169,8 +260,16 @@ export function createGlobalSearch(host: GlobalSearchHost) {
       input.setAttribute("aria-expanded", "true");
       available = host.requestNotes();
       loading = available;
+      setScope(inChat ? host.currentChat() : null);
+    },
+    /** A page of chat hits: only the answer to the latest ask counts. */
+    chatResult(r: ChatResult) {
+      if (r.req !== chatReq || !dialog.open) return;
+      if (!r.ok) { chatState = "error"; chatError = r.error ?? "unknown error"; return paint(); }
+      chatState = "idle";
+      chatHits = [...chatHits, ...(r.hits ?? []).map(chatHit)];
+      chatNext = r.next;
       paint();
-      input.focus();
     },
     receive(next: NoteSummary[]) { notes = next; loading = false; available = true; paint(); },
     refresh: paint,
