@@ -167,9 +167,16 @@ export function createChatService(deps: ChatServiceDeps) {
   let loaded: Promise<void> | null = null;
   const ready = () => (loaded ??= deps.store.list().then((list) => { for (const c of list) chats.set(c.id, c); }));
   // A chat deleted while a tick or hook still held it stays deleted.
-  const save = (chat: Chat) => (chats.get(chat.id) === chat ? deps.store.save(chat) : Promise.resolve());
-  /** A notes save on its way to disk, per chat: the next waits for it, so a revision is never handed out twice. */
+  /** A notes write on its way to disk, per chat: the next waits for it, so a revision is never handed out twice. */
   const notesSaving = new Map<string, Promise<unknown>>();
+  // Any other save of the chat waits for a notes write, then takes the chat as
+  // it stands: with the notes if they were written, without if they weren't.
+  // Either way the disk never holds notes the user was told failed.
+  const save = (chat: Chat): Promise<void> => {
+    const go = () => (chats.get(chat.id) === chat ? deps.store.save(chat) : Promise.resolve());
+    const notes = notesSaving.get(chat.id);
+    return notes ? notes.then(go) : go();
+  };
 
   const live = (m: ChatMember, states: Map<string, WindowLive>) => (m.windowId ? states.get(m.windowId) : undefined);
 
@@ -394,25 +401,21 @@ export function createChatService(deps: ChatServiceDeps) {
         if (m.rev !== current.rev) return { ok: false, conflict: true, error: "These notes changed in another window.", notes: current };
         // The same words again (a retry, a blur) are no new revision.
         if (m.text === current.text) return { ok: true, chatId: chat.id, notes: current };
-        // Kept in the chat before it is written, so a post saved meanwhile carries
-        // it too; taken back if the write fails, so nothing shows a revision the disk lacks.
-        const before = chat.notes;
+        // Written as a copy first: the chat, its view and search take the new
+        // notes only once they are on disk.
         const next = { text: m.text, rev: current.rev + 1, updatedAt: now() };
-        chat.notes = next;
-        const writing = save(chat);
-        notesSaving.set(chat.id, writing.catch(() => {}));
+        const writing = deps.store.save({ ...chat, notes: next });
+        const settled = writing.then(() => { if (chats.get(chat.id) === chat) chat.notes = next; }, () => {});
+        notesSaving.set(chat.id, settled);
         try {
           await writing;
+          await settled;
           // Deleted while it was written: nothing was kept, so nothing is called saved.
           if (chats.get(chat.id) !== chat) return { ok: false, error: "No such chat." };
         } catch (e) {
-          if (chat.notes === next) {
-            if (before) chat.notes = before;
-            else delete chat.notes;
-          }
           return { ok: false, error: `Couldn't save the notes: ${e instanceof Error ? e.message : String(e)}`, notes: current };
         } finally {
-          notesSaving.delete(chat.id);
+          if (notesSaving.get(chat.id) === settled) notesSaving.delete(chat.id);
         }
         return { ok: true, chatId: chat.id, notes: next };
       }

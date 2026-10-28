@@ -60,9 +60,11 @@ test("a Codex out of credits is said once in the chat and its messages wait", as
 });
 
 describe("tab text under a post", () => {
-  test("shown when it adds to the post, not when it mostly restates it", () => {
+  test("always reachable; one that looks like a restatement is only marked similar", () => {
     const post = "Pushed the branch: bare link fix, image paste, gateway work and notes.";
-    expect(tabOf("Pushed the branch with the bare link fix, image paste, gateway work and notes.", post)).toBeNull();
-    expect(tabOf("Ran the whole suite first; two flaky tmux tests needed a rerun before pushing.", post)).not.toBeNull();
+    expect(tabOf("Pushed the branch with the bare link fix, image paste, gateway work and notes.", post)).toMatchObject({ similar: true });
+    expect(tabOf("Ran the whole suite first; two flaky tmux tests needed a rerun before pushing.", post)?.similar).toBeUndefined();
+    // codex1's case: the same words, the opposite meaning, still there to open.
+    expect(tabOf("Validation incomplete: not all tests passed and the deployment is unsafe to proceed", "Validation complete: all tests passed and the deployment is safe to proceed")).not.toBeNull();
   });
 });

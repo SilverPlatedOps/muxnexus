@@ -17,7 +17,19 @@ async function service() {
   const sends: string[] = [];
   const disk = createChatStore(dir);
   const fail = { on: false };
-  const store = { ...disk, save: (c: Chat) => (fail.on ? Promise.reject(new Error("disk full")) : disk.save(c)) };
+  /** A write of notes with this text waits for `until`, then fails if `reject`. */
+  const hold: { text?: string; until?: Promise<void>; reject?: boolean } = {};
+  const store = {
+    ...disk,
+    save: async (c: Chat) => {
+      if (fail.on) throw new Error("disk full");
+      if (hold.text && c.notes?.text === hold.text) {
+        await hold.until;
+        if (hold.reject) throw new Error("disk full");
+      }
+      return disk.save(c);
+    },
+  };
   const info = (kind: "claude" | "codex", pane: string) => ({ paneId: pane, kind, pid: kind === "claude" ? 11 : 22, state: "done" as const, since: 1, fresh: true, ...(kind === "codex" ? { thread: { id: "th", path: "/tmp/r.jsonl" } } : { conversation: { sessionId: "s", transcriptPath: "/tmp/c.jsonl" } }) });
   const svc = createChatService({
     store,
@@ -37,7 +49,7 @@ async function service() {
     home: "/Users/me",
   });
   const r = await svc.handle({ t: "chat-create", name: "t", members: [{ windowId: "@1" }, { windowId: "@2" }] });
-  return { svc, id: (r as { chatId: string }).chatId, sends, fail };
+  return { svc, id: (r as { chatId: string }).chatId, sends, fail, hold };
 }
 
 describe("chat notes", () => {
@@ -73,6 +85,36 @@ describe("chat notes", () => {
     const { svc, id } = await service();
     await svc.handle({ t: "chat-notes", id, text: "same", rev: 0, req: "a" });
     expect(await svc.handle({ t: "chat-notes", id, text: "same", rev: 1, req: "b" })).toMatchObject({ ok: true, notes: { rev: 1 } });
+  });
+
+  test("notes on their way to disk aren't shown or searchable until written", async () => {
+    const { svc, id, hold } = await service();
+    let release!: () => void;
+    Object.assign(hold, { text: "pending zebra", until: new Promise<void>((r) => (release = r)) });
+    const saving = svc.handle({ t: "chat-notes", id, text: "pending zebra", rev: 0, req: "a" });
+    await Bun.sleep(5);
+    expect((await svc.view(id))!.chat.notes).toBeUndefined();
+    expect((await svc.search("zebra", {})).hits).toEqual([]);
+    release();
+    expect(await saving).toMatchObject({ ok: true, notes: { rev: 1 } });
+    expect((await svc.search("zebra", {})).hits).toHaveLength(1);
+  });
+
+  test("a failed notes write with a post saved meanwhile leaves the old notes in memory and on disk", async () => {
+    const { svc, id, hold } = await service();
+    await svc.handle({ t: "chat-notes", id, text: "kept", rev: 0, req: "a" });
+    let release!: () => void;
+    Object.assign(hold, { text: "rejected", reject: true, until: new Promise<void>((r) => (release = r)) });
+    const saving = svc.handle({ t: "chat-notes", id, text: "rejected", rev: 1, req: "b" });
+    await Bun.sleep(5);
+    const posting = svc.handle({ t: "chat-post", id, text: "a post meanwhile" });
+    release();
+    expect((await saving).ok).toBe(false);
+    expect((await posting).ok).toBe(true);
+    expect((await svc.view(id))!.chat.notes).toMatchObject({ text: "kept", rev: 1 });
+    const disk = (await createChatStore(dir).list()).find((c) => c.id === id)!;
+    expect(disk.notes).toMatchObject({ text: "kept", rev: 1 });
+    expect(disk.messages.some((m) => m.text === "a post meanwhile")).toBe(true);
   });
 
   test("notes over the limit are refused", async () => {

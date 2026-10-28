@@ -65,25 +65,25 @@ export interface Row {
   turnStart: boolean;
   at: string;
   /** What the agent said in its own tab that turn, folded under the line. */
-  tab: { text: string; lines: number } | null;
+  tab: { text: string; lines: number; similar?: true } | null;
 }
 
 const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9_]{4,}/g) ?? []);
 /**
- * What the agent said in its tab, when it adds to the post: a tab that mostly
- * restates it (most of its words are in the post) isn't shown, since it tells the user nothing new.
+ * What the agent said in its tab. One that looks like a restatement (most of
+ * its words are in the post, and it is no longer) is marked `similar` and
+ * drawn quietly, never hidden: shared words don't mean the same thing, and a
+ * "not" changes everything.
  */
-export function tabOf(text: string | undefined, post = ""): { text: string; lines: number } | null {
+export function tabOf(text: string | undefined, post = ""): { text: string; lines: number; similar?: true } | null {
   if (!text) return null;
-  const tab = words(text);
-  // Only a tab no longer than the post can merely restate it.
-  if (post && tab.size && text.length <= post.length * 1.2) {
-    const said = words(post);
-    let shared = 0;
-    for (const w of tab) if (said.has(w)) shared++;
-    if (shared / tab.size >= 0.6) return null;
-  }
-  return { text, lines: text.split("\n").length };
+  const tab = { text, lines: text.split("\n").length };
+  const mine = words(text);
+  if (!post || !mine.size || text.length > post.length * 1.2) return tab;
+  const said = words(post);
+  let shared = 0;
+  for (const w of mine) if (said.has(w)) shared++;
+  return shared / mine.size >= 0.6 ? { ...tab, similar: true } : tab;
 }
 
 function exception(handle: string, state: string, reason?: string): string | null {

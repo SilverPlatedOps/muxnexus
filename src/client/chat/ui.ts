@@ -398,10 +398,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   function tabFold(r: Row): HTMLElement | null {
     if (!r.tab || !chat) return null;
     const key = `${chat.id}#${r.id}`;
-    const d = el("details", "chat-tab");
+    const d = el("details", `chat-tab${r.tab.similar ? " similar" : ""}`);
     d.open = openTabs.has(key);
     d.ontoggle = () => { if (d.open) openTabs.add(key); else openTabs.delete(key); };
-    const s = el("summary", "", `In its tab · ${r.tab.lines} line${r.tab.lines === 1 ? "" : "s"}`);
+    const s = el("summary", "", `In its tab · ${r.tab.lines} line${r.tab.lines === 1 ? "" : "s"}${r.tab.similar ? " · much like the post" : ""}`);
     s.title = `Everything ${r.from} said in its own tab that turn, beside what it posted. Only you see this.`;
     const text = renderMarkdown(r.tab.text, chat.members.find((m) => m.handle === r.from)?.windowId);
     text.classList.add("chat-tab-text");
