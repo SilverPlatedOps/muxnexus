@@ -94,6 +94,13 @@ describe("the hook", () => {
     expect(r).toEqual({ ok: false, output: "NOT POSTED: this tab isn't in a muxnexus chat. The user adds it from the Chats tab." });
   });
 
+  test("a mention given as the recipient and again at the start of the text posts once", async () => {
+    const svc = service();
+    const id = await newChat(svc, "claude", "codex");
+    expect((await say(svc, "codex", "say", "@claude1", "@claude1 done", "@claude1 later")).ok).toBe(true);
+    expect((await svc.view(id))!.chat.messages.at(-1)!.text).toBe("@claude1 done @claude1 later");
+  });
+
   test("say posts and reports the id, read and who answer", async () => {
     const svc = service();
     await newChat(svc, "claude", "codex");

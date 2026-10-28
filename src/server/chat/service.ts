@@ -505,7 +505,8 @@ export function createChatService(deps: ChatServiceDeps) {
     const t = now();
     switch (cmd) {
       case "say": {
-        const text = unescapeNewlines(args.join(" ").trim());
+        // `mux say "@codex1" <<EOF` with the text opening on @codex1 too: one mention, not two.
+        const text = unescapeNewlines(args.join(" ").trim()).replace(/^(@[A-Za-z][\w-]*)(?:\s+\1(?![\w-]))+/i, "$1");
         if (!text) return { ok: false, output: `NOT POSTED: nothing to say. Usage: mux say "<text>"` };
         if (text.length > MAX_TEXT) return { ok: false, output: `NOT POSTED: ${tooLong(text.length)}` };
         const msg = post(chat, member.handle, text, t);
