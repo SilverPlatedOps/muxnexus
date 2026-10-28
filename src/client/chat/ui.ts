@@ -29,6 +29,7 @@ import {
 import { openPicker } from "./picker";
 import { renderMarkdown } from "./markdown";
 import { createChatNotes } from "./notes";
+import { makeResizable } from "../resize";
 import { createChatContext } from "./context";
 import { chatRules } from "../../shared/chat-rules";
 import { createChatActivity } from "./activity";
@@ -267,7 +268,12 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     return b;
   });
   detailsTabs.append(...tabBtns);
-  details.append(detailsHead, detailsTabs, setup, notes.el);
+  const detailsGrip = el("div", "grip chat-details-grip");
+  detailsGrip.setAttribute("role", "separator");
+  detailsGrip.setAttribute("aria-orientation", "vertical");
+  detailsGrip.setAttribute("aria-label", "Resize chat details");
+  detailsGrip.tabIndex = 0;
+  details.append(detailsGrip, detailsHead, detailsTabs, setup, notes.el);
   let detailsOpen = false;
   let notesTab = false;
   function setNotesTab(on: boolean, focus: boolean) {
@@ -296,6 +302,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   convo.append(lines, strip, activity.el, compose);
   const main = el("div", "chat-main");
   main.append(convo, details);
+  makeResizable({ grip: detailsGrip, panel: details, host: main, cssVar: "--chat-details", storageKey: "muxnexus.chat-details-width", min: 240, max: 720, fallback: 300, edge: "left" });
   pane.append(head, main);
   const divider = el("div", "chat-divider");
   const side = el("section", "chat-side");
