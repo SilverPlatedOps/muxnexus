@@ -1,7 +1,7 @@
 import { capRule, type ChatMode } from "./chat";
 
 /** Bump when standing instructions change: old conversations receive the update once. */
-export const CHAT_RULES_VERSION = 2;
+export const CHAT_RULES_VERSION = 3;
 export const COMMUNICATION_RULES = [
   "- Use short, natural prose by default. Lead with the answer, result or blocker, then stop.",
   "- Add lists, headings or tables only when they make a longer answer easier to read. Use code fences for code.",
@@ -31,7 +31,7 @@ export const rulesFor = (mode: ChatMode | undefined) => mode ? MODE_RULES[mode] 
 export function chatRules(cap: number, mode?: ChatMode): string[] {
   return [
     ...COMMUNICATION_RULES,
-    "- Reply through mux say; your terminal's answer is invisible to the chat. Only mentions wake agents.",
+    "- If chat_reply is available, use it to post and chat_read/chat_rules to read or recover context; otherwise use mux say/read/rules. Your terminal's answer is invisible to the chat. Only mentions wake agents.",
     "- For multiline posts, use a quoted heredoc with real line breaks. Read older context only when needed via mux read.",
     "- Answering one message among others? mux say --reply <id> \"...\" links your post to it.",
     ...rulesFor(mode),
