@@ -131,9 +131,9 @@ describe("queue and fuel", () => {
 
   test("fuel: the 5h window's percent, amber from 85, empty at 100, none without a reading, signed-out kept", () => {
     const b = deriveBuilding(world([], { accounts: [acct("alpha", 40), acct("beta", 85), acct("codex", 100, { provider: "codex" }),
-      acct("oc", null, { provider: "opencode", state: "signed-out" })] }), NOW);
+      acct("delta", null, { state: "signed-out" })] }), NOW);
     expect(b.fuel.map((f) => [f.label, f.percent, f.level, f.slot, f.signedOut])).toEqual([
-      ["alpha", 40, "ok", 0, false], ["beta", 85, "amber", 1, false], ["codex", 100, "empty", 2, false], ["oc", null, "none", null, true],
+      ["alpha", 40, "ok", 0, false], ["beta", 85, "amber", 1, false], ["codex", 100, "empty", 2, false], ["delta", null, "none", 3, true],
     ]);
   });
 });

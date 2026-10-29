@@ -165,7 +165,7 @@ export function deriveBuilding(world: World, now: number, rooms: Readonly<Record
   const fuel: Fuel[] = world.accounts.map((a) => {
     const w = summaryWindow(a.windows);
     const percent = w ? w.percent : null;
-    const badge = a.provider === "opencode" ? null : profileBadge(a.label, labels);
+    const badge = profileBadge(a.label, labels);
     return {
       label: a.label,
       provider: a.provider,
