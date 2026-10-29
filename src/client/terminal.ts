@@ -121,12 +121,13 @@ const light = THEME === LIGHT;
  */
 const MATCH = light ? "#f3dea0" : "#5a4a26";
 const ACTIVE = light ? "#e5b84f" : "#9a7a32";
+/** The scrollbar's marks sit on the page's own background: on the light one they take a darker amber to show. */
 const FIND: ISearchOptions = {
   decorations: {
     matchBackground: MATCH,
-    matchOverviewRuler: MATCH,
+    matchOverviewRuler: light ? "#c18401" : MATCH,
     activeMatchBackground: ACTIVE,
-    activeMatchColorOverviewRuler: ACTIVE,
+    activeMatchColorOverviewRuler: light ? "#986801" : ACTIVE,
   },
 };
 const FINDING = { ...THEME, selectionBackground: ACTIVE, selectionInactiveBackground: ACTIVE, selectionForeground: light ? LIGHT.foreground : "#ffffff" };
@@ -141,9 +142,10 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     macOptionIsMeta: true,
     scrollback: 1000,
     theme: THEME,
-    // On the light palette, any colour too close to the background is darkened
-    // until it reads -- white and bright white, which programs print on dark.
-    minimumContrastRatio: light ? 4.5 : 1,
+    // On the light palette, a colour too close to the background is darkened
+    // until it shows -- white and bright white, which programs print on dark.
+    // 3, not 4.5, so dim text and the palette's own greys stay dimmer than the rest.
+    minimumContrastRatio: light ? 3 : 1,
     allowProposedApi: true, // the search addon's match marks are decorations, still a proposed API
     // A link a program printed with its own text (OSC 8) opens in a new tab,
     // as a bare URL does, instead of behind xterm's confirm() dialog.
