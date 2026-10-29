@@ -158,8 +158,6 @@ export function createVaultView(): View {
   let stopTick: (() => void) | null = null;
   let focusTaken = false;
   let alive = false;
-  /** Every Text set in Pixelify Sans, for `fontsLanded`. */
-  const pixelTexts = new Set<Pixi.Text>();
   /** The terminal a ⌘J or queue glide opens once the camera arrives; a newer glide or an unmount cancels it. */
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
   /** Each mount's boot carries its own number: a boot from an earlier mount gives up. */
@@ -274,7 +272,7 @@ export function createVaultView(): View {
     setText(text, f.signedOut ? "signed out"
       : f.percent === null ? "no reading"
       : f.level === "empty" ? `empty${f.resetsAt ? ` · ${backAt(f.resetsAt, now)}` : ""}`
-      : `${Math.round(f.percent)}%${reset ? ` · ${reset}` : ""}`);
+      : `${f.percent}%${reset ? ` · ${reset}` : ""}`);
   }
   function paintHud() {
     if (!host) return;
@@ -473,6 +471,13 @@ export function createVaultView(): View {
       ...Object.fromEntries(Object.entries(PET_PICTURE.dog).map(([k, v]) => [`dog:${k}`, v])),
     };
     const loaded = await Promise.all(Object.entries(urls).map(async ([k, u]) => [k, await mod.Assets.load<Pixi.Texture>(u)] as const));
+    // Pixi draws a Text once and caches it by its text and style, so a plate drawn
+    // before Pixelify Sans arrived would keep the fallback face. Wait for the font
+    // first; offline, or past three seconds, the fallback it is.
+    await Promise.race([
+      document.fonts?.ready.then(() => document.fonts.load('600 14px "Pixelify Sans"')),
+      new Promise((done) => setTimeout(done, 3000)),
+    ]).catch(() => {});
     if (!current() || app !== a) return;
     tex = Object.fromEntries(loaded);
     // Seated figures are cut at the desktop: only their top shows above it.
@@ -710,28 +715,7 @@ export function createVaultView(): View {
   }
 
   function text(t: string, size: number, fill: number, weight: "400" | "600" = "400", family = "JetBrains Mono"): Pixi.Text {
-    const made = new P!.Text({ text: t, style: { fontFamily: family, fontSize: size, fill, fontWeight: weight }, resolution: 3 });
-    if (family.startsWith("Pixelify")) pixelTexts.add(made);
-    return made;
-  }
-
-  /**
-   * Pixi draws a Text into a texture once, so one drawn before Pixelify Sans
-   * arrived keeps the fallback face. When a font lands, draw those again; the
-   * plates are cleared so the next paint measures their background anew.
-   */
-  function fontsLanded() {
-    for (const t of pixelTexts) {
-      if (t.destroyed) {
-        pixelTexts.delete(t);
-        continue;
-      }
-      const was = t.text;
-      t.text = "";
-      t.text = was;
-    }
-    for (const v of floorVis.values()) v.plateText.text = "";
-    draw();
+    return new P!.Text({ text: t, style: { fontFamily: family, fontSize: size, fill, fontWeight: weight }, resolution: 3 });
   }
 
   function makeFloor(fl: Pick<Floor, "key">): FloorVis {
@@ -1385,7 +1369,6 @@ export function createVaultView(): View {
       root.tabIndex = -1;
       root.replaceChildren(hud, stage, gen, card);
       h.root.replaceChildren(root);
-      document.fonts?.addEventListener("loadingdone", fontsLanded);
       stopTick = h.tick(1, draw);
       draw();
       boot(mountNo).catch((e) => {
@@ -1402,8 +1385,6 @@ export function createVaultView(): View {
     },
     unmount() {
       alive = false;
-      document.fonts?.removeEventListener("loadingdone", fontsLanded);
-      pixelTexts.clear();
       clearTimeout(revealTimer);
       stopTick?.();
       stopTick = null;

@@ -167,7 +167,8 @@ export function deriveBuilding(world: World, now: number, rooms: Readonly<Record
   const labels = badgedLabels(world.accounts);
   const fuel: Fuel[] = world.accounts.map((a) => {
     const w = summaryWindow(a.windows, now);
-    const percent = w ? w.percent : null;
+    // Rounded once, here: the gauge shows this number and its level follows it, so "100%" is always empty.
+    const percent = w ? Math.round(w.percent) : null;
     const badge = profileBadge(a.label, labels);
     return {
       label: a.label,
@@ -176,7 +177,7 @@ export function deriveBuilding(world: World, now: number, rooms: Readonly<Record
       slot: badge?.slot ?? null,
       percent,
       ...(w?.resetsAt ? { resetsAt: w.resetsAt } : {}),
-      level: !w ? "none" : atLimit(w) ? "empty" : w.percent >= THRESHOLDS.amberPct ? "amber" : "ok",
+      level: !w || percent === null ? "none" : atLimit(w) || percent >= 100 ? "empty" : percent >= THRESHOLDS.amberPct ? "amber" : "ok",
       signedOut: a.state === "signed-out",
     };
   });

@@ -129,6 +129,11 @@ describe("queue and fuel", () => {
     expect(b.queue.map((q) => [q.label, q.wait, q.ref.window])).toEqual([["Beta", "30m", "@2"], ["Alpha", "10m", "@1"]]);
   });
 
+  test("fuel: the percent is rounded once, and its level follows the rounded number", () => {
+    const b = deriveBuilding(world([], { accounts: [acct("alpha", 99.6), acct("beta", 84.6), acct("gamma", 23.456)] }), NOW);
+    expect(b.fuel.map((f) => [f.percent, f.level])).toEqual([[100, "empty"], [85, "amber"], [23, "ok"]]);
+  });
+
   test("fuel: a window the provider says is exceeded is empty, below 100 too", () => {
     const b = deriveBuilding(world([], { accounts: [acct("alpha", 97, { windows: [{ kind: "session", percent: 97, severity: "exceeded", resetsAt: T(120) }] })] }), NOW);
     expect(b.fuel[0].level).toBe("empty");
