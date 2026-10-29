@@ -124,6 +124,8 @@ interface FloorVis {
   sw: Pixi.Sprite;
   roomType: RoomType | null;
   width: number;
+  /** The strips cut from the room picture for this floor; they share its source, so only they go when it is laid again. */
+  pieces: Pixi.Texture[];
 }
 
 type Step =
@@ -156,6 +158,8 @@ export function createVaultView(): View {
   let stopTick: (() => void) | null = null;
   let focusTaken = false;
   let alive = false;
+  /** Every Text set in Pixelify Sans, for `fontsLanded`. */
+  const pixelTexts = new Set<Pixi.Text>();
   /** The terminal a ⌘J or queue glide opens once the camera arrives; a newer glide or an unmount cancels it. */
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
   /** Each mount's boot carries its own number: a boot from an earlier mount gives up. */
@@ -669,6 +673,7 @@ export function createVaultView(): View {
       // A pet on a floor that is going goes home first; it is not part of the floor.
       for (const pet of pets) if (pet.sprite.parent === v.pets) v.pets.removeChild(pet.sprite);
       v.root.destroy({ children: true });
+      for (const t of v.pieces.splice(0)) t.destroy();
       floorVis.delete(k);
     }
     const live = new Set(people().map((p) => p.id));
@@ -705,7 +710,28 @@ export function createVaultView(): View {
   }
 
   function text(t: string, size: number, fill: number, weight: "400" | "600" = "400", family = "JetBrains Mono"): Pixi.Text {
-    return new P!.Text({ text: t, style: { fontFamily: family, fontSize: size, fill, fontWeight: weight }, resolution: 3 });
+    const made = new P!.Text({ text: t, style: { fontFamily: family, fontSize: size, fill, fontWeight: weight }, resolution: 3 });
+    if (family.startsWith("Pixelify")) pixelTexts.add(made);
+    return made;
+  }
+
+  /**
+   * Pixi draws a Text into a texture once, so one drawn before Pixelify Sans
+   * arrived keeps the fallback face. When a font lands, draw those again; the
+   * plates are cleared so the next paint measures their background anew.
+   */
+  function fontsLanded() {
+    for (const t of pixelTexts) {
+      if (t.destroyed) {
+        pixelTexts.delete(t);
+        continue;
+      }
+      const was = t.text;
+      t.text = "";
+      t.text = was;
+    }
+    for (const v of floorVis.values()) v.plateText.text = "";
+    draw();
   }
 
   function makeFloor(fl: Pick<Floor, "key">): FloorVis {
@@ -727,6 +753,7 @@ export function createVaultView(): View {
       sw: new p.Sprite(tex["prop:switchOn"]),
       roomType: null,
       width: 0,
+      pieces: [],
     };
     v.door.anchor.set(0.5, 1);
     v.door.tint = 0x8890a4;
@@ -779,10 +806,15 @@ export function createVaultView(): View {
     v.roomType = room;
     v.width = L.room.w;
     for (const c of v.room.removeChildren()) c.destroy();
+    for (const t of v.pieces.splice(0)) t.destroy();
     const pic = tex[`room:${room}`];
     const cut = ROOM_PICTURE[room].cut;
     const k = VAULT.roomH / pic.height;
-    const piece = (x0: number, x1: number) => new p.Texture({ source: pic.source, frame: new p.Rectangle(x0, 0, x1 - x0, pic.height) });
+    const piece = (x0: number, x1: number) => {
+      const t = new p.Texture({ source: pic.source, frame: new p.Rectangle(x0, 0, x1 - x0, pic.height) });
+      v.pieces.push(t);
+      return t;
+    };
     const sprite = (t: Pixi.Texture, x: number) => {
       const s = new p.Sprite(t);
       s.scale.set(k);
@@ -1353,6 +1385,7 @@ export function createVaultView(): View {
       root.tabIndex = -1;
       root.replaceChildren(hud, stage, gen, card);
       h.root.replaceChildren(root);
+      document.fonts?.addEventListener("loadingdone", fontsLanded);
       stopTick = h.tick(1, draw);
       draw();
       boot(mountNo).catch((e) => {
@@ -1369,9 +1402,17 @@ export function createVaultView(): View {
     },
     unmount() {
       alive = false;
+      document.fonts?.removeEventListener("loadingdone", fontsLanded);
+      pixelTexts.clear();
       clearTimeout(revealTimer);
       stopTick?.();
       stopTick = null;
+      // The textures made here, not the loaded pictures, which Assets caches for the next mount:
+      // the seated crops, the glow and the rain drop (with their canvases), each floor's room strips.
+      for (const [k, t] of Object.entries(tex)) if (k.startsWith("seated:")) t.destroy();
+      tex.glow?.destroy(true);
+      tex.drop?.destroy(true);
+      for (const v of floorVis.values()) for (const t of v.pieces.splice(0)) t.destroy();
       app?.destroy(true, { children: true });
       app = null;
       P = null;
