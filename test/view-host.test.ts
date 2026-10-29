@@ -83,6 +83,23 @@ describe("createViewHost", () => {
     expect(changed).toBe(1);
   });
 
+  test("a view can leave by itself, and a view already gone cannot take the next one down", () => {
+    const recs = [recordingView(), recordingView()];
+    let made = 0;
+    let changed = 0;
+    const host = createViewHost({ slot: slot(), actions, views: { debug: () => recs[made++].view }, changed: () => changed++, store: memoryStore(), env: fakeEnv() });
+    host.choose("debug");
+    const first = recs[0].host()!;
+    first.leave();
+    expect(host.showing()).toBe(false);
+    expect(recs[0].calls.at(-1)).toBe("unmount");
+    expect(changed).toBe(2);
+    host.show(true);
+    first.leave();
+    expect(host.showing()).toBe(true);
+    expect(recs[1].calls).not.toContain("unmount");
+  });
+
   test("hiding unmounts and stops its clock; the terminal choice never shows anything", () => {
     const env = fakeEnv();
     const rec = recordingView();
@@ -133,5 +150,20 @@ describe("createViewHost", () => {
     host.update(world, [{ kind: "appeared", ref: { session: "$1", window: "@1" }, at: 1 }]);
     expect(host.reveal({ session: "$1", window: "@1" })).toBe(true);
     expect(rec.calls).toEqual(["mount", "update:1", "reveal:@1"]);
+  });
+});
+
+describe("full window", () => {
+  test("a view that asks for the whole window has it only while it shows", () => {
+    const { view } = recordingView();
+    const host = createViewHost({
+      slot: slot(), actions, views: { vault: () => ({ ...view, fullWindow: true }) }, changed() {},
+      store: memoryStore({ "muxnexus.view": "vault" }), env: fakeEnv(),
+    });
+    expect(host.fullWindow()).toBe(false);
+    host.show(true);
+    expect(host.fullWindow()).toBe(true);
+    host.show(false);
+    expect(host.fullWindow()).toBe(false);
   });
 });

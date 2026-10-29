@@ -228,7 +228,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
 }
 
 /** The accounts a tab's agent can be spending: every Claude profile, and Codex. */
-export function badgedLabels(sources: readonly UsageSource[]): string[] {
+export function badgedLabels(sources: readonly Pick<UsageSource, "provider" | "label">[]): string[] {
   return sources.map((s) => s.label);
 }
 

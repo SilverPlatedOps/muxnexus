@@ -13,11 +13,12 @@ import type { WorldActions } from "./world-actions";
  * that stops while the page is hidden. What it draws is its own business.
  */
 
-export type ViewName = "terminal" | "debug";
+export type ViewName = "terminal" | "vault" | "debug";
 
 /** What the Display modal offers, in order. */
 export const VIEW_CHOICES: readonly { name: ViewName; title: string }[] = [
   { name: "terminal", title: "Terminal" },
+  { name: "vault", title: "Vault" },
   { name: "debug", title: "Debug" },
 ];
 
@@ -61,6 +62,8 @@ export interface View {
   /** ⌘J while the view shows. Opening the window is the plain answer. */
   reveal(ref: WindowRef): void;
   unmount(): void;
+  /** Takes the whole window while it shows: the page folds its sidebar and top bar away. */
+  fullWindow?: boolean;
 }
 
 export interface ViewHost {
@@ -71,6 +74,8 @@ export interface ViewHost {
   now(): number;
   /** Call `cb` `fps` times a second while the page is visible; the returned function stops it. */
   tick(fps: number, cb: (now: number) => void): () => void;
+  /** Back to the terminal, as the top bar's toggle does: for a full-window view, which hides that bar. */
+  leave(): void;
 }
 
 /** The browser, as the host uses it; swapped for a fake under test. */
@@ -96,6 +101,8 @@ export interface ViewController {
   /** From the Display modal: remembered, and shown at once unless it is the terminal. */
   choose(name: ViewName): void;
   showing(): boolean;
+  /** Whether what shows wants the whole window. */
+  fullWindow(): boolean;
   /** The top bar's toggle between the terminal and the chosen view. */
   show(on: boolean): void;
   update(world: World, events: readonly WorldEvent[]): void;
@@ -135,6 +142,9 @@ export function createViewHost(opts: {
         stops.add(stop);
         return () => { stop(); stops.delete(stop); };
       },
+      leave() {
+        if (mounted?.view === view && unmount()) opts.changed();
+      },
     });
     if (world) view.update(world, []);
     return true;
@@ -162,6 +172,7 @@ export function createViewHost(opts: {
       opts.changed();
     },
     showing: () => mounted !== null,
+    fullWindow: () => mounted?.view.fullWindow === true,
     show(on) {
       if (on ? mount() : unmount()) opts.changed();
     },
