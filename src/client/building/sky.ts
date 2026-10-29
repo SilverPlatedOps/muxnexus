@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * Outside the building: the time of day is the real one, read off the local
  * clock; the weather is a setting the viewer picks, and is named as one --

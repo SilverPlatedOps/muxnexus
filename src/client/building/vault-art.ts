@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import roomOffice from "./art/vault/room-office.png";
 import roomGlass from "./art/vault/room-glass.png";
 import roomWar from "./art/vault/room-war.png";

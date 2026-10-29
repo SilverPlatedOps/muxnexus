@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * Where everything stands in the vault, in world pixels: floors stacked from
  * the roof down, a lift shaft on the left, desks in slots along each floor.

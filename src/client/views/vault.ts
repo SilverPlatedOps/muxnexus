@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import type * as Pixi from "pixi.js";
 import pixiUrl from "../../../node_modules/pixi.js/dist/pixi.min.mjs" with { type: "file" };
 import type { View, ViewHost } from "../view-host";

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import typing from "./art/seated-typing.png";
 import handUp from "./art/seated-hand-up.png";
 import calm from "./art/seated-calm.png";

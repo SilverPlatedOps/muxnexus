@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { profileBadge } from "../agent";
 import { badgedLabels, summaryWindow } from "../usage";
 import type { WindowRef, World, WorldSession, WorldWindow } from "../world";
