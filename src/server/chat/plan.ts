@@ -9,6 +9,8 @@ export interface AgentView {
   idle: boolean;
   /** A Codex tab whose hooks run in the shared daemon: `codex queue` cannot reach it. */
   daemon?: boolean;
+  /** Out of usage credits: nothing goes to it, of either kind, until the limit lifts. */
+  limited?: boolean;
 }
 
 export interface Send {
@@ -62,6 +64,8 @@ export function nextSends(
       wait.push({ ...item, reason: "offline" });
       continue;
     }
+    // A Claude takes a packet mid-turn, so idle can't hold it back: being out of credits does.
+    if (v.limited) continue;
     const window = p.member.windowId!;
     const prev = latest.get(window);
     // Only adjacent messages for the same room may share a packet. Another room keeps its place.

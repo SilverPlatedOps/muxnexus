@@ -16,12 +16,14 @@ import {
   pickerGroups,
   prefill,
   prefillChips,
+  prefillKey,
   retryStaged,
   shutdownList,
   sideTab,
   stagedFolder,
   stagedProfile,
   tabChats,
+  withChips,
 } from "../src/client/chat/model";
 import { addMember, leave, newChat, post } from "../src/server/chat/model";
 import type { Chat, ChatSummary } from "../src/shared/chat";
@@ -156,17 +158,52 @@ describe("the message box", () => {
     expect(prefill(c)).toBeNull();
   });
 
-  test("a chip the user removed stays removed until another agent speaks to them, or they send", () => {
+  test("a chip the user removed stays removed until an agent speaks to them again", () => {
     const c = chat();
     post(c, "claude1", "@user which one?", T);
-    let s = prefillChips({ chips: [], draft: "", offered: "claude1" }, c);
+    let s = prefillChips({ chips: [], draft: "", offered: prefillKey(c) }, c);
     expect(s.chips).toEqual([]);
     post(c, "codex1", "@user and me?", T);
     s = prefillChips(s, c);
-    expect(s).toEqual({ chips: ["codex1"], draft: "", offered: "codex1" });
+    expect(s).toEqual({ chips: ["codex1"], draft: "", offered: prefillKey(c) });
     expect(prefillChips({ chips: [], draft: "", offered: null }, c).chips).toEqual(["codex1"]);
     // Not offered while the user types: it is offered once the box is empty again.
     expect(prefillChips({ chips: [], draft: "typing", offered: null }, c)).toEqual({ chips: [], draft: "typing", offered: null });
+  });
+
+  test("after a send the same line isn't offered again; the same agent's next line to the user is", () => {
+    const c = chat();
+    post(c, "claude1", "@user which one?", T);
+    // A send leaves `offered` on the line it answered, with the box empty.
+    let s = prefillChips({ chips: [], draft: "", offered: prefillKey(c) }, c);
+    expect(s.chips).toEqual([]);
+    post(c, "user", "@claude1 the first", T);
+    expect(prefillChips(s, c).chips).toEqual([]);
+    post(c, "claude1", "@user done", T);
+    s = prefillChips(s, c);
+    expect(s.chips).toEqual(["claude1"]);
+  });
+
+  test("a line that came in while the user typed is offered once they've sent", () => {
+    const c = chat();
+    post(c, "claude1", "@user which one?", T);
+    // Offered, taken off, and the user is typing.
+    let s = { chips: [] as string[], draft: "the first", offered: prefillKey(c) };
+    post(c, "claude1", "@user also, which branch?", T);
+    s = prefillChips(s, c);
+    expect(s.chips).toEqual([]);
+    // The send empties the box and leaves `offered` as it was.
+    s = prefillChips({ ...s, draft: "" }, c);
+    expect(s.chips).toEqual(["claude1"]);
+  });
+
+  test("a chip the text already names posts one mention", () => {
+    const c = chat();
+    expect(withChips(c, ["claude1"], "@claude1 @codex1 go")).toBe("@claude1 @codex1 go");
+    expect(withChips(c, ["claude1"], "@codex1 go")).toBe("@claude1 @codex1 go");
+    expect(withChips(c, ["claude1", "codex1"], "  go ")).toBe("@claude1 @codex1 go");
+    expect(withChips(c, [], "hi")).toBe("hi");
+    expect(withChips(c, ["claude1"], "")).toBe("@claude1");
   });
 
   test("held messages are counted for the pause strip", () => {

@@ -19,6 +19,7 @@ import {
   nearAgent,
   prefill,
   prefillChips,
+  prefillKey,
   retryStaged,
   shutdownList,
   sideTab,
@@ -27,6 +28,7 @@ import {
   type Row,
   type SideTab,
   type StagedAgent,
+  withChips,
 } from "./model";
 import { openPicker } from "./picker";
 import { renderMarkdown } from "./markdown";
@@ -102,7 +104,7 @@ const store = {
 };
 
 /** Per chat: the member beside it, the scroll position, the unsent draft. */
-interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean; notes?: boolean; replyTo?: number }
+interface Remembered { member?: string; draft?: string; chips?: string[]; scroll?: number; details?: boolean; notes?: boolean; replyTo?: number; offered?: string }
 function remembered(id: string): Remembered {
   try { return (JSON.parse(store.get(STATE_KEY) ?? "{}") as Record<string, Remembered>)[id] ?? {}; } catch { return {}; }
 }
@@ -656,7 +658,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       t.append(img, x);
       return t;
     }), ...(uploading ? [el("span", "chat-thumb-wait", "Uploading…")] : []));
-    const text = [...chips.map((h) => `@${h}`), input.value].join(" ");
+    const text = withChips(chat, chips, input.value);
     const st = composerState(chat, input.value.trim() || chips.length ? text : "");
     // The chips say who hears it; the box speaks up only when nobody will.
     helper.textContent = st.helper ?? "";
@@ -665,7 +667,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
   function send() {
     if (!chat) return;
-    const typed = [...chips.map((h) => `@${h}`), input.value.trim()].filter(Boolean).join(" ").trim();
+    // A chip the text names as well posts one mention, not two.
+    const typed = withChips(chat, chips, input.value);
     if (!input.value.trim() && !pasted.length) return;
     if (uploading) { host.toast("Wait for the image to finish uploading"); return; }
     // The path is what an agent opens; this chat shows it as the picture.
@@ -674,8 +677,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     setReplying(null);
     input.value = "";
     pasted = [];
+    // `offered` stays on the line last offered: that one isn't offered again, while a line
+    // that came in as the user typed (never offered, the box being busy) is, now it's empty.
     chips = [];
-    offered = null;
     remember(chat.id, { draft: "", chips: [] });
     paintCompose();
     autosize();
@@ -1093,15 +1097,20 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         input.value = r.draft ?? "";
         // Only to a line still in the chat: one deleted or never there drops the link, not the draft.
         replying = r.replyTo !== undefined && c.messages.some((m) => m.id === r.replyTo && !m.system && !m.auto) ? r.replyTo : null;
-        chips = (r.chips?.length ? r.chips : [prefill(c)].filter((x): x is string => !!x)).filter((h) => c.members.some((m) => m.handle === h && !m.left));
-        offered = prefill(c);
+        // A line already answered, or whose chip was taken off, isn't offered again after a reload.
+        const fresh = r.offered !== prefillKey(c);
+        chips = (r.chips?.length ? r.chips : fresh ? [prefill(c)].filter((x): x is string => !!x) : []).filter((h) => c.members.some((m) => m.handle === h && !m.left));
+        offered = prefillKey(c);
+        if (fresh) remember(c.id, { offered: offered ?? undefined });
         setNotesTab(r.notes === true);
         autosize();
         if (r.member && showing && !host.onPhone()) openSide(r.member);
         if (r.details) setDock("details");
         else if (dockView === "details") setDock(sideHandle ? "terminal" : null);
       } else {
+        const was = offered;
         ({ chips, offered } = prefillChips({ chips, draft: input.value, offered }, c));
+        if (offered !== was) remember(c.id, { chips, offered: offered ?? undefined });
       }
       paintChat();
       applyReveal();

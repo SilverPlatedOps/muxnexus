@@ -1,9 +1,10 @@
 import { open, stat } from "node:fs/promises";
 
 /**
- * Whether a Codex conversation's last turn ended on the account's usage limit,
- * read from the end of its rollout. Codex leaves its tab stamped as running
- * then, so without this a chat calls it Working until the user looks.
+ * Whether an agent's last turn ended on the account's usage limit, read from
+ * the end of its transcript: a Codex rollout or a Claude Code session file.
+ * Codex leaves its tab stamped as running then, so without this a chat calls
+ * it Working until the user looks; Claude's tab just goes idle.
  */
 
 /** How far back from the end a turn's end is looked for: the error is the last thing written. */
@@ -24,12 +25,12 @@ export interface UsageLimit {
 export function untilMs(until: string, at: string): number | undefined {
   const base = new Date(at);
   if (Number.isNaN(base.getTime())) return undefined;
-  const clock = /^(\d{1,2}):(\d{2})\s*([AP]M)$/i.exec(until.trim());
+  const clock = /^(\d{1,2})(?::(\d{2}))?\s*([AP]M)$/i.exec(until.trim());
   if (clock) {
     const d = new Date(base);
     let h = Number(clock[1]) % 12;
     if (clock[3]!.toUpperCase() === "PM") h += 12;
-    d.setHours(h, Number(clock[2]), 0, 0);
+    d.setHours(h, Number(clock[2] ?? 0), 0, 0);
     if (d.getTime() < base.getTime()) d.setDate(d.getDate() + 1);
     return d.getTime();
   }
@@ -60,9 +61,38 @@ export function limitIn(tail: string): UsageLimit | null {
   return null;
 }
 
+/**
+ * The same for a Claude Code transcript. Claude writes the refusal as its own
+ * API-error entry ("You've hit your session limit · resets 7pm (Asia/Jakarta)"),
+ * with the reset as a timestamp beside it; the words are the fallback.
+ */
+export function claudeLimitIn(tail: string): UsageLimit | null {
+  const lines = tail.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (line.includes('"rate_limit"')) {
+      // Only Claude's own error entry says so: the words quoted in a message or a tool's output don't.
+      let e: { type?: string; timestamp?: string; error?: string; isApiErrorMessage?: boolean; quotaLimits?: { resetsAt?: number }; message?: { content?: { text?: string }[] } };
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e.type !== "assistant" || e.error !== "rate_limit" || e.isApiErrorMessage !== true) continue;
+      const text = (e.message?.content ?? []).map((c) => c.text ?? "").join(" ");
+      const until = /resets\s+(.+?)(?:\s*\(|$)/.exec(text)?.[1]?.trim() ?? "";
+      const at = e.timestamp ?? "";
+      const reset = typeof e.quotaLimits?.resetsAt === "number" ? e.quotaLimits.resetsAt * 1000 : undefined;
+      const ms = reset ?? (until ? untilMs(until, at) : undefined) ?? (Date.parse(at) ? Date.parse(at) + UNKNOWN_END_MS : undefined);
+      return { until, at, ...(ms !== undefined ? { untilMs: ms } : {}) };
+    }
+    // A prompt typed after it: the limit has passed, or the user is dealing with it.
+    if (line.includes('"type":"user"') && line.includes('"promptId"') && !line.includes('"tool_result"')) return null;
+    // An ordinary answer after it, however the turn began: the limit has lifted.
+    if (line.includes('"type":"assistant"') && !line.includes('"isApiErrorMessage":true')) return null;
+  }
+  return null;
+}
+
 const cache = new Map<string, { size: number; mtime: number; limit: UsageLimit | null }>();
 
-export async function usageLimit(path: string): Promise<UsageLimit | null> {
+export async function usageLimit(path: string, kind: "claude" | "codex" = "codex"): Promise<UsageLimit | null> {
   const s = await stat(path).catch(() => null);
   if (!s) return null;
   const hit = cache.get(path);
@@ -73,7 +103,7 @@ export async function usageLimit(path: string): Promise<UsageLimit | null> {
     const len = Math.min(TAIL, s.size);
     const buf = Buffer.alloc(len);
     await f.read(buf, 0, len, s.size - len);
-    const limit = limitIn(buf.toString("utf8"));
+    const limit = (kind === "claude" ? claudeLimitIn : limitIn)(buf.toString("utf8"));
     cache.set(path, { size: s.size, mtime: s.mtimeMs, limit });
     return limit;
   } finally {

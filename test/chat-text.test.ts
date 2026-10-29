@@ -125,6 +125,49 @@ describe("who and read", () => {
   });
 });
 
+describe("members still starting", () => {
+  test("a delivery names a member still starting, so silence isn't read as agreement", () => {
+    const c = chat();
+    c.members.find((m) => m.handle === "codex1")!.spawn = "pending";
+    const m = post(c, "user", "@claude1 @codex1 brainstorm", T);
+    member(c, "claude1").welcomed = true;
+    const text = deliveryText(c, member(c, "claude1"), m, missedFor(c, "claude1", m.id), { home: HOME });
+    expect(text).toContain("Waiting: @codex1 is still starting and hasn't read the chat yet; don't conclude without it.");
+  });
+
+  test("no line for one that timed out: the room was told it hasn't started", () => {
+    const c = chat();
+    c.members.find((m) => m.handle === "codex1")!.spawn = "failed";
+    const m = post(c, "user", "@claude1 go", T);
+    member(c, "claude1").welcomed = true;
+    expect(deliveryText(c, member(c, "claude1"), m, missedFor(c, "claude1", m.id), { home: HOME })).not.toContain("Waiting:");
+  });
+
+  test("no line once it has started, nor for the member itself", () => {
+    const c = chat();
+    const m = post(c, "user", "@claude1 @codex1 brainstorm", T);
+    member(c, "claude1").welcomed = true;
+    expect(deliveryText(c, member(c, "claude1"), m, missedFor(c, "claude1", m.id), { home: HOME })).not.toContain("Waiting:");
+    c.members.find((x) => x.handle === "claude1")!.spawn = "pending";
+    expect(deliveryText(c, member(c, "claude1"), m, missedFor(c, "claude1", m.id), { home: HOME })).not.toContain("Waiting:");
+  });
+});
+
+describe("rules update in an unchanged mode", () => {
+  test("an agent on older rules gets the mode's new rules once, not only the style", () => {
+    const c = chat();
+    c.mode = "brainstorm";
+    const m = post(c, "user", "@claude1 go", T);
+    const to = member(c, "claude1");
+    Object.assign(to, { welcomed: true, modeSent: "brainstorm", rulesSent: CHAT_RULES_VERSION - 1 });
+    const text = deliveryText(c, to, m, missedFor(c, "claude1", m.id), { home: HOME });
+    expect(text).toContain("Mode:    still brainstorm. Updated rules:");
+    expect(text).toContain("Synthesize only once every agent asked has posted");
+    to.rulesSent = CHAT_RULES_VERSION;
+    expect(deliveryText(c, to, m, missedFor(c, "claude1", m.id), { home: HOME })).not.toContain("Mode:");
+  });
+});
+
 describe("unescapeNewlines", () => {
   test("a post with only literal backslash-n gets real line breaks", () => {
     expect(unescapeNewlines("Plan:\\n\\n1. one\\n2. two")).toBe("Plan:\n\n1. one\n2. two");
