@@ -52,6 +52,11 @@ describe("usage limit in a Claude transcript", () => {
     expect(claudeLimitIn([claudeLimited(), prompt("again")].join("\n"))).toBeNull();
     expect(claudeLimitIn([claudeLimited(), toolResult].join("\n"))).not.toBeNull();
   });
+  test("an ordinary answer after it ends it, however that turn began", () => {
+    const answer = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "done" }] } });
+    expect(claudeLimitIn([claudeLimited(), answer].join("\n"))).toBeNull();
+    expect(claudeLimitIn([claudeLimited(), claudeLimited()].join("\n"))).not.toBeNull();
+  });
   test("the words quoted in a prompt or an ordinary answer aren't the limit", () => {
     expect(claudeLimitIn(prompt('why did I get "error":"rate_limit"?'))).toBeNull();
     expect(claudeLimitIn(claudeLimited({ isApiErrorMessage: false }))).toBeNull();

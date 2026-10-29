@@ -184,6 +184,19 @@ describe("the message box", () => {
     expect(s.chips).toEqual(["claude1"]);
   });
 
+  test("a line that came in while the user typed is offered once they've sent", () => {
+    const c = chat();
+    post(c, "claude1", "@user which one?", T);
+    // Offered, taken off, and the user is typing.
+    let s = { chips: [] as string[], draft: "the first", offered: prefillKey(c) };
+    post(c, "claude1", "@user also, which branch?", T);
+    s = prefillChips(s, c);
+    expect(s.chips).toEqual([]);
+    // The send empties the box and leaves `offered` as it was.
+    s = prefillChips({ ...s, draft: "" }, c);
+    expect(s.chips).toEqual(["claude1"]);
+  });
+
   test("a chip the text already names posts one mention", () => {
     const c = chat();
     expect(withChips(c, ["claude1"], "@claude1 @codex1 go")).toBe("@claude1 @codex1 go");

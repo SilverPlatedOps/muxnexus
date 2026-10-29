@@ -84,6 +84,8 @@ export function claudeLimitIn(tail: string): UsageLimit | null {
     }
     // A prompt typed after it: the limit has passed, or the user is dealing with it.
     if (line.includes('"type":"user"') && line.includes('"promptId"') && !line.includes('"tool_result"')) return null;
+    // An ordinary answer after it, however the turn began: the limit has lifted.
+    if (line.includes('"type":"assistant"') && !line.includes('"isApiErrorMessage":true')) return null;
   }
   return null;
 }

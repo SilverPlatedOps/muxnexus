@@ -677,10 +677,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     setReplying(null);
     input.value = "";
     pasted = [];
+    // `offered` stays on the line last offered: that one isn't offered again, while a line
+    // that came in as the user typed (never offered, the box being busy) is, now it's empty.
     chips = [];
-    // The line just answered isn't offered again; the agent's next line to the user is.
-    offered = prefillKey(chat);
-    remember(chat.id, { draft: "", chips: [], offered: offered ?? undefined });
+    remember(chat.id, { draft: "", chips: [] });
     paintCompose();
     autosize();
   }

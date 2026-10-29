@@ -135,6 +135,14 @@ describe("members still starting", () => {
     expect(text).toContain("Waiting: @codex1 is still starting and hasn't read the chat yet; don't conclude without it.");
   });
 
+  test("no line for one that timed out: the room was told it hasn't started", () => {
+    const c = chat();
+    c.members.find((m) => m.handle === "codex1")!.spawn = "failed";
+    const m = post(c, "user", "@claude1 go", T);
+    member(c, "claude1").welcomed = true;
+    expect(deliveryText(c, member(c, "claude1"), m, missedFor(c, "claude1", m.id), { home: HOME })).not.toContain("Waiting:");
+  });
+
   test("no line once it has started, nor for the member itself", () => {
     const c = chat();
     const m = post(c, "user", "@claude1 @codex1 brainstorm", T);
