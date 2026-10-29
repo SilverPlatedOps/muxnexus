@@ -149,16 +149,31 @@ export function prefill(chat: Chat): string | null {
   return h && chat.members.some((m) => m.handle === h && !m.left) ? h : null;
 }
 
+/** The prefill and the line it answers: an agent's new line to the user is a new offer, the same one isn't. */
+export function prefillKey(chat: Chat): string | null {
+  const p = prefill(chat);
+  if (!p) return null;
+  let id = 0;
+  for (const m of chat.messages) if (m.from === p && !m.system && !m.auto && (m.to.includes("user") || !m.to.length)) id = m.id;
+  return `${p}#${id}`;
+}
+
 /**
  * The message box's chips after the chat changed. The prefill is offered once
- * per agent that speaks to the user, when the box is empty: a chip the user
- * took off stays off until another agent speaks to them, or they send (which
- * clears `offered`).
+ * per line an agent speaks to the user with, when the box is empty: a chip the
+ * user took off, or sent to, stays off until an agent speaks to them again.
  */
 export function prefillChips(s: { chips: string[]; draft: string; offered: string | null }, chat: Chat): { chips: string[]; draft: string; offered: string | null } {
+  const key = prefillKey(chat);
+  if (key === s.offered || s.draft.trim() || s.chips.length) return s;
   const p = prefill(chat);
-  if (p === s.offered || s.draft.trim() || s.chips.length) return s;
-  return { ...s, offered: p, chips: p ? [p] : [] };
+  return { ...s, offered: key, chips: p ? [p] : [] };
+}
+
+/** What a send posts: the chips' mentions the text doesn't already make, then the text. */
+export function withChips(chat: Chat, chips: string[], text: string): string {
+  const named = resolveMentions(chat, text).to;
+  return [...chips.filter((h) => !named.includes(h)).map((h) => `@${h}`), text.trim()].filter(Boolean).join(" ");
 }
 
 export function heldCount(chat: Chat): number {
