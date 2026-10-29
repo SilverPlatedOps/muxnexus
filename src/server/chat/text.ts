@@ -86,7 +86,13 @@ function deliveryContext(
   // A mode or brief that changed since it was last woken rides along; a new member has the mode in its join message.
   if (to.welcomed && (to.modeSent ?? "") !== (chat.mode ?? "")) {
     out.push(...block("Mode:", chat.mode ? [`now ${chat.mode}. Rules from here:`, ...rulesFor(chat.mode)] : ["now general. The usual rules:", ...GENERAL_RULES]));
+  } else if (to.welcomed && chat.mode && to.rulesSent !== CHAT_RULES_VERSION) {
+    // Same mode, newer rules: the mode's own rules changed too.
+    out.push(...block("Mode:", [`still ${chat.mode}. Updated rules:`, ...rulesFor(chat.mode)]));
   }
+  // Silence from a member still starting is not agreement: it hasn't read anything yet.
+  const starting = chat.members.filter((m) => m.handle !== to.handle && !m.left && m.spawn && m.windowId).map((m) => `@${m.handle}`);
+  if (starting.length) out.push(...block("Waiting:", [`${starting.join(" ")} ${starting.length === 1 ? "is" : "are"} still starting and ${starting.length === 1 ? "hasn't" : "haven't"} read the chat yet; don't conclude without ${starting.length === 1 ? "it" : "them"}.`]));
   // A brief cleared before this member was ever shown one has nothing to take back.
   // A member new to the chat, or to a fresh conversation, is given the brief whatever it was sent before.
   const unseen = !to.welcomed || (to.briefSent ?? 0) !== (chat.brief?.rev ?? 0);

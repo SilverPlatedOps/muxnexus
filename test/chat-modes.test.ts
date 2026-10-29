@@ -7,6 +7,7 @@ import { createChatService, parseChatMessage } from "../src/server/chat/service"
 import { createChatStore } from "../src/server/chat/store";
 import { deliveryText, handoffText, header, joinMessage, readText } from "../src/server/chat/text";
 import type { Chat } from "../src/shared/chat";
+import { CHAT_RULES_VERSION } from "../src/shared/chat-rules";
 
 const T = "2026-10-26T12:00:00.000Z";
 const HOME = "/Users/me";
@@ -87,7 +88,8 @@ describe("mode", () => {
     const text = deliveryText(c, codex, msg, missedFor(c, "codex1", msg.id));
     expect(text).toContain("Mode:    now investigate. Rules from here:");
     expect(text).toContain("hypothesis");
-    codex.modeSent = "investigate";
+    // A delivery records the rules and the mode it carried together.
+    Object.assign(codex, { modeSent: "investigate", rulesSent: CHAT_RULES_VERSION });
     expect(deliveryText(c, codex, msg, { lines: [], older: 0 })).not.toContain("Mode:");
   });
 });

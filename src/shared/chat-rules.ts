@@ -1,7 +1,7 @@
 import { capRule, type ChatMode } from "./chat";
 
 /** Bump when standing instructions change: old conversations receive the update once. */
-export const CHAT_RULES_VERSION = 3;
+export const CHAT_RULES_VERSION = 4;
 export const COMMUNICATION_RULES = [
   "- Use short, natural prose by default. Lead with the answer, result or blocker, then stop.",
   "- Add lists, headings or tables only when they make a longer answer easier to read. Use code fences for code.",
@@ -11,7 +11,7 @@ export const COMMUNICATION_RULES = [
 export const MODE_RULES: Record<ChatMode, string[]> = {
   brainstorm: [
     "- Brainstorm: contribute a new idea, evidence or challenge. If you only agree, say nothing.",
-    "- Once ideas stop being new, one agent synthesizes the options, recommendation and open questions.",
+    "- Synthesize only once every agent asked has posted or said it has nothing to add, and ideas stop being new; a member still starting hasn't spoken yet. Then one agent synthesizes the options, recommendation and open questions.",
   ],
   review: [
     "- Review: the driver names the scope/base and checks, then leaves files unchanged until a verdict.",
