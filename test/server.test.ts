@@ -980,3 +980,11 @@ describe("/file", () => {
     expect((await get(join(dir, "shot.png"), { "Sec-Fetch-Site": "cross-site" })).status).toBe(403);
   });
 });
+
+test("/licence is NOTICE, additional terms included, then the full licence, as plain text", async () => {
+  const res = await fetch(`http://127.0.0.1:${server.port}/licence`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  const [notice, licence] = ["NOTICE", "LICENSE"].map((name) => readFileSync(new URL(`../${name}`, import.meta.url), "utf8"));
+  expect(await res.text()).toBe(`${notice}\n\n${licence}`);
+});

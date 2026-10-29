@@ -207,6 +207,21 @@ async function serveFile(path: string | null): Promise<Response> {
 }
 
 /**
+ * NOTICE then LICENSE, as one plain-text page: where the Display modal's About
+ * links. Read from this checkout rather than linked to gnu.org, so it works
+ * offline and carries the additional terms the GNU copy doesn't have.
+ */
+async function licencePage(): Promise<Response> {
+  const root = new URL("../../", import.meta.url);
+  const [notice, licence] = await Promise.all(
+    ["NOTICE", "LICENSE"].map((name) => Bun.file(new URL(name, root)).text()),
+  );
+  return new Response(`${notice}\n\n${licence}`, {
+    headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" },
+  });
+}
+
+/**
  * How a chat starts a Claude as `profile`. None chosen inherits the
  * workspace's: a `[Work]` workspace sets its tabs' CLAUDE_CONFIG_DIR. The
  * default profile is started with the variable unset, never pointed at
@@ -1156,6 +1171,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         if (site !== null && site !== "same-origin" && site !== "none") return new Response("Forbidden: cross-site", { status: 403 });
         return linkedFile(url);
       }
+      if (url.pathname === "/licence") return licencePage();
       if (url.pathname === "/api/chat/hook") return chatHook(req, srv.requestIP(req));
       if (url.pathname.startsWith("/api/chat/image/")) return chatImage(req, url);
       if (url.pathname === "/ws") {
