@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * A note's editor: CodeMirror with markdown styled as it is typed
  * (live-markdown.ts), shaped like the textarea it replaced for the two places

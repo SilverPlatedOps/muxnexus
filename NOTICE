@@ -1,0 +1,36 @@
+muxnexus
+Copyright (C) 2026 Aditya Wirya Darma
+https://github.com/SilverPlatedOps/muxnexus
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public
+License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program, in the file LICENSE. If not, see
+<https://www.gnu.org/licenses/>.
+
+
+Additional terms, under section 7(b) of the GNU Affero General Public License
+
+Every copy and every modified version of this program must preserve this
+NOTICE file, the existing copyright notices in its source files, and the
+author attribution "muxnexus by Aditya Wirya Darma
+(https://github.com/SilverPlatedOps/muxnexus)" in the Appropriate Legal
+Notices displayed by works containing it. Modified versions may choose the
+location and presentation of this attribution within their Appropriate Legal
+Notices, provided those notices remain convenient and prominently visible as
+section 0 defines them.
+
+
+Third-party material
+
+src/client/chat/logos.ts inlines icon data from lobe-icons
+(https://github.com/lobehub/lobe-icons), which stays under the MIT License;
+see src/client/chat/logos.LICENSE.

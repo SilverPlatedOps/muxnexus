@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * A session's category, from the tag its name starts with: `[Work] Banner
  * Migration` is Banner Migration in Work. The tag is the user's own habit,

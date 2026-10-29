@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { cpus as osCpus, loadavg as osLoadavg, totalmem as osTotalmem, type CpuInfo } from "node:os";
 import type { MemSplit, RatePoint } from "../shared/protocol";
 import { INITIAL_LEVEL, stepLevel, type LevelState, type Pressure } from "./levels";

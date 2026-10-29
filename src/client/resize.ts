@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * A side panel's width, dragged by a grip on its inner edge and remembered per
  * browser like the folded groups. The width is a CSS variable on the layout, so

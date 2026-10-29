@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /** Per-agent stdio MCP adapter. stdout is protocol-only; all setup is explicit. */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createChatToolServer, hookPoster } from "../src/server/chat/tool-adapter";

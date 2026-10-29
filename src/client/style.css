@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE. */
+
 :root {
   /* surfaces: chrome sits darker than the terminal, so the terminal reads as content */
   --well: #171a1f;
@@ -1183,8 +1186,11 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .move .ureset { color: var(--dim); }
 .move .ustat { color: var(--dim); font-style: italic; }
 
-/* The display switches: the move modal's box and type, one row per mark. */
-.display { width: 360px; }
+/* The display switches: the move modal's box and type, one row per mark. It
+   scrolls rather than running off a short phone screen: measured against the
+   backdrop, which is the visible screen, not 100vh, which a phone's browser
+   counts as if its bars were hidden. */
+.display { width: 360px; max-height: calc(100% - 32px); overflow-y: auto; }
 .display-row {
   display: flex;
   align-items: center;
@@ -1196,6 +1202,11 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .display-row:hover { background: var(--hover); }
 .display-text { flex: 1; }
 .display-row input { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+/* The licence's notice, under the switches: plain text in the rows' type. */
+.display-about { margin-top: 8px; padding: 10px 6px 2px; border-top: 1px solid var(--line-soft); }
+.display-about-links { display: block; margin-top: 4px; font-size: 10.5px; }
+.display-about-links a { color: var(--accent); text-decoration: none; }
+.display-about-links a:hover { text-decoration: underline; }
 
 .move-foot {
   margin-top: 12px;

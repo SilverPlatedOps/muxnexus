@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /** Print opt-in MCP configuration. Never edits the user's settings or freezes a pane ID. */
 import { resolve } from "node:path";
 

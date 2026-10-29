@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 # muxnexus setup: check prerequisites, install dependencies, and optionally wire
 # the cmux tmux guard into ~/.zshrc. Nothing is installed without a yes.
 # Safe to run again: every step checks before it acts.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import type { MemSplit, RatePoint, SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../shared/protocol";
 import { formatElapsed } from "./agent";
 import { ICONS } from "./icons";

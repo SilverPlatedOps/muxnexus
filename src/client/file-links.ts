@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 
 /** A plain file reference, including the path Codex shows after a Markdown label. */

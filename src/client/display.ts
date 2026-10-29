@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { VIEW_CHOICES, type ViewName } from "./view-host";
 
 /**
@@ -69,6 +72,22 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 /**
+ * The licence's on-screen notice, its "Appropriate Legal Notices": the credit
+ * and copyright, that it may be shared and changed under the AGPL, that there
+ * is no warranty, and where to read the licence. At the foot of the display
+ * modal rather than on every screen; NOTICE asks modified versions to keep the
+ * credit in theirs, wherever they put them.
+ */
+export const ABOUT = {
+  title: "About muxnexus",
+  text: "muxnexus by Aditya Wirya Darma, © 2026. You can share and change it under the GNU AGPL, version 3 or later. It comes with no warranty.",
+  links: [
+    { label: "Licence", href: "/licence" },
+    { label: "github.com/SilverPlatedOps/muxnexus", href: "https://github.com/SilverPlatedOps/muxnexus" },
+  ],
+};
+
+/**
  * The display modal: one switch per mark, each saying what it is for, so a
  * mark that has become noise can go without hunting for where it lives; and,
  * when `view` is given, which view the main area can show besides the terminal.
@@ -123,6 +142,20 @@ export function openDisplay(
     row.append(text, select);
     box.append(row);
   }
+
+  const about = el("section", "display-about");
+  about.setAttribute("aria-label", ABOUT.title);
+  const links = el("span", "display-about-links");
+  ABOUT.links.forEach((l, i) => {
+    const a = el("a", undefined, l.label);
+    a.href = l.href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    if (i > 0) links.append(" · ");
+    links.append(a);
+  });
+  about.append(el("span", "move-opt-name", ABOUT.title), el("span", "move-opt-note", ABOUT.text), links);
+  box.append(about);
 
   back.append(box);
   const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };

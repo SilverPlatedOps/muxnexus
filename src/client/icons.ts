@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * Icons shared by the sidebar and the tab strip. Drawn, one stroke weight, so
  * they sit with the dots and plus the two already draw for themselves.

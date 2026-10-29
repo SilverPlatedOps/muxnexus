@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * The notes panel, down the right of the page: "This window", the note of the
  * window in the terminal pane that last had the keys, and "All notes", every

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import type { View, ViewHost } from "../view-host";
 import type { WorldEvent } from "../transitions";
 import type { WindowRef, World, WorldAgent, WorldAttention, WorldGroup, WorldSession, WorldWindow } from "../world";

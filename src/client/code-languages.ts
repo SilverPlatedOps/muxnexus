@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * The languages a note's code block is coloured in, named by its fence
  * (```java). A short list, bundled whole: the page is one bundle, and every
