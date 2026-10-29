@@ -74,6 +74,8 @@ export interface ViewHost {
   now(): number;
   /** Call `cb` `fps` times a second while the page is visible; the returned function stops it. */
   tick(fps: number, cb: (now: number) => void): () => void;
+  /** Back to the terminal, as the top bar's toggle does: for a full-window view, which hides that bar. */
+  leave(): void;
 }
 
 /** The browser, as the host uses it; swapped for a fake under test. */
@@ -139,6 +141,9 @@ export function createViewHost(opts: {
         const stop = env.every(1000 / fps, () => { if (!env.hidden()) cb(env.now()); });
         stops.add(stop);
         return () => { stop(); stops.delete(stop); };
+      },
+      leave() {
+        if (mounted?.view === view && unmount()) opts.changed();
       },
     });
     if (world) view.update(world, []);

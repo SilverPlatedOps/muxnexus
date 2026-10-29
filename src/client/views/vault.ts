@@ -222,7 +222,12 @@ export function createVaultView(): View {
   };
   const toTerminal = button("bld-btn");
   toTerminal.append("terminal ", el("kbd", undefined, "↵"));
-  toTerminal.onclick = () => open(people().find((p) => p.id === selected)?.target ?? null);
+  // The picked person's terminal; with nobody picked (or nobody at all), simply back to the terminal.
+  toTerminal.onclick = () => {
+    const target = people().find((p) => p.id === selected)?.target ?? null;
+    if (target) open(target);
+    else host?.leave();
+  };
   const tools = el("div", "bld-tools");
   tools.append(el("span", "bld-hint", "L lights · drag to pan · pinch to zoom"), weatherBtn, toTerminal);
   hud.append(brand, queueBox, tools);

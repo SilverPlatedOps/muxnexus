@@ -83,6 +83,23 @@ describe("createViewHost", () => {
     expect(changed).toBe(1);
   });
 
+  test("a view can leave by itself, and a view already gone cannot take the next one down", () => {
+    const recs = [recordingView(), recordingView()];
+    let made = 0;
+    let changed = 0;
+    const host = createViewHost({ slot: slot(), actions, views: { debug: () => recs[made++].view }, changed: () => changed++, store: memoryStore(), env: fakeEnv() });
+    host.choose("debug");
+    const first = recs[0].host()!;
+    first.leave();
+    expect(host.showing()).toBe(false);
+    expect(recs[0].calls.at(-1)).toBe("unmount");
+    expect(changed).toBe(2);
+    host.show(true);
+    first.leave();
+    expect(host.showing()).toBe(true);
+    expect(recs[1].calls).not.toContain("unmount");
+  });
+
   test("hiding unmounts and stops its clock; the terminal choice never shows anything", () => {
     const env = fakeEnv();
     const rec = recordingView();
