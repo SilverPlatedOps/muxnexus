@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 # muxnexus: stamp this tmux pane with what the agent in it is doing, so the
 # sidebar can show which session needs you without reading the screen.
 #

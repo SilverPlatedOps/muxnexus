@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { MAX_NOTES, type Chat, type ChatNotes } from "../../shared/chat";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 

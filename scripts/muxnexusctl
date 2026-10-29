@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 # Start and stop the muxnexus server by hand.
 #   muxnexusctl start [-- <server args>]   background, detached, logs to a file
 #   muxnexusctl stop | restart | status | logs

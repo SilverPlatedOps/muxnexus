@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 """Wire scripts/agent-state.sh into a Claude Code profile's settings.json, and
 into Codex's hooks.json. Also wires scripts/chat-hook.sh (group chats: it carries
 an agent's `mux` call out of its sandbox), links `mux` into ~/.local/bin, and adds

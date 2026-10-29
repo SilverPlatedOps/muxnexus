@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 # muxnexus: carry an agent's `mux …` call out of its sandbox to the chat server.
 #
 # Installed as a PreToolUse hook (Claude Code: matcher Bash; Codex: every

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * The sidebar's search: sessions by their name, windows by theirs or by the git
  * checkout their agent works in. Every word typed has to be found, in any case,

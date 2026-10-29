@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * Markdown styled as it is typed, the way Obsidian's live preview reads: a
  * heading is large, bold is bold, code sits on its own ground, a table is a

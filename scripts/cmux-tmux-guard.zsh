@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 # muxnexus — cmux shell guard.
 # Source this from ~/.zshrc and call `muxnexus_tmux_guard` in every interactive
 # cmux shell that is not already inside tmux. Each cmux tab becomes one window of

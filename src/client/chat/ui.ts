@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { type Chat, type ChatMember, type ChatSummary } from "../../shared/chat";
 import type { ChatMemberLive, ClientMessage, SessionInfo } from "../../shared/protocol";
 import { GLYPH } from "../agent";

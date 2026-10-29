@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import type { AgentKind, Chat, ChatMember } from "../../shared/chat";
 
 /** What delivery needs to know about the agent behind a member, right now. */

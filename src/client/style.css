@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE. */
+
 :root {
   /* surfaces: chrome sits darker than the terminal, so the terminal reads as content */
   --well: #171a1f;

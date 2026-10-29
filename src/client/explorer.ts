@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 /**
  * Every note, searchable: by the session and window it belongs to, or by what
  * it says. The "All notes" side of the notes panel. A note picked here is edited

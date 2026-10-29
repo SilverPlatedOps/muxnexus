@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { capRule, type ChatMode } from "./chat";
 
 /** Bump when standing instructions change: old conversations receive the update once. */

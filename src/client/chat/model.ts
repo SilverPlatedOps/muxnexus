@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import { splitCategory } from "../../shared/category";
 import { MEMBER_COLOURS, mentionParts, resolveMentions, type Chat, type ChatGlyph, type ChatMember, type ChatSummary } from "../../shared/chat";
 import type { ChatMemberLive, SessionInfo } from "../../shared/protocol";

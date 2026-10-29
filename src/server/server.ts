@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
+
 import type { HTMLBundle, ServerWebSocket } from "bun";
 import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo, SwapHolder, SwapNotice, SystemStats } from "../shared/protocol";
 import { categoryProfile, profileLabel, type UsageReader } from "./usage";
