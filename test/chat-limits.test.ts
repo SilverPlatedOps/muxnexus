@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { limitIn, untilMs } from "../src/server/chat/limits";
+import { claudeLimitIn, limitIn, untilMs } from "../src/server/chat/limits";
 import { createChatService } from "../src/server/chat/service";
 import { createChatStore } from "../src/server/chat/store";
 import { tabOf } from "../src/client/chat/model";
@@ -26,8 +26,71 @@ describe("usage limit in a Codex rollout", () => {
   });
 });
 
+// The shape of a real Claude Code entry (2.1.287), trimmed to what is read.
+const RESETS_AT = 1790939400;
+const claudeLimited = (extra: object = {}) => JSON.stringify({
+  type: "assistant", timestamp: "2026-10-02T09:48:06.254Z",
+  message: { model: "<synthetic>", role: "assistant", content: [{ type: "text", text: "You've hit your session limit · resets 6:10pm (Asia/Jakarta)" }] },
+  quotaLimits: { status: "rejected", resetsAt: RESETS_AT, rateLimitType: "five_hour" },
+  error: "rate_limit", isApiErrorMessage: true, apiErrorStatus: 429, ...extra,
+});
+const prompt = (text: string) => JSON.stringify({ type: "user", promptId: "p1", message: { role: "user", content: text } });
+const toolResult = JSON.stringify({ type: "user", promptId: "p1", message: { role: "user", content: [{ type: "tool_result", content: "ok" }] } });
+
+describe("usage limit in a Claude transcript", () => {
+  test("the API-error entry is read, with its reset time and the words for it", () => {
+    expect(claudeLimitIn([prompt("go"), claudeLimited(), JSON.stringify({ type: "system", subtype: "turn_duration" })].join("\n")))
+      .toEqual({ until: "6:10pm", at: "2026-10-02T09:48:06.254Z", untilMs: RESETS_AT * 1000 });
+  });
+  test("without the timestamp, the words give the reset", () => {
+    const at = new Date(2026, 9, 2, 16, 48).toISOString();
+    const l = claudeLimitIn(claudeLimited({ quotaLimits: undefined, timestamp: at }));
+    expect(l?.untilMs).toBe(new Date(2026, 9, 2, 18, 10).getTime());
+    expect(untilMs("7pm", at)).toBe(new Date(2026, 9, 2, 19, 0).getTime());
+  });
+  test("a prompt typed after it ends it; a tool result doesn't", () => {
+    expect(claudeLimitIn([claudeLimited(), prompt("again")].join("\n"))).toBeNull();
+    expect(claudeLimitIn([claudeLimited(), toolResult].join("\n"))).not.toBeNull();
+  });
+  test("the words quoted in a prompt or an ordinary answer aren't the limit", () => {
+    expect(claudeLimitIn(prompt('why did I get "error":"rate_limit"?'))).toBeNull();
+    expect(claudeLimitIn(claudeLimited({ isApiErrorMessage: false }))).toBeNull();
+  });
+});
+
 let dir = "";
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "mxn-limit-")); });
+
+test("a Claude out of credits is said once in the chat and its messages wait", async () => {
+  const transcript = join(dir, "c.jsonl");
+  writeFileSync(transcript, [prompt("go"), claudeLimited()].join("\n") + "\n");
+  const sends: string[] = [];
+  const svc = createChatService({
+    store: createChatStore(join(dir, "chats")),
+    tmux: {
+      windowOfPane: async () => ({ windowId: "@1", session: "s" }),
+      agentOfWindow: async () => ({ paneId: "%1", kind: "claude", pid: 11, state: "done", since: 1, fresh: true, conversation: { sessionId: "s", transcriptPath: transcript } }) as never,
+    },
+    states: async () => new Map(),
+    adapters: {
+      claude: { kind: "claude", send: async (_t, text) => { sends.push(text); return { ok: true }; } },
+      codex: { kind: "codex", send: async (_t, text) => { sends.push(text); return { ok: true }; } },
+    },
+    socketOf: async () => null, receipt: async () => false, alive: () => true,
+    // Before the reset.
+    now: () => new Date((RESETS_AT - 3600) * 1000).toISOString(),
+    home: "/Users/me",
+  });
+  const id = ((await svc.handle({ t: "chat-create", name: "t", members: [{ windowId: "@1" }] })) as { chatId: string }).chatId;
+  await svc.handle({ t: "chat-post", id, text: "@claude1 hello" });
+  await svc.tick();
+  await svc.tick();
+  const { chat, agents } = (await svc.view(id))!;
+  expect(chat.messages.filter((m) => m.text.includes("out of usage credits until 6:10pm"))).toHaveLength(1);
+  expect(sends).toHaveLength(0);
+  expect(chat.messages.find((m) => m.text === "@claude1 hello")!.deliveries.claude1).toMatchObject({ state: "queued", reason: "out of credits until 6:10pm" });
+  expect(agents.claude1).toMatchObject({ state: "done", limit: { until: "6:10pm" } });
+});
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 test("a Codex out of credits is said once in the chat and its messages wait", async () => {

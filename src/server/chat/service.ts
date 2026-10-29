@@ -160,10 +160,12 @@ export function createChatService(deps: ChatServiceDeps) {
   const reachable = (m: ChatMember, info: WindowAgentInfo | null | undefined) =>
     sameAgent(m, info) && !info.daemon && (info.fresh === true || (info.pid !== undefined && alive(info.pid)));
   const idOf = (info: WindowAgentInfo) => info.conversation?.sessionId ?? info.thread?.id;
-  /** A Codex member whose last turn ended on the usage limit, while that limit still holds. */
+  /** A member whose last turn ended on the usage limit, while that limit still holds. */
   const limitOf = async (m: ChatMember, info: WindowAgentInfo | null | undefined): Promise<UsageLimit | null> => {
-    if (m.kind !== "codex" || !sameAgent(m, info) || !info.thread?.path) return null;
-    const l = await usageLimit(info.thread.path);
+    if (!sameAgent(m, info)) return null;
+    const path = m.kind === "codex" ? info.thread?.path : m.kind === "claude" ? info.conversation?.transcriptPath : undefined;
+    if (!path) return null;
+    const l = await usageLimit(path, m.kind === "claude" ? "claude" : "codex");
     return l && (l.untilMs === undefined || l.untilMs > Date.parse(now())) ? l : null;
   };
   const chats = new Map<string, Chat>();
@@ -776,13 +778,15 @@ export function createChatService(deps: ChatServiceDeps) {
 
     const view = (c: Chat, m: ChatMember): AgentView => {
       const info = m.windowId ? (infos.get(m.windowId) ?? null) : null;
-      // A Codex tab with no conversation yet has no thread to queue to: its messages wait. So do one out of credits.
+      // A Codex tab with no conversation yet has no thread to queue to: its messages wait. So do one out of credits, of either kind.
       const threadless = info?.kind === "codex" && !info.daemon && !info.thread;
+      const limited = limits.has(`${c.id} ${m.handle}`);
       return {
         kind: m.kind as AgentKind,
         online: reachable(m, info),
-        idle: !threadless && !limits.has(`${c.id} ${m.handle}`) && idle(m, info),
+        idle: !threadless && !limited && idle(m, info),
         ...(info?.daemon ? { daemon: true } : {}),
+        ...(limited ? { limited: true } : {}),
       };
     };
     for (const chat of active) for (const m of chat.members) if (m.windowId && !m.left && m.kind !== "user") await infoOf(m.windowId);
