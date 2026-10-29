@@ -86,7 +86,7 @@ export interface TerminalView {
   readonly rows: number;
 }
 
-const THEME = {
+const DARK = {
   // One Dark
   background: "#282c34",
   foreground: "#abb2bf",
@@ -98,23 +98,39 @@ const THEME = {
   brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
 };
 
+// One Light, picked with ?theme=light; the rest of the page stays dark.
+const LIGHT = {
+  background: "#fafafa",
+  foreground: "#383a42",
+  cursor: "#526fff",
+  selectionBackground: "#d7dce8",
+  black: "#383a42", red: "#e45649", green: "#50a14f", yellow: "#c18401",
+  blue: "#4078f2", magenta: "#a626a4", cyan: "#0184bc", white: "#a0a1a7",
+  brightBlack: "#696c77", brightRed: "#ca1243", brightGreen: "#3d8c3c", brightYellow: "#986801",
+  brightBlue: "#2f5ee0", brightMagenta: "#8d1d8b", brightCyan: "#0997b3", brightWhite: "#ffffff",
+};
+const THEME = typeof location !== "undefined" && new URLSearchParams(location.search).get("theme") === "light" ? LIGHT : DARK;
+const light = THEME === LIGHT;
+
 /**
  * Search marks in amber, the colour terminals search in; decorations take
  * #RRGGBB only. The addon tracks the match you are on by selecting it, and the
  * selection paints over its mark, so while a search is open the selection
- * itself takes the active colour, in white, so a dimmed line still reads.
+ * itself takes the active colour: in white on the dark palette, so a dimmed
+ * line still reads; on the light one a paler amber under its own dark text.
  */
-const MATCH = "#5a4a26";
-const ACTIVE = "#9a7a32";
+const MATCH = light ? "#f3dea0" : "#5a4a26";
+const ACTIVE = light ? "#e5b84f" : "#9a7a32";
+/** The scrollbar's marks sit on the page's own background: on the light one they take a darker amber to show. */
 const FIND: ISearchOptions = {
   decorations: {
     matchBackground: MATCH,
-    matchOverviewRuler: MATCH,
+    matchOverviewRuler: light ? "#c18401" : MATCH,
     activeMatchBackground: ACTIVE,
-    activeMatchColorOverviewRuler: ACTIVE,
+    activeMatchColorOverviewRuler: light ? "#986801" : ACTIVE,
   },
 };
-const FINDING = { ...THEME, selectionBackground: ACTIVE, selectionInactiveBackground: ACTIVE, selectionForeground: "#ffffff" };
+const FINDING = { ...THEME, selectionBackground: ACTIVE, selectionInactiveBackground: ACTIVE, selectionForeground: light ? LIGHT.foreground : "#ffffff" };
 
 export function createTerminal(container: HTMLElement, h: TerminalHandlers): TerminalView {
   const open = (target: string) => { if (!h.onLink?.(target)) window.open(target, "_blank", "noopener"); };
@@ -126,6 +142,10 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     macOptionIsMeta: true,
     scrollback: 1000,
     theme: THEME,
+    // On the light palette, a colour too close to the background is darkened
+    // until it shows -- white and bright white, which programs print on dark.
+    // 3, not 4.5, so dim text and the palette's own greys stay dimmer than the rest.
+    minimumContrastRatio: light ? 3 : 1,
     allowProposedApi: true, // the search addon's match marks are decorations, still a proposed API
     // A link a program printed with its own text (OSC 8) opens in a new tab,
     // as a bare URL does, instead of behind xterm's confirm() dialog.
