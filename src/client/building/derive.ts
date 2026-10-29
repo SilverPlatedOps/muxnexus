@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import { profileBadge } from "../agent";
-import { badgedLabels, summaryWindow } from "../usage";
+import { atLimit, badgedLabels, summaryWindow } from "../usage";
 import type { WindowRef, World, WorldSession, WorldWindow } from "../world";
 
 /**
@@ -166,7 +166,7 @@ function roomOf(key: string, kind: Floor["kind"], chosen: Readonly<Record<string
 export function deriveBuilding(world: World, now: number, rooms: Readonly<Record<string, RoomType>> = {}): Building {
   const labels = badgedLabels(world.accounts);
   const fuel: Fuel[] = world.accounts.map((a) => {
-    const w = summaryWindow(a.windows);
+    const w = summaryWindow(a.windows, now);
     const percent = w ? w.percent : null;
     const badge = profileBadge(a.label, labels);
     return {
@@ -176,7 +176,7 @@ export function deriveBuilding(world: World, now: number, rooms: Readonly<Record
       slot: badge?.slot ?? null,
       percent,
       ...(w?.resetsAt ? { resetsAt: w.resetsAt } : {}),
-      level: percent === null ? "none" : percent >= 100 ? "empty" : percent >= THRESHOLDS.amberPct ? "amber" : "ok",
+      level: !w ? "none" : atLimit(w) ? "empty" : w.percent >= THRESHOLDS.amberPct ? "amber" : "ok",
       signedOut: a.state === "signed-out",
     };
   });

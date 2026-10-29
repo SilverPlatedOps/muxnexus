@@ -156,6 +156,8 @@ export function createVaultView(): View {
   let stopTick: (() => void) | null = null;
   let focusTaken = false;
   let alive = false;
+  /** The terminal a ⌘J or queue glide opens once the camera arrives; a newer glide or an unmount cancels it. */
+  let revealTimer: ReturnType<typeof setTimeout> | undefined;
   /** Each mount's boot carries its own number: a boot from an earlier mount gives up. */
   let mountNo = 0;
 
@@ -263,7 +265,7 @@ export function createVaultView(): View {
     setText(text, f.signedOut ? "signed out"
       : f.percent === null ? "no reading"
       : f.level === "empty" ? `empty${f.resetsAt ? ` · ${backAt(f.resetsAt, now)}` : ""}`
-      : `${f.percent}%${reset ? ` · ${reset}` : ""}`);
+      : `${Math.round(f.percent)}%${reset ? ` · ${reset}` : ""}`);
   }
   function paintHud() {
     if (!host) return;
@@ -588,7 +590,8 @@ export function createVaultView(): View {
     selected = p.id;
     paintSelection();
     follow(p.id, Math.max(cam.ts, 1.3));
-    setTimeout(() => open(ref), 380);
+    clearTimeout(revealTimer);
+    revealTimer = setTimeout(() => { revealTimer = undefined; if (alive) open(ref); }, 380);
   }
 
   // ---- building the scene from the model ----
@@ -1361,6 +1364,7 @@ export function createVaultView(): View {
     },
     unmount() {
       alive = false;
+      clearTimeout(revealTimer);
       stopTick?.();
       stopTick = null;
       app?.destroy(true, { children: true });
