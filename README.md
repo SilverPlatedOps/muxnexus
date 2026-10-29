@@ -422,4 +422,12 @@ sizing caveats worth knowing — are in
 
 ## Licence
 
-[MIT](LICENSE). Do what you like with it.
+[AGPL-3.0-or-later](LICENSE), © 2026 Aditya Wirya Darma. [NOTICE](NOTICE) holds
+the copyright notice and the licence's additional terms.
+
+You can use, run, change and sell muxnexus. If you share a modified version, or
+run one that other people use over a network, you must publish its full source
+under the same licence. Every copy and every modified version must also keep the
+credit "muxnexus by Aditya Wirya Darma" with a link to this repository.
+
+Versions released before this licence change were MIT and stay MIT.
