@@ -488,8 +488,16 @@ export function createSidebar(
     },
     startNewSession,
     startRename(session, seed) {
-      const r = root.querySelector<HTMLElement>(`.group[data-name="${CSS.escape(session)}"] .row.session`);
       const s = lastSessions.find((x) => x.name === session);
+      const rowOf = () => root.querySelector<HTMLElement>(`.group[data-name="${CSS.escape(session)}"] .row.session`);
+      // A row in a folded group (or the folded Archived section) is unfolded to be renamed.
+      if (!rowOf() && s) {
+        const cat = splitCategory(sessionLabel(s))?.category;
+        if (isArchived(s, sessionLabel(s))) { if (!collapsed.has(ARCHIVE_OPEN)) collapsed.toggle(ARCHIVE_OPEN); }
+        else if (cat && collapsed.has(categoryKey(cat))) collapsed.toggle(categoryKey(cat));
+        if (search?.value) { search.value = ""; rerender(); }
+      }
+      const r = rowOf();
       if (r && s) renameRow(r, session, sessionLabel(s), seed);
     },
     startGroupRename(category, commit) {

@@ -164,7 +164,7 @@ export function openMove(
   // Esc closes; ⌘↵ takes the marked target, as clicking it would.
   function keys(e: KeyboardEvent) {
     if (e.key === "Escape") close();
-    else if (e.key === "Enter" && e.metaKey && pick && !busy && !list.find((t) => t.label === pick)?.here) {
+    else if (e.key === "Enter" && e.metaKey && pick && !busy && list.some((t) => t.label === pick && !t.here)) {
       e.preventDefault();
       close();
       actions.moveTo(w.id, pick);

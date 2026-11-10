@@ -32,6 +32,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 let closeOpen: (() => void) | null = null;
+/** The button whose menu a pointerdown on it just closed: its click must not reopen it. */
+let justClosed: { el: HTMLElement; at: number } | null = null;
 
 /** Close whatever menu is open (another opening, a view change). */
 export function closeMenus(): void {
@@ -42,6 +44,10 @@ export function closeMenus(): void {
 export type Pick = (action: MenuAction, picked: { item: MenuItem; option: boolean }) => void;
 
 export function openMenu(at: Anchor, menu: Menu, pick: Pick): () => void {
+  if (at instanceof HTMLElement && justClosed?.el === at && Date.now() - justClosed.at < 500) {
+    justClosed = null;
+    return () => {};
+  }
   closeOpen?.();
   const opener = at instanceof HTMLElement ? at : (document.activeElement as HTMLElement | null);
   const box = el("div", "pop-menu");
@@ -145,12 +151,15 @@ export function openMenu(at: Anchor, menu: Menu, pick: Pick): () => void {
     } else return;
     e.stopPropagation();
   };
-  const onDown = (e: PointerEvent) => { if (!box.contains(e.target as Node)) close(); };
-  const onGone = () => close();
+  const onDown = (e: PointerEvent) => {
+    if (box.contains(e.target as Node)) return;
+    // A press on the ⋯ that opened it closes it (a toggle), rather than close-then-reopen.
+    if (at instanceof HTMLElement && at.contains(e.target as Node)) justClosed = { el: at, at: Date.now() };
+    close();
+  };
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("pointerdown", onDown, true);
-  addEventListener("blur", onGone);
-  addEventListener("resize", onGone);
+
 
   function close() {
     if (closeOpen !== close) return;
@@ -159,8 +168,7 @@ export function openMenu(at: Anchor, menu: Menu, pick: Pick): () => void {
     if (at instanceof HTMLElement) at.classList.remove("menu-open");
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("pointerdown", onDown, true);
-    removeEventListener("blur", onGone);
-    removeEventListener("resize", onGone);
+
   }
   closeOpen = close;
   items()[0]?.focus();
