@@ -238,6 +238,26 @@ describe("the reader, with the network and Keychain injected", () => {
     expect((await reader.read()).map((s) => s.state)).toEqual(["signed-out", "signed-out"]);
   });
 
+  test("on Linux the login is the profile's .credentials.json, not the Keychain", async () => {
+    const read: string[] = [];
+    const sent: string[] = [];
+    const reader = createUsageReader({
+      ...base,
+      platform: "linux",
+      readFile: async (p) => {
+        read.push(p);
+        return p === `${HOME}/.claude-work/.credentials.json` ? item : null;
+      },
+      fetch: async (_url, headers) => {
+        sent.push(headers.Authorization);
+        return { status: 200, body: ok };
+      },
+    });
+    expect((await reader.read()).map((s) => s.state)).toEqual(["signed-out", "ok"]);
+    expect(read).toContain(`${HOME}/.claude/.credentials.json`);
+    expect(sent).toEqual(["Bearer tok"]);
+  });
+
   test("a network failure keeps the previous numbers and marks them", async () => {
     let status = 200;
     const reader = createUsageReader({ ...base, secret: async () => item, fetch: async () => ({ status, body: ok }) });

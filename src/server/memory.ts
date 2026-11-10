@@ -53,6 +53,8 @@ export type Runner = (cmd: string[], timeoutMs: number) => Promise<string>;
 
 const APP_LIMIT = 8;
 const VM_PROCESS = "com.apple.Virtualization.VirtualMachine";
+/** macOS's `ps` gives `comm` as the full path; Linux's gives the bare name, so both forms count. */
+const isJava = (path: string) => path === "java" || path.endsWith("/java");
 const RUN_TIMEOUT_MS = 2000;
 
 async function run(cmd: string[], timeoutMs: number): Promise<string> {
@@ -113,7 +115,7 @@ export function createMemoryReader(opts: {
         }
         return false;
       };
-      const javas = procs.filter((p) => p.path.endsWith("/java") && inTab(p.pid)).map((p) => p.pid);
+      const javas = procs.filter((p) => isJava(p.path) && inTab(p.pid)).map((p) => p.pid);
       const args = new Map<number, string>();
       if (javas.length > 0) {
         const out = await exec(["ps", "-o", "pid=,args=", "-p", javas.join(",")], RUN_TIMEOUT_MS).catch(() => "");
@@ -213,7 +215,7 @@ export function attribute(
       win.processes++;
       if (bytes === null) win.unreadable++;
       win.cpu += p.cpu;
-      const label = processLabel(p.path, p.path.endsWith("/java") ? opts.argsOf?.(p.pid) : undefined);
+      const label = processLabel(p.path, isJava(p.path) ? opts.argsOf?.(p.pid) : undefined);
       const part = win.partMap.get(label) ?? { bytes: 0, readable: false, cpu: 0 };
       part.bytes += bytes ?? 0;
       part.readable ||= bytes !== null;

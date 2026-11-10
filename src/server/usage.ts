@@ -28,8 +28,11 @@ export interface HttpResult {
 
 /** Injected so tests never reach the network. */
 export type Fetcher = (url: string, headers: Record<string, string>) => Promise<HttpResult>;
-/** Injected so tests never reach the Keychain. Resolves null when there is no such item. */
-export type SecretReader = (service: string) => Promise<string | null>;
+/**
+ * A profile's stored login, as JSON, by its config directory. Injected so tests
+ * never reach the Keychain or the disk. Resolves null when there is none.
+ */
+export type SecretReader = (configDir: string) => Promise<string | null>;
 
 /**
  * Where the reader keeps what it knows between server runs. `bun --watch`
@@ -255,6 +258,8 @@ export interface UsageOptions {
   list?: (dir: string) => string[];
   has?: (p: string) => boolean;
   readFile?: (p: string) => Promise<string | null>;
+  /** Where Claude Code keeps its logins: the Keychain on `darwin`, a file anywhere else. Default: this machine's. */
+  platform?: NodeJS.Platform;
   /** First backoff step after a failed read; doubles from there. */
   backoffBaseMs?: number;
   now?: () => number;
@@ -276,7 +281,7 @@ const httpGet: Fetcher = async (url, headers) => {
 };
 
 /** One Keychain item, by service name. Absent or unreadable is null, never a throw. */
-const keychainSecret: SecretReader = async (service) => {
+const keychainSecret = async (service: string): Promise<string | null> => {
   const proc = Bun.spawn(["security", "find-generic-password", "-s", service, "-w"], {
     stdout: "pipe",
     stderr: "ignore",
@@ -288,10 +293,14 @@ const keychainSecret: SecretReader = async (service) => {
 export function createUsageReader(opts: UsageOptions = {}): UsageReader {
   const home = opts.home ?? homedir();
   const get = opts.fetch ?? httpGet;
-  const secret = opts.secret ?? keychainSecret;
   const list = opts.list ?? ((dir: string) => { try { return readdirSync(dir); } catch { return []; } });
   const has = opts.has ?? ((p: string) => existsSync(p));
   const readFile = opts.readFile ?? (async (p: string) => { try { return await Bun.file(p).text(); } catch { return null; } });
+  // On a Mac the Keychain only, so a stale credentials file there can never win;
+  // on Linux Claude Code keeps the same JSON in the profile's own directory.
+  const secret: SecretReader = opts.secret ?? ((opts.platform ?? process.platform) === "darwin"
+    ? (dir) => keychainSecret(keychainService(dir, home))
+    : (dir) => readFile(join(dir, ".credentials.json")));
 
   const baseMs = opts.backoffBaseMs ?? 60_000;
   const now = opts.now ?? (() => Date.now());
@@ -392,7 +401,7 @@ export function createUsageReader(opts: UsageOptions = {}): UsageReader {
     // Still backing off: report what we last knew rather than asking again.
     if (waiting(id) && previous) return previous;
     const now = stamp;
-    const item = await secret(keychainService(dir, home));
+    const item = await secret(dir);
     const token = item ? accessToken(item) : null;
     if (!token) return merge(last.get(id), { id, label, provider: "claude", windows: [], state: "signed-out", now });
     asking(id);

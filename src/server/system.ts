@@ -7,7 +7,8 @@ import type { MemSplit } from "../shared/protocol";
 /**
  * Reading the machine for the system overview: the parsers for what every Mac
  * has -- `vm_stat`, `sysctl`, the CPU counters -- with no sudo, so no
- * temperatures or GPU, which only `powermetrics` as root can see. The sampler
+ * temperatures or GPU, which only `powermetrics` as root can see. On Linux the
+ * same figures come from `/proc` (meminfo, vmstat, stat). The sampler
  * (vitals.ts) and the memory reader (memory.ts) run the tools; each parser
  * stands alone, and output it does not recognise gives no answer rather than a
  * wrong one.
@@ -124,6 +125,56 @@ export function parseSwap(text: string): { used: number; total: number } | undef
  */
 export function parsePressure(text: string): "normal" | "warning" | "critical" | undefined {
   return PRESSURE[/^\s*([124])\s*$/m.exec(text)?.[1] ?? ""];
+}
+
+/** What Linux's `/proc/meminfo` says, in bytes. */
+export interface Meminfo {
+  total: number;
+  /** MemAvailable: free pages plus the cache the kernel can drop, its own estimate of the room before it swaps. */
+  available: number;
+  /** AnonPages: what processes hold that no file backs. */
+  anon: number;
+  /** The zswap pool: swapped pages kept compressed in RAM. Zero when the kernel has no zswap. */
+  zswap: number;
+  swapTotal: number;
+  swapFree: number;
+}
+
+export function parseMeminfo(text: string): Meminfo | undefined {
+  const kb = (key: string) => Number(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m").exec(text)?.[1] ?? NaN) * 1024;
+  const m = { total: kb("MemTotal"), available: kb("MemAvailable"), anon: kb("AnonPages"), zswap: kb("Zswap"), swapTotal: kb("SwapTotal"), swapFree: kb("SwapFree") };
+  if (!(m.total > 0) || ![m.available, m.anon, m.swapTotal, m.swapFree].every(Number.isFinite)) return undefined;
+  return Number.isFinite(m.zswap) ? m : { ...m, zswap: 0 };
+}
+
+/**
+ * The Mem bar on Linux. In use is what `free` counts, the total less
+ * MemAvailable; apps is the anonymous part of it, compressed the zswap pool,
+ * and system the rest of what is in use -- the kernel's own memory, page
+ * tables, shared memory and cache it cannot drop. The parts add up to the total.
+ */
+export function linuxSplit(m: Meminfo): MemSplit {
+  const used = Math.min(m.total, Math.max(0, m.total - m.available));
+  const compressed = Math.min(Math.max(0, m.zswap), used);
+  const apps = Math.min(Math.max(0, m.anon), used - compressed);
+  return { apps, system: used - apps - compressed, compressed, available: m.total - used, total: m.total, from: "meminfo" };
+}
+
+/** Swap from `/proc/meminfo`; none set up is no figure, as on the Mac. */
+export function linuxSwap(m: Meminfo): { used: number; total: number } | undefined {
+  return m.swapTotal > 0 ? { used: Math.max(0, m.swapTotal - m.swapFree), total: m.swapTotal } : undefined;
+}
+
+/** `pswpout` in `/proc/vmstat`: pages written to swap since boot. */
+export function parseSwapouts(text: string): number | undefined {
+  const n = /^pswpout (\d+)$/m.exec(text)?.[1];
+  return n === undefined ? undefined : Number(n);
+}
+
+/** `btime` in `/proc/stat`: when Linux booted, in seconds, as milliseconds. */
+export function parseBtime(text: string): number | undefined {
+  const sec = Number(/^btime (\d+)$/m.exec(text)?.[1]);
+  return sec ? sec * 1000 : undefined;
 }
 
 /**

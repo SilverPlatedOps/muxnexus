@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CpuInfo } from "node:os";
 import type { SessionInfo, SwapNotice, SystemApp, SystemStats, WindowMemory } from "../src/shared/protocol";
 import { formatBytes, formatCpu, formatMem, formatRate, formatVolume, memLegend, memPressure, panelRows, parseOpen, pressure, resampleRates, sparkPath, statusLine, summaryFigures, swapLine, swapTone } from "../src/client/system";
-import { appOf, cpuPercent, memSplit, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "../src/server/system";
+import { appOf, cpuPercent, linuxSplit, linuxSwap, memSplit, parseBootTime, parseBtime, parseMeminfo, parsePressure, parseSwap, parseSwapouts, parseVmCounters, parseVmStat } from "../src/server/system";
 
 const VM_STAT = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
 Pages free:                                     4261.
@@ -226,6 +226,14 @@ describe("overview models", () => {
     expect(l[3].tooltip).toBe("Free memory plus file cache macOS can reclaim: the room before it has to compress or swap");
   });
 
+  test("a Linux split says what its parts are there, and names compressed only when zswap holds some", () => {
+    const linux = { apps: 6 * GiB, system: 2 * GiB, compressed: 0, available: 8 * GiB, total: 16 * GiB, from: "meminfo" as const };
+    const l = memLegend(linux);
+    expect(l.map((x) => x.key)).toEqual(["apps", "system", "available"]);
+    expect(l.map((x) => x.tooltip ?? "").join(" ")).not.toMatch(/macOS|Wired/);
+    expect(memLegend({ ...linux, compressed: GiB, available: 7 * GiB }).map((x) => x.key)).toEqual(["apps", "system", "compressed", "available"]);
+  });
+
   test("a tab's memory says when it is a floor, and when it is unknown", () => {
     expect(formatMem(1.2 * GiB, 3, 0)).toBe("1.2G");
     expect(formatMem(1.2 * GiB, 3, 1)).toBe("≥1.2G");
@@ -313,5 +321,51 @@ describe("resampleRates", () => {
   test("an unknown reading stays unknown", () => {
     const now = 1_000_000;
     expect(resampleRates([{ at: now - 1_000, rate: null }], now)[59]).toBeNull();
+  });
+});
+
+describe("Linux's /proc", () => {
+  const meminfo = (extra = "") => `MemTotal:       16000000 kB
+MemFree:          400000 kB
+MemAvailable:    8000000 kB
+SwapTotal:       4000000 kB
+SwapFree:        1000000 kB
+AnonPages:       5000000 kB
+${extra}`;
+
+  test("meminfo in bytes; no Zswap line is a zero pool", () => {
+    expect(parseMeminfo(meminfo())).toEqual({
+      total: 16_000_000 * 1024, available: 8_000_000 * 1024, anon: 5_000_000 * 1024, zswap: 0,
+      swapTotal: 4_000_000 * 1024, swapFree: 1_000_000 * 1024,
+    });
+    expect(parseMeminfo(meminfo("Zswap:            250000 kB\n"))!.zswap).toBe(250_000 * 1024);
+  });
+
+  test("meminfo without MemAvailable (kernels before 3.14) or with no total gives no answer", () => {
+    expect(parseMeminfo(meminfo().replace(/^MemAvailable.*$/m, ""))).toBeUndefined();
+    expect(parseMeminfo("")).toBeUndefined();
+  });
+
+  test("the split adds up to the total, and apps never overrun what is in use", () => {
+    const m = parseMeminfo(meminfo("Zswap:            500000 kB\n"))!;
+    const sp = linuxSplit(m);
+    expect(sp.apps + sp.system + sp.compressed + sp.available).toBe(sp.total);
+    expect(sp).toMatchObject({ compressed: 500_000 * 1024, apps: 5_000_000 * 1024, system: 2_500_000 * 1024, from: "meminfo" });
+    // Counters read a moment apart can claim more anonymous memory than is in use.
+    const odd = linuxSplit({ ...m, anon: 20_000_000 * 1024 });
+    expect(odd.system).toBe(0);
+    expect(odd.apps + odd.compressed).toBe(m.total - m.available);
+  });
+
+  test("swap: none set up is no figure", () => {
+    expect(linuxSwap(parseMeminfo(meminfo())!)).toEqual({ used: 3_000_000 * 1024, total: 4_000_000 * 1024 });
+    expect(linuxSwap({ ...parseMeminfo(meminfo())!, swapTotal: 0, swapFree: 0 })).toBeUndefined();
+  });
+
+  test("pswpout and btime, and nothing from text that lacks them", () => {
+    expect(parseSwapouts("pgpgout 9\npswpin 3\npswpout 1234\n")).toBe(1234);
+    expect(parseSwapouts("pswpin 3\n")).toBeUndefined();
+    expect(parseBtime("cpu  1 2 3\nbtime 1792468718\n")).toBe(1792468718000);
+    expect(parseBtime("cpu  1 2 3\n")).toBeUndefined();
   });
 });
