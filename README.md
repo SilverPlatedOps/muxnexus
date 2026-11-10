@@ -146,6 +146,21 @@ muxnexus logs             # tail -f the log
 It keeps a pidfile and log under `~/.local/state/muxnexus/`, and `stop` also
 finds a server you started some other way.
 
+### On a Linux server
+
+```sh
+./scripts/install.sh --yes                # no questions; anything needing sudo is printed for you to run
+./scripts/muxnexusctl install-service     # a systemd user service; server args go after --
+sudo loginctl enable-linger "$USER"       # once: start at boot, and keep running after you log out
+```
+
+The service brings the server back if it crashes, and a stop or restart leaves
+tmux and every tab running. Once it is installed, `muxnexus start | stop |
+restart | status` go through systemd and `uninstall-service` removes it. On
+Linux the System panel reads `/proc`, and a Claude profile's quota login comes
+from its `.credentials.json` rather than the Keychain. Per-process CPU there is
+`ps`'s average over each process's whole life, not its use right now.
+
 ### Surviving a reboot
 
 A tmux server takes every window and running agent with it when it stops, while
