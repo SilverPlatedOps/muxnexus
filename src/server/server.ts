@@ -509,12 +509,19 @@ export function createServer(opts: ServerOptions): RunningServer {
    */
   async function focusPane(req: Request, ip: { address: string } | null): Promise<Response> {
     if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
-    if (req.headers.get("origin") !== null || !isLoopback(ip?.address)) return new Response("Forbidden", { status: 403 });
+    // The same rebinding guard as the socket's, then: no browser page, and only this machine
+    // (over loopback or its own Tailscale address, whichever the server listens on).
+    if (!hostAllowed(req.headers.get("host"), allowedHosts)) return new Response("Forbidden: unrecognised Host", { status: 403 });
+    if (req.headers.get("origin") !== null || !isThisMachine(ip?.address)) return new Response("Forbidden", { status: 403 });
     const body = parseFocusRequest(await req.json().catch(() => null));
     if (!body) return new Response("Bad request", { status: 400 });
     const where = await tmux.windowOfPane(body.pane);
     if (!where) return new Response("No such pane", { status: 404 });
-    const message: ServerMessage = { t: "focus", session: where.session, windowId: where.windowId };
+    // tmux names whichever session holding the window it likes, which can be a split pane's
+    // hidden view or a grouped tab; the page needs the session its sidebar lists.
+    const shown = (await tmux.listState()).sessions.find((s) => s.windows.some((w) => w.id === where.windowId));
+    const session = shown?.name ?? where.session;
+    const message: ServerMessage = { t: "focus", session, windowId: where.windowId };
     const json = JSON.stringify(message);
     let pages = 0;
     for (const ws of clients) {
@@ -522,7 +529,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       ws.sendText(json);
       pages++;
     }
-    return Response.json({ session: where.session, windowId: where.windowId, pages });
+    return Response.json({ session, windowId: where.windowId, pages });
   }
 
   const images = opts.chatsDir ? createImageStore(opts.chatsDir) : null;

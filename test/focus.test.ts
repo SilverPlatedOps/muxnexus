@@ -41,6 +41,21 @@ describe("the focus endpoint", () => {
     page.ws.close();
   });
 
+  test("names the session the sidebar shows, not a hidden view of it", async () => {
+    await tmux.newSession("work");
+    const [pane, windowId] = (await tmux.run(["display-message", "-p", "-t", "work", "#{pane_id}\t#{window_id}"])).trim().split("\t");
+    // A split pane's private view of the group holds the same window, and was made last.
+    await tmux.openView("work", windowId);
+    const res = await focus(server.port, { pane });
+    expect(res.status).toBe(200);
+    expect((await res.json()).session).toBe("work");
+  });
+
+  test("refuses a Host it does not recognise", async () => {
+    const res = await focus(server.port, { pane: "%1" }, { headers: { "content-type": "application/json", Host: "evil.example" } });
+    expect(res.status).toBe(403);
+  });
+
   test("refuses a browser's post", async () => {
     const res = await focus(server.port, { pane: "%1" }, { headers: { "content-type": "application/json", Origin: "http://evil.example" } });
     expect(res.status).toBe(403);

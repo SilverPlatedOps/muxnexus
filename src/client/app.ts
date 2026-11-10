@@ -727,7 +727,9 @@ const conn = new Connection(wsUrl, {
         rebuildWorld();
         break;
       case "focus":
-        // The desk board asked to show this agent (POST /api/focus).
+        // The desk board asked to show this agent (POST /api/focus): what a click in the
+        // sidebar does, the terminal brought back from any other view first.
+        views.show(false);
         openWindow(m.session, m.windowId);
         break;
       case "attached":
