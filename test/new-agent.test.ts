@@ -4,6 +4,7 @@ import { buildRequest, groupAccount, nameFromFolder, workspaceName } from "../sr
 test("the workspace name is the group as a tag, then the name", () => {
   expect(workspaceName("shop-api", "Work")).toBe("[Work] shop-api");
   expect(workspaceName("  notes ", null)).toBe("notes");
+  expect(workspaceName("my.app", null)).toBe("my-app");
 });
 
 test("the name defaults to the folder's last part", () => {
@@ -23,4 +24,5 @@ test("the request carries only what applies to the agent picked", () => {
   expect(buildRequest({ name: "x", folder: "", group: null, agent: "codex", profile: "work" })).toEqual({ name: "x", agent: "codex" });
   expect(buildRequest({ name: "sh", folder: "~", group: null, agent: "shell", profile: null })).toEqual({ name: "sh", folder: "~" });
   expect(buildRequest({ name: "", folder: "", group: null, agent: "shell", profile: null })).toBeNull();
+  expect(buildRequest({ name: " ", folder: "", group: "Work", agent: "shell", profile: null })).toBeNull();
 });

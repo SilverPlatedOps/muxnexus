@@ -21,7 +21,8 @@ export interface NewAgentRequest {
 
 /** The workspace name a request makes: its group as the tag, else just the name. */
 export function workspaceName(name: string, group: string | null): string {
-  const n = name.trim();
+  // tmux takes neither . nor : in a session name (it would quietly rename it).
+  const n = name.trim().replace(/[.:]/g, "-");
   return group ? `[${group}] ${n}` : n;
 }
 
@@ -40,8 +41,9 @@ export function groupAccount(group: string | null, profiles: readonly string[]):
 }
 
 export function buildRequest(f: { name: string; folder: string; group: string | null; agent: AgentChoice; profile: string | null }): NewAgentRequest | null {
-  const name = workspaceName(f.name || nameFromFolder(f.folder), f.group);
-  if (!name) return null;
+  const bare = (f.name || nameFromFolder(f.folder)).trim();
+  if (!bare) return null;
+  const name = workspaceName(bare, f.group);
   return {
     name,
     ...(f.folder.trim() ? { folder: f.folder.trim() } : {}),

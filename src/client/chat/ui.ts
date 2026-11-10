@@ -862,6 +862,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   let sideOn = false;
 
   function openSide(handle: string) {
+    pickedHandle = null; // the open terminal is the pick now
     const m = chat?.members.find((x) => x.handle === handle);
     const session = agents[handle]?.session ?? m?.session;
     if (!chat || !m) return;
@@ -1132,7 +1133,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     settingsSignature = sig;
     const nameRow = el("div", "chat-set-row");
     const nameVal = btn("chat-set-name", c.name, "Click to rename");
-    nameVal.onclick = () => inlineEdit(nameVal, { value: c.name, label: "Chat name", save: (n) => host.send({ t: "chat-settings", id: c.id, name: n }), done: () => { headerSignature = ""; paintChat(); } });
+    nameVal.onclick = () => inlineEdit(nameVal, { value: c.name, label: "Chat name", save: (n) => host.send({ t: "chat-settings", id: c.id, name: n }), done: () => { settingsSignature = ""; headerSignature = ""; (document.activeElement as HTMLElement | null)?.blur(); paintChat(); } });
     nameRow.append(el("span", "chat-set-label", "Name"), nameVal);
 
     const capRow = el("div", "chat-set-row chat-cap");

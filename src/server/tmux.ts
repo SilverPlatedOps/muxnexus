@@ -468,6 +468,8 @@ interface SessionRow {
 }
 
 export class Tmux {
+  /** Counts pastes, so each gets a buffer name of its own. */
+  private pastes = 0;
   /**
    * @param socketName  tmux `-L` socket name (default socket directory)
    * @param socketPath  tmux `-S` socket path; takes precedence over `socketName`
@@ -1045,7 +1047,8 @@ export class Tmux {
    */
   async pasteText(session: string, id: string, text: string): Promise<void> {
     const target = await this.windowTarget(session, id);
-    const buffer = `muxnexus-note-${process.pid}`;
+    // A buffer of its own per paste: two at once must not trade texts.
+    const buffer = `muxnexus-note-${process.pid}-${++this.pastes}`;
     await this.run(["set-buffer", "-b", buffer, "--", text]);
     await this.run(["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]);
   }

@@ -922,13 +922,13 @@ export function createServer(opts: ServerOptions): RunningServer {
           await tmux.selectWindow(m.session, m.id);
           break;
         case "history-search": {
-          if (typeof m.id !== "string" || typeof m.query !== "string" || typeof m.seq !== "number" || m.query.trim().length < 2) return send(ws, { t: "error", message: "invalid history-search" });
+          if (typeof m.session !== "string" || typeof m.id !== "string" || typeof m.query !== "string" || typeof m.seq !== "number" || m.query.trim().length < 2) return send(ws, { t: "error", message: "invalid history-search" });
           const text = await tmux.history(m.session, m.id).catch(() => "");
           return send(ws, { t: "history-result", seq: m.seq, ...historyMatches(text, m.query.trim()) });
         }
         case "paste-to-window":
-          if (typeof m.id !== "string" || typeof m.text !== "string" || m.text.length > 100_000) return send(ws, { t: "error", message: "invalid paste-to-window" });
-          await tmux.pasteText(m.session, m.id, m.text);
+          if (typeof m.session !== "string" || typeof m.id !== "string" || typeof m.text !== "string" || m.text.length > 100_000) return send(ws, { t: "error", message: "invalid paste-to-window" });
+          await tmux.pasteText(m.session, m.id, m.text).catch((e) => send(ws, { t: "error", message: e instanceof Error ? e.message : String(e) }));
           break;
         case "archive-session":
           if (typeof m.archived !== "boolean") return send(ws, { t: "error", message: "invalid archive-session" });

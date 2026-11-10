@@ -336,7 +336,7 @@ function askHistory() {
   clearTimeout(historyTimer);
   const q = findInput.value.trim();
   const at = findWindow();
-  if (q.length < 2 || !at || findEl.hidden) { findHistory.hidden = true; return; }
+  if (q.length < 2 || !at || findEl.hidden) { historySeq++; findHistory.hidden = true; return; }
   historyTimer = setTimeout(() => conn.send({ t: "history-search", session: at.session, id: at.id, query: q, seq: ++historySeq }), 250);
 }
 function paintHistory(m: { seq: number; lines: string[]; total: number }) {
