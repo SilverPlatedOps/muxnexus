@@ -233,6 +233,16 @@ async function licencePage(): Promise<Response> {
  * ~/.claude: its config is ~/.claude.json, outside that folder, and a Claude
  * pointed there finds none and starts as a fresh install.
  */
+/**
+ * A new Claude tab's command: the account its workspace's group names *now*.
+ * The session's environment was set from the tag it had when it was made, and
+ * Move to group changes the tag, not that environment.
+ */
+export function tabClaudeCommand(label: string, dirs: readonly string[], home: string = homedir()): string {
+  const want = splitCategory(label)?.category.toLowerCase();
+  return want && dirs.some((d) => profileLabel(d) === want) ? claudeCommand(want, dirs, home) : "claude";
+}
+
 export function claudeCommand(profile: string | undefined, dirs: readonly string[], home: string = homedir()): string {
   if (!profile) return "claude";
   const dir = dirs.find((d) => profileLabel(d) === profile);
@@ -874,7 +884,12 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (m.agent !== undefined && !Object.hasOwn(AGENTS, m.agent)) {
             return send(ws, { t: "error", message: "invalid new-window" });
           }
-          await tmux.newWindow(m.session, m.agent === undefined ? undefined : AGENTS[m.agent]);
+          let command = m.agent === undefined ? undefined : AGENTS[m.agent];
+          if (m.agent === "claude") {
+            const s = (await tmux.listSessions()).find((x) => x.name === m.session);
+            command = tabClaudeCommand(s?.customName ?? m.session, opts.profiles?.() ?? []);
+          }
+          await tmux.newWindow(m.session, command);
           break;
         }
         case "kill-window":
