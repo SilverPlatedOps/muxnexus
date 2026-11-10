@@ -172,7 +172,8 @@ export type ClientMessage =
    * the arrow keys the browser terminal would otherwise type.
    */
   | { t: "scroll"; lines: number }
-  | { t: "new-session"; name: string }
+  /** A workspace; with `agent`, that agent runs in its first tab, in `folder`, on `profile` (Claude's account). */
+  | { t: "new-session"; name: string; folder?: string; agent?: NewWindowAgent; profile?: string }
   | { t: "kill-session"; session: string }
   /** `agent` starts one in the new window; the server holds the command, so none crosses the wire. */
   | { t: "new-window"; session: string; agent?: NewWindowAgent }

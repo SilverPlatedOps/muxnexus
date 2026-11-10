@@ -164,6 +164,23 @@ test("a session tagged with a profile's name starts on that profile", async () =
   }
 });
 
+test("new-session opens in the folder asked for, and refuses one that isn't there", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "mx-new-")));
+  const c = await connect();
+  await waitFor(() => c.last("state"));
+  c.send({ t: "new-session", name: "in-folder", folder: dir });
+  await waitFor(() => (c.last("state") as any)?.sessions.some((s: any) => s.name === "in-folder"), 2000, "session");
+  const cwd = (await tmux.run(["display-message", "-p", "-t", await tmux.target("in-folder"), "#{pane_current_path}"])).trim();
+  expect(realpathSync(cwd)).toBe(dir);
+  c.send({ t: "new-session", name: "nowhere", folder: join(dir, "missing") });
+  await waitFor(() => c.last("error"), 2000, "error");
+  expect((c.last("error") as any).message).toContain("no such folder");
+  c.send({ t: "new-session", name: "bad", agent: "vim" });
+  await waitFor(() => (c.last("error") as any)?.message === "invalid new-session", 2000, "invalid");
+  c.ws.close();
+  rmSync(dir, { recursive: true });
+});
+
 test("new-session pushes updated state without waiting for the poll", async () => {
   const c = await connect();
   await waitFor(() => c.last("state"));

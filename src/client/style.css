@@ -2390,3 +2390,20 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-set-buttons { display: flex; gap: 8px; }
 .chat-set-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; background: color-mix(in oklab, var(--red) 16%, var(--panel)); color: var(--fg-strong); font-size: 12px; }
 .chat-set-confirm > div { flex: 0 0 100%; }
+
+/* ---- New agent (new-agent.ts): one form for every way to start something ---- */
+.new-agent { width: min(520px, calc(100vw - 32px)); }
+.na-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.na-label { color: var(--dim); font-size: 11px; }
+.na-input { height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--well); color: var(--fg-strong); font: 12.5px var(--mono); }
+.na-input:focus { outline: none; border-color: var(--accent); }
+select.na-input:disabled { color: var(--dim); }
+.na-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.na-chip { height: 22px; padding: 0 8px; border: 1px solid var(--edge); border-radius: 11px; background: none; color: var(--muted); font: 11px var(--mono); cursor: pointer; }
+.na-chip.on, .na-chip:hover { border-color: var(--accent); color: var(--fg-strong); }
+.na-seg { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 6px; background: var(--well); }
+.na-seg-btn { flex: 1 0 auto; height: 28px; padding: 0 10px; border: 0; border-radius: 5px; background: none; color: var(--muted); font: 12px var(--mono); cursor: pointer; }
+.na-seg-btn.on { background: var(--sel); color: var(--fg-strong); }
+.na-note { color: var(--dim); font-size: 11px; }
+.na-foot { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.na-foot .na-note { flex: 1; }

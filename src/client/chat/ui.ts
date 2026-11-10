@@ -407,10 +407,13 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
 
   /** The member the right panel is about: the one whose terminal is open, else whoever posted last. */
+  /** The member last picked from the header while a note showed: the note follows them. */
+  let pickedHandle: string | null = null;
   function selectedMember(): ChatMember | undefined {
     if (!chat) return undefined;
     const agentsIn = chat.members.filter((m) => m.kind !== "user" && !m.left);
-    if (sideHandle) return agentsIn.find((m) => m.handle === sideHandle);
+    const picked = pickedHandle ?? sideHandle;
+    if (picked) { const m = agentsIn.find((x) => x.handle === picked); if (m) return m; }
     for (let i = chat.messages.length - 1; i >= 0; i--) {
       const hit = agentsIn.find((m) => m.handle === chat!.messages[i]!.from);
       if (hit) return hit;
@@ -569,7 +572,6 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const burger = btn("chat-burger icon-btn", "☰", "Show the sidebar");
     burger.onclick = () => document.getElementById("hamburger")?.click();
     head.replaceChildren(burger, name, agentBar, el("span", "sp"), narrowSwitch, ...(round ? [round] : []), notesBtn, find, detailsBtn, more);
-    paintSettings();
     agentBar.replaceChildren();
     for (const m of chat.members) {
       if (m.kind === "user" || m.left) continue;
@@ -587,7 +589,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       b.disabled = !canOpen(m, live);
       if (b.disabled) b.title = memberStatus(chat, m, live).text;
       // One picked member for both views: the note when a note is showing, else the terminal.
-      b.onclick = () => (host.agentNoteShowing() ? host.showAgentNote(m.windowId ?? null) : openSide(m.handle));
+      b.onclick = () => {
+        pickedHandle = m.handle;
+        if (host.agentNoteShowing()) host.showAgentNote(m.windowId ?? null);
+        else openSide(m.handle);
+      };
       onContextMenu(b, (at) => memberMenuAt(at, m));
       agentBar.append(b);
     }
@@ -597,6 +603,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     }
 
 
+    paintSettings();
     const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 24;
     const rows = messageRows(chat);
     const nodes: HTMLElement[] = [];
@@ -1110,9 +1117,19 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
 
   /** Name, Max agent replies (− n +), then after the members: House rules, Archive, Delete. */
+  let settingsSignature = "";
   function paintSettings() {
     if (!chat) return;
     const c = chat;
+    // Redrawn only when what it shows changed, and never under the user's hands:
+    // an agent changing state must not take a half-typed limit or an open confirm away.
+    const sig = JSON.stringify([c.id, c.name, c.cap, c.archived]);
+    if (sig === settingsSignature) return;
+    // Typing in a field (the name, the number) holds the redraw; a pressed − or + doesn't.
+    const typing = document.activeElement instanceof HTMLInputElement && (basics.contains(document.activeElement) || ends.contains(document.activeElement));
+    if (typing) return;
+    if (ends.querySelector(".chat-set-confirm")) return;
+    settingsSignature = sig;
     const nameRow = el("div", "chat-set-row");
     const nameVal = btn("chat-set-name", c.name, "Click to rename");
     nameVal.onclick = () => inlineEdit(nameVal, { value: c.name, label: "Chat name", save: (n) => host.send({ t: "chat-settings", id: c.id, name: n }), done: () => { headerSignature = ""; paintChat(); } });
@@ -1145,9 +1162,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const buttons = el("div", "chat-set-buttons");
     del.onclick = () => {
       // Asked here, in place: what goes, and whether its agents go too.
-      const { down } = shutdownList(c, chats, agents);
+      const { down, kept } = shutdownList(c, chats, agents);
       const box = el("div", "chat-set-confirm");
       box.append(el("div", "", `Delete "${c.name}" for good? Its messages go. Its agents keep running.`));
+      if (kept.length) box.append(el("div", "chat-set-note", `${kept.join(", ")} ${kept.length === 1 ? "is" : "are"} in another open chat and ${kept.length === 1 ? "keeps" : "keep"} running.`));
       let shut: HTMLInputElement | null = null;
       if (down.length) {
         const label = el("label", "chat-delete-shut");
@@ -1158,7 +1176,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       const yes = btn("chat-btn danger", "Delete");
       yes.onclick = () => host.send({ t: "chat-delete", id: c.id, closeTabs: shut?.checked ?? false });
       const no = btn("chat-btn", "Cancel");
-      no.onclick = () => { headerSignature = ""; paintChat(); };
+      no.onclick = () => { box.replaceWith(buttons); settingsSignature = ""; };
       box.append(no, yes);
       buttons.replaceWith(box);
       no.focus();

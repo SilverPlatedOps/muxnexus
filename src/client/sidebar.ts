@@ -312,6 +312,9 @@ export function createSidebar(
 
   function drawFoot() {
     if (!foot) return;
+    // "+ New session" gave way to the ＋ at the top of the list (the New agent form).
+    if (ui.editing !== "new-session") { foot.replaceChildren(); foot.hidden = true; return; }
+    foot.hidden = false;
     // Keep an open prompt, and what is typed in it: with agents running, a
     // state push redraws the sidebar every few seconds.
     if (ui.editing === "new-session" && foot.querySelector("input")) return;

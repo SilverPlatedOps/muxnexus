@@ -801,9 +801,23 @@ export function createServer(opts: ServerOptions): RunningServer {
           break;
         }
         case "new-session": {
+          if ((m.folder !== undefined && typeof m.folder !== "string") || (m.agent !== undefined && !Object.hasOwn(AGENTS, m.agent)) || (m.profile !== undefined && typeof m.profile !== "string")) {
+            return send(ws, { t: "error", message: "invalid new-session" });
+          }
           const cat = splitCategory(m.name);
-          const dir = cat && opts.profiles ? categoryProfile(cat.category, opts.profiles(), homedir()) : null;
-          await tmux.newSession(m.name, undefined, dir ? { CLAUDE_CONFIG_DIR: dir } : {});
+          const dirs = opts.profiles?.() ?? [];
+          const dir = cat && opts.profiles ? categoryProfile(cat.category, dirs, homedir()) : null;
+          let cwd: string | undefined;
+          let command: string | undefined;
+          try {
+            cwd = m.folder ? (await spawnFolder(m.folder)) ?? undefined : undefined;
+            if (m.agent === "codex") command = AGENTS.codex;
+            // A picked account wins; else the group's, as a new Claude tab takes it.
+            else if (m.agent === "claude") command = m.profile ? claudeCommand(m.profile, dirs) : tabClaudeCommand(m.name, dirs);
+          } catch (e) {
+            return send(ws, { t: "error", message: e instanceof Error ? e.message : String(e) });
+          }
+          await tmux.newSession(m.name, cwd, dir ? { CLAUDE_CONFIG_DIR: dir } : {}, command);
           await mirrorStep(ws, (mirror) => mirror.sessionCreated(m.name));
           break;
         }

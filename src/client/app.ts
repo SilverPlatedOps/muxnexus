@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import { createSidebar, sessionLabel } from "./sidebar";
-import { isArchived, visualOrder } from "./groups";
+import { groupNames, isArchived, visualOrder } from "./groups";
+import { openNewAgent } from "./new-agent";
+import { knownFolders } from "./chat/model";
 import { createMenuActions } from "./menu-actions";
 import { onContextMenu } from "./popover";
 import { createTabs } from "./tabs";
@@ -156,7 +158,9 @@ function paintMain() {
       notesBeforeChat = notes.open;
       if (notes.open) notes.close();
     } else {
+      // A member's note opened in the chat goes with it; a note open before the chat comes back.
       if (notesBeforeChat && !notes.open) notes.show(notes.tab, false);
+      else if (!notesBeforeChat && notes.open) notes.close();
       else notes.sync();
       notesBeforeChat = false;
     }
@@ -382,7 +386,7 @@ const sidebar = createSidebar(sessionsEl, layout, {
   openMenu: (session, at) => menus.session(session, at),
   openGroupMenu: (category, at) => menus.group(category, at),
   openTabMenu: (session, id, at) => menus.tab(session, id, at),
-  newInGroup: (category) => sidebar.startNewSession(`[${category}] `),
+  newInGroup: (category) => newAgent(category),
 }, footEl, document.getElementById("side-search-input") as HTMLInputElement, folded);
 
 /** The last quota snapshot, so the account picker can list the same rows the panel shows. */
@@ -445,6 +449,17 @@ function changeAccount(session: string, id: string) {
   );
 }
 
+/** The New agent form, from the ＋ at the top, a group's ＋ or its menu, and the empty page. */
+function newAgent(group: string | null = null) {
+  openNewAgent(document.body, {
+    group,
+    groups: groupNames(sessions.map(sessionLabel)),
+    folders: knownFolders(sessions),
+    profiles: profileLabels,
+    submit: (r) => { conn.send({ t: "new-session", ...r }); },
+  });
+}
+
 /** One menu per thing, whichever row, tab or title it is opened from (menu-actions.ts). */
 const menus = createMenuActions({
   sessions: () => sessions,
@@ -465,7 +480,7 @@ const menus = createMenuActions({
   renameWorkspace: (session, seed) => sidebar.startRename(session, seed),
   renameTab: (id) => tabs.startRename(id),
   renameGroup: (category, commit) => sidebar.startGroupRename(category, commit),
-  newInGroup: (category) => sidebar.startNewSession(`[${category}] `),
+  newInGroup: (category) => newAgent(category),
   isFolded: (category) => sidebar.isFolded(category),
   toggleFold: (category) => sidebar.toggleFold(category),
 });
@@ -537,7 +552,11 @@ const notes = createNotes({
     openWindow(session, windowId);
     notes.show("window");
   },
-  opened: () => syncSystem(),
+  opened: (open) => {
+    // One right panel: a note (or All notes, System) opening in a chat closes the chat's own.
+    if (open && chatting()) chatUI?.closeDock();
+    syncSystem();
+  },
 });
 
 const systemEl = document.getElementById("system")!;
@@ -958,7 +977,7 @@ drawerClose.onclick = () => setDrawer(false);
 // ＋ beside the filter: something new in the list on show.
 document.getElementById("side-new")!.onclick = () => {
   if (chatUI?.tab() === "chats") chatUI.newChat();
-  else sidebar.startNewSession();
+  else newAgent();
 };
 // The badges are worn by the tabs and legended by the quota panel; the checkout
 // mark by the tabs and the sidebar. A switch redraws all of them.
@@ -972,7 +991,7 @@ viewToggle.onclick = () => views.show(!views.showing());
 overlay.onclick = () => setDrawer(false);
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);
-  sidebar.startNewSession();
+  newAgent();
 };
 retryBtn.onclick = () => conn.retryNow();
 

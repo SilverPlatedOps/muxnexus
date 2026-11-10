@@ -772,9 +772,17 @@ export class Tmux {
   }
 
   /** `env` lands in the session's environment, so every window made in it later inherits it too. */
-  async newSession(name: string, cwd: string = homedir(), env: Record<string, string> = {}): Promise<void> {
+  async newSession(name: string, cwd: string = homedir(), env: Record<string, string> = {}, command?: string): Promise<void> {
     const vars = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-    await this.run(["new-session", "-d", "-s", name, "-c", cwd, ...vars]);
+    // -c is read as a format: a folder's own # is doubled to stay a #.
+    const base = ["new-session", "-d", "-s", name, "-c", cwd.replaceAll("#", "##"), ...vars];
+    if (!command) {
+      await this.run(base);
+      return;
+    }
+    // As a new tab runs one: in the login shell, which stays when the agent quits.
+    const shell = (await this.run(["show-options", "-gv", "default-shell"]).catch(() => "")).trim() || "/bin/sh";
+    await this.run([...base, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
   }
 
   /**

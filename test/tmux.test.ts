@@ -159,6 +159,15 @@ describe("Tmux mutators", () => {
     expect(["sh", "bash"]).toContain(now);
   });
 
+  test("newSession with a command runs it in the first tab, and leaves a shell behind", async () => {
+    await tmux.run(["start-server"]).catch(() => {});
+    await tmux.newSession("seed");
+    await tmux.run(["set-option", "-g", "default-shell", "/bin/sh"]);
+    await tmux.newSession("cmd", tmpdir(), {}, "echo agent-$((40+2)) ran");
+    const [id] = await windowIds("cmd");
+    await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", id])).includes("agent-42 ran"), 3000, "command output");
+  });
+
   test("setArchived stamps and clears the flag", async () => {
     await tmux.newSession("a");
     await tmux.setArchived("a", true);

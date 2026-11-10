@@ -211,6 +211,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
 
   function show(next: NotesTab, focus = true) {
     if (tab === "all" && next !== "all") explorer.flush();
+    if (tab === "window" && next !== "window") flush();
     open = true;
     tab = next;
     remember();
@@ -221,14 +222,15 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     else if (tab === "window" && focus) editor.focus();
   }
 
-  function hide(focusTerminal = true) {
+  function hide(focusTerminal = true, persist = true) {
     if (!open) return;
     flush();
     explorer.flush();
     open = false;
     windowId = null;
     noteId = null;
-    remember();
+    // Stepping aside for a chat's panel is not the user closing it: keep what was saved.
+    if (persist) remember();
     layout();
     host.opened(false);
     if (focusTerminal) host.focusTerminal();
@@ -249,7 +251,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   // is no socket to ask on yet.
 
   return {
-    close: () => hide(false),
+    close: () => hide(false, false),
     get open() { return open; },
     get tab() { return tab; },
     toggle: () => (open ? hide() : show(tab)),
