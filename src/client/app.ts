@@ -867,6 +867,14 @@ document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
   // Typing a draft or a search must not search the terminal or leave the session.
   const inNote = e.target instanceof Element && e.target.closest("#notes-panel, #side-search") !== null;
+  // The two sidebar lists, from anywhere: a note or the filter included.
+  if (!e.shiftKey && !e.altKey && (e.key === "1" || e.key === "2")) {
+    if (!chatUI) return;
+    e.preventDefault();
+    if (onPhone()) setDrawer(true);
+    chatUI.setTab(e.key === "1" ? "workspaces" : "chats");
+    return;
+  }
   if (e.shiftKey && (e.key === "f" || e.key === "F")) {
     e.preventDefault();
     if (onPhone()) setDrawer(false);
