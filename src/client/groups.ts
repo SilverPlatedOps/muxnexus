@@ -84,3 +84,37 @@ export function moveWithinBlocks<S>(blocks: readonly Block<S>[], key: (s: S) => 
   }
   return next.flat().map(key);
 }
+
+const ARCHIVED = "archived";
+
+/** Archived by the flag, or by the `[Archived]` tag that served for it before. */
+export function isArchived(s: { archived?: boolean }, label: string): boolean {
+  if (s.archived) return true;
+  const cat = splitCategory(label);
+  return cat !== null && categoryKey(cat.category) === ARCHIVED;
+}
+
+/** The name a tag-archived session gets back, untagged; null when it isn't tag-archived. */
+export function unarchivedName(label: string): string | null {
+  const cat = splitCategory(label);
+  return cat && categoryKey(cat.category) === ARCHIVED ? cat.rest : null;
+}
+
+export function splitArchived<S>(sessions: readonly S[], archived: (s: S) => boolean): { live: S[]; archived: S[] } {
+  const live: S[] = [];
+  const out: S[] = [];
+  for (const s of sessions) (archived(s) ? out : live).push(s);
+  return { live, archived: out };
+}
+
+/** The groups in use, as first spelled, in order; Archived is not a group to move to. */
+export function groupNames(labels: readonly string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const l of labels) {
+    const cat = splitCategory(l);
+    if (!cat) continue;
+    const key = categoryKey(cat.category);
+    if (key !== ARCHIVED && !seen.has(key)) seen.set(key, cat.category);
+  }
+  return [...seen.values()];
+}

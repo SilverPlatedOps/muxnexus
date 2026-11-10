@@ -22,3 +22,24 @@ export function splitCategory(label: string): { category: string; rest: string }
 export function categoryKey(category: string): string {
   return category.toLowerCase();
 }
+
+/** The label with its group set to `category`, or untagged for null. */
+export function retag(label: string, category: string | null): string {
+  const rest = editableName(label);
+  return category ? `[${category}] ${rest}` : rest;
+}
+
+/** What a rename field shows: the name without its group. */
+export function editableName(label: string): string {
+  return splitCategory(label)?.rest ?? label.trim();
+}
+
+/**
+ * The full name after typing `typed` into a rename field: the group stays, so
+ * renaming ELF in Work keeps it in Work -- unless a tag was typed, which wins.
+ */
+export function renameKeepingTag(label: string, typed: string): string {
+  if (splitCategory(typed)) return typed.trim();
+  const cat = splitCategory(label);
+  return cat ? `[${cat.category}] ${typed.trim()}` : typed.trim();
+}
