@@ -238,6 +238,13 @@ async function licencePage(): Promise<Response> {
  * The session's environment was set from the tag it had when it was made, and
  * Move to group changes the tag, not that environment.
  */
+/** The lines holding `query` (any case), the last `limit` of them, each cut to 300 characters. */
+export function historyMatches(text: string, query: string, limit = 40): { lines: string[]; total: number } {
+  const q = query.toLowerCase();
+  const hits = text.split("\n").filter((l) => l.toLowerCase().includes(q)).map((l) => l.trimEnd().slice(0, 300));
+  return { lines: hits.slice(-limit), total: hits.length };
+}
+
 export function tabClaudeCommand(label: string, dirs: readonly string[], home: string = homedir()): string {
   const want = splitCategory(label)?.category.toLowerCase();
   return want && dirs.some((d) => profileLabel(d) === want) ? claudeCommand(want, dirs, home) : "claude";
@@ -914,6 +921,11 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid select-window" });
           await tmux.selectWindow(m.session, m.id);
           break;
+        case "history-search": {
+          if (typeof m.id !== "string" || typeof m.query !== "string" || typeof m.seq !== "number" || m.query.trim().length < 2) return send(ws, { t: "error", message: "invalid history-search" });
+          const text = await tmux.history(m.session, m.id).catch(() => "");
+          return send(ws, { t: "history-result", seq: m.seq, ...historyMatches(text, m.query.trim()) });
+        }
         case "paste-to-window":
           if (typeof m.id !== "string" || typeof m.text !== "string" || m.text.length > 100_000) return send(ws, { t: "error", message: "invalid paste-to-window" });
           await tmux.pasteText(m.session, m.id, m.text);

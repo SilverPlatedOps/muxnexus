@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { ServerMessage } from "../src/shared/protocol";
-import { allowedHostList, claudeCommand, tabClaudeCommand, createServer, hostAllowed, spawnFolder, type RunningServer } from "../src/server/server";
+import { allowedHostList, claudeCommand, historyMatches, tabClaudeCommand, createServer, hostAllowed, spawnFolder, type RunningServer } from "../src/server/server";
 import { Tmux } from "../src/server/tmux";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -73,6 +73,14 @@ describe("the command a chat starts a Claude with", () => {
     expect(claudeCommand("personal", dirs, "/Users/me")).toBe("env -u CLAUDE_CONFIG_DIR claude");
     expect(claudeCommand("work", dirs, "/Users/me")).toBe("CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude");
     expect(() => claudeCommand("gone", dirs, "/Users/me")).toThrow("no Claude profile named gone");
+  });
+});
+
+describe("finding in a window's history", () => {
+  test("matches any case, keeps the last ones, counts them all", () => {
+    const text = ["build ok", "PR https://example.com/pull/1", "Build failed", "x", "pr again"].join("\n");
+    expect(historyMatches(text, "pr")).toEqual({ lines: ["PR https://example.com/pull/1", "pr again"], total: 2 });
+    expect(historyMatches(text, "build", 1)).toEqual({ lines: ["Build failed"], total: 2 });
   });
 });
 

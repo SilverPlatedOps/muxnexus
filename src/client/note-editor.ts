@@ -85,7 +85,9 @@ export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
 
   const extensions = () => [
     history(),
-    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap, { key: "Escape", run: () => hooks.onEscape?.() ?? false }, { key: "Mod-Enter", run: (v) => sendPart(v) }]),
+    // ⌘↵ ahead of the defaults, which would insert a blank line; Esc after them,
+    // so it only leaves the note when nothing in the editor wanted it.
+    keymap.of([{ key: "Mod-Enter", run: (v) => sendPart(v) }, ...markdownKeymap, ...defaultKeymap, ...historyKeymap, { key: "Escape", run: () => hooks.onEscape?.() ?? false }]),
     markdownLook,
     EditorView.contentAttributes.of({ "aria-label": hooks.label, spellcheck: "false" }),
     readOnly.of(EditorState.readOnly.of(isReadOnly)),

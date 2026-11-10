@@ -1050,6 +1050,11 @@ export class Tmux {
     await this.run(["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]);
   }
 
+  /** A window's whole history as tmux keeps it, wrapped lines joined (`-J`). */
+  async history(session: string, id: string, lines = 50_000): Promise<string> {
+    return this.run(["capture-pane", "-p", "-J", "-S", `-${lines}`, "-t", await this.windowTarget(session, id)]);
+  }
+
   /** Archive or bring back a workspace. Only a stamp: the session keeps running. */
   async setArchived(session: string, on: boolean): Promise<void> {
     const target = await this.target(session);

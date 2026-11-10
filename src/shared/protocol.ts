@@ -184,6 +184,8 @@ export type ClientMessage =
   | { t: "archive-session"; session: string; archived: boolean }
   /** Text from a note into that tab's prompt, as a paste: nothing is sent until the user presses Enter there. */
   | { t: "paste-to-window"; session: string; id: string; text: string }
+  /** ⌘F past what the browser has: the window's whole tmux history, searched on the server. */
+  | { t: "history-search"; session: string; id: string; query: string; seq: number }
   | { t: "rename-window"; session: string; id: string; name: string }
   /** The whole wanted sidebar order, not one move: concurrent clients then settle on last-write-wins. */
   | { t: "reorder-sessions"; names: string[] }
@@ -460,6 +462,8 @@ export type NewWindowAgent = "codex" | "claude";
 export type DetachReason = "session-killed" | "exited";
 
 export type ServerMessage =
+  /** The lines of a window's tmux history that hold the query, newest last; `total` counts them all. */
+  | { t: "history-result"; seq: number; lines: string[]; total: number }
   /**
    * `tmuxServer` is `<pid>-<start time>` of the tmux server read: tmux hands its
    * `$N` and `@N` ids out again after a restart, and this is how a client knows

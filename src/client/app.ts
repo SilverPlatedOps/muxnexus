@@ -319,6 +319,52 @@ let findIn: TerminalView | null = null;
 // A beside pane closed or swapped while the bar was open falls back to the main one.
 const findTerm = (): TerminalView => (findIn && findIn !== term && findIn !== split.sideTerminal() ? term : findIn ?? term);
 
+/** The older history's matches for what the bar holds, asked of the server a moment after typing stops. */
+const findHistory = document.getElementById("find-history")!;
+let historySeq = 0;
+let historyTimer: ReturnType<typeof setTimeout> | undefined;
+/** The tab the find bar is searching: the beside pane's, or the main pane's active one. */
+function findWindow(): { session: string; id: string } | null {
+  if (findIn && findIn !== term && split.state?.windowId) {
+    const owner = sessions.find((s) => s.windows.some((w) => w.id === split.state!.windowId));
+    if (owner) return { session: owner.name, id: split.state.windowId };
+  }
+  const w = currentWindows().find((x) => x.active);
+  return current && w ? { session: current, id: w.id } : null;
+}
+function askHistory() {
+  clearTimeout(historyTimer);
+  const q = findInput.value.trim();
+  const at = findWindow();
+  if (q.length < 2 || !at || findEl.hidden) { findHistory.hidden = true; return; }
+  historyTimer = setTimeout(() => conn.send({ t: "history-search", session: at.session, id: at.id, query: q, seq: ++historySeq }), 250);
+}
+function paintHistory(m: { seq: number; lines: string[]; total: number }) {
+  if (m.seq !== historySeq || findEl.hidden) return;
+  if (m.total === 0) { findHistory.hidden = true; return; }
+  const head = document.createElement("div");
+  head.className = "fh-head";
+  head.textContent = `${m.total} line${m.total === 1 ? "" : "s"} in this tab's whole history${m.total > m.lines.length ? ` (last ${m.lines.length})` : ""}`;
+  const list = document.createElement("div");
+  list.className = "fh-list";
+  for (const line of m.lines) {
+    const row = document.createElement("div");
+    row.className = "fh-line";
+    // Links in it open, as they do in the terminal.
+    for (const part of line.split(/(https?:\/\/[^\s<>"')\]]+)/)) {
+      if (/^https?:\/\//.test(part)) {
+        const a = document.createElement("a");
+        a.href = part; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = part;
+        row.append(a);
+      } else row.append(part);
+    }
+    list.append(row);
+  }
+  findHistory.replaceChildren(head, list);
+  findHistory.hidden = false;
+  list.scrollTop = list.scrollHeight;
+}
+
 function openFind() {
   const side = notePane === "side" ? split.sideTerminal() : null;
   if (findIn && findIn !== (side ?? term)) findIn.clearSearch();
@@ -327,11 +373,14 @@ function openFind() {
   findInput.focus();
   findInput.select();
   paintFind(findTerm().search(findInput.value));
+  askHistory();
 }
 
 function closeFind() {
   if (findEl.hidden) return;
   findEl.hidden = true;
+  findHistory.hidden = true;
+  clearTimeout(historyTimer);
   const t = findTerm();
   findIn = null;
   t.clearSearch();
@@ -918,6 +967,9 @@ const conn = new Connection(wsUrl, {
         notes.receive(m);
         globalSearch?.update(m.noteId, m.text, m.updated);
         break;
+      case "history-result":
+        paintHistory(m);
+        break;
       case "system":
         if (systemSent) system.receive(m.stats);
         paintSideSystem(m.stats);
@@ -1008,7 +1060,7 @@ emptyNew.onclick = () => {
 };
 retryBtn.onclick = () => conn.retryNow();
 
-findInput.oninput = () => paintFind(findTerm().search(findInput.value));
+findInput.oninput = () => { paintFind(findTerm().search(findInput.value)); askHistory(); };
 findInput.onkeydown = (e) => {
   e.stopPropagation();
   if (e.key === "Enter") { e.preventDefault(); paintFind(e.shiftKey ? findTerm().findPrev() : findTerm().findNext()); }
