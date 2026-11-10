@@ -13,7 +13,7 @@ import {
   parseRetryAfter,
   profileLabel,
 } from "../src/server/usage";
-import { bar, formatReset, kindLabel } from "../src/client/usage";
+import { bar, formatReset, kindLabel, trafficLight } from "../src/client/usage";
 import { badgesShown, marksShown, setBadgesShown, setMarksShown, type Store } from "../src/client/display";
 import type { UsageSource } from "../src/shared/protocol";
 import type { UsageStore } from "../src/server/usage";
@@ -632,6 +632,12 @@ describe("bar", () => {
       const b = bar(p);
       expect(b.fill.length + b.track.length).toBe(8);
     }
+  });
+});
+
+describe("trafficLight", () => {
+  test("green under 50% used, yellow from 50%, red from 90%", () => {
+    expect([0, 49.9, 50, 89.9, 90, 100].map(trafficLight)).toEqual(["", "", "warning", "warning", "critical", "critical"]);
   });
 });
 

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { ConversationInfo, UsageSource, WindowInfo } from "../shared/protocol";
-import { bar, formatReset, kindLabel } from "./usage";
+import { bar, formatReset, kindLabel, trafficLight } from "./usage";
 
 /**
  * "Move to...": carry the conversation a tab holds to another account.
@@ -55,11 +55,9 @@ export function targets(sources: readonly UsageSource[], profiles: readonly stri
   });
 }
 
-/** The provider publishes no budget, so this is the panel's own banding, not a number. */
+/** The quota panel's traffic light, so the picker's bars match the panel's. */
 function tone(percent: number): string | undefined {
-  if (percent >= 100) return "critical";
-  if (percent >= 80) return "warning";
-  return undefined;
+  return trafficLight(percent) || undefined;
 }
 
 /**

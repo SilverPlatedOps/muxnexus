@@ -82,13 +82,18 @@ export function kindLabel(kind: string): string {
 }
 
 /**
- * The provider's own judgement decides the colour. It knows which of its limits
- * is close to biting; a percentage threshold here would only be a guess about
- * somebody else's rules.
+ * A traffic light on the share used: green under half, yellow from 50%, red from
+ * 90%. The same bands as the desk board's Quota page, so one bar never wears two
+ * colours on two screens. Green is the bar's own colour, so it has no class.
  */
-function tone(w: UsageWindow): string {
-  if (w.severity && w.severity !== "normal") return w.severity;
+export function trafficLight(percent: number): "" | "warning" | "critical" {
+  if (percent >= 90) return "critical";
+  if (percent >= 50) return "warning";
   return "";
+}
+
+function tone(w: UsageWindow): string {
+  return trafficLight(w.percent);
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -165,7 +170,7 @@ function setExpanded(on: boolean): void {
  * A bar drawn to whatever width its column gives it, so the panel can narrow
  * without the bars running off its edge. Any usage at all gets a sliver: an
  * empty bar next to a non-zero number reads as "untouched" when it is not.
- * `tone` is a severity class (`warning`, `critical`, `exceeded`) or empty.
+ * `tone` is a traffic-light class (`warning`, `critical`) or empty for green.
  */
 export function meter(percent: number, tone: string = ""): HTMLElement {
   const clamped = Math.max(0, Math.min(100, percent));

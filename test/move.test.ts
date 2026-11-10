@@ -49,12 +49,12 @@ describe("targets", () => {
     ]);
   });
 
-  test("bands the bar's colour without inventing a budget", () => {
-    const [a, b, c] = targets(
-      [source("a", 10), source("b", 85), source("c", 100)],
-      ["a", "b", "c"],
+  test("colours the bar like the quota panel: green, yellow from 50%, red from 90%", () => {
+    const out = targets(
+      [source("a", 10), source("b", 50), source("c", 85), source("d", 90), source("e", 100)],
+      ["a", "b", "c", "d", "e"],
     );
-    expect([a!.tone, b!.tone, c!.tone]).toEqual([undefined, "warning", "critical"]);
+    expect(out.map((t) => t.tone)).toEqual([undefined, "warning", "warning", "critical", "critical"]);
   });
 
   // An account with no quota source is still a place the conversation can go.
