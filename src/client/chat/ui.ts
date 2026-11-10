@@ -69,6 +69,12 @@ export interface ChatHost {
   find(): void;
   /** A member's tab as an agent menu sees it, and what its items do; null when the tab is gone. */
   agentFor(windowId: string): { target: AgentTarget; pick: (action: MenuAction) => void } | null;
+  /** Show this member's tab note in the right panel, in place of the chat's own panel (null: nobody to show). */
+  showAgentNote(windowId: string | null): void;
+  /** Whether the right panel is showing a member's note now. */
+  agentNoteShowing(): boolean;
+  /** The chat's panel opened: the right side holds one panel, so a note there gives way. */
+  dockOpened(): void;
 }
 
 export interface ChatEls {
@@ -201,7 +207,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     r.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); renameRow(r, c.id, c.name); };
     if (!r.dataset.menu) {
       r.dataset.menu = "1";
-      onContextMenu(r, (at) => { const now = chats.find((x) => x.id === c.id); if (now) chatMenuAt(at, r, now); });
+      onContextMenu(r, (at) => { const now = chats.find((x) => x.id === c.id); if (now) chatMenuAt(at, now, () => renameRow(r, now.id, now.name)); });
     }
     return r;
   }
@@ -335,17 +341,25 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   const setup = el("div", "chat-details-setup");
   setup.id = "chat-details-setup";
   setup.setAttribute("role", "tabpanel");
-  setup.append(context.el, detailsMembers);
+  /** Settings' own top and bottom: what the header's ⋯ used to hold (name, max replies; rules, archive, delete). */
+  const basics = el("section", "chat-settings-basics");
+  const ends = el("section", "chat-settings-ends");
+  setup.append(basics, context.el, detailsMembers, ends);
+  let capInput: HTMLInputElement | null = null;
   notes.el.id = "chat-details-notes";
   notes.el.setAttribute("role", "tabpanel");
-  const tabBtns = ([["Setup", setup], ["Notes", notes.el]] as const).map(([label, panel], i) => {
-    const b = btn("chat-details-tab", label, label === "Notes" ? "Your own notes on this chat; agents never get them" : "Mode, brief, handoff, rounds and members");
+  const tabBtns = ([["Settings", setup], ["Chat notes", notes.el]] as const).map(([label, panel], i) => {
+    const b = btn("chat-details-tab", label, label === "Chat notes" ? "Your own notes on this chat; agents never get them" : "Name, max agent replies, mode, brief, rounds, members");
     b.setAttribute("role", "tab");
     b.setAttribute("aria-controls", panel.id);
     b.onclick = () => { setNotesTab(i === 1); setDetails(true); };
     return b;
   });
-  dockTabs.append(termTab, ...tabBtns, el("span", "sp"), dockClose);
+  /** A member's tab note, shown in the same right panel (the app's note editor takes the dock's place). */
+  const agentNoteTab = btn("chat-details-tab", "Agent note", "The note of the member you picked (⌘⇧E)");
+  agentNoteTab.setAttribute("role", "tab");
+  agentNoteTab.onclick = () => showAgentNote();
+  dockTabs.append(...tabBtns, agentNoteTab, termTab, el("span", "sp"), dockClose);
   // Arrow keys move between the tabs there are.
   dockTabs.addEventListener("keydown", (e) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -389,6 +403,25 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     wrap.classList.toggle("dock-details", view === "details");
     paintTabs();
     if (view === "terminal") requestAnimationFrame(() => sideView?.fit());
+    if (view) host.dockOpened();
+  }
+
+  /** The member the right panel is about: the one whose terminal is open, else whoever posted last. */
+  function selectedMember(): ChatMember | undefined {
+    if (!chat) return undefined;
+    const agentsIn = chat.members.filter((m) => m.kind !== "user" && !m.left);
+    if (sideHandle) return agentsIn.find((m) => m.handle === sideHandle);
+    for (let i = chat.messages.length - 1; i >= 0; i--) {
+      const hit = agentsIn.find((m) => m.handle === chat!.messages[i]!.from);
+      if (hit) return hit;
+    }
+    return agentsIn[0];
+  }
+
+  function showAgentNote(m: ChatMember | undefined = selectedMember()) {
+    setDock(null);
+    paintChat();
+    host.showAgentNote(m?.windowId ?? null);
   }
   const lines = el("div", "chat-lines");
   const strip = el("div", "chat-strip");
@@ -405,7 +438,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   /** The message the next post answers, shown above the box until it goes or is dropped. */
   const replyBar = el("div", "chat-reply-bar");
   replyBar.hidden = true;
-  compose.append(replyBar, chipsEl, input, helper, suggest);
+  // Enter sends; the button is for the hand on the mouse (and says what Enter does).
+  const sendBtn = btn("chat-send", "Send", "Send (Enter; Shift+Enter for a new line)");
+  sendBtn.onclick = () => send();
+  compose.append(replyBar, chipsEl, input, sendBtn, helper, suggest);
   const convo = el("div", "chat-convo");
   convo.append(lines, strip, activity.el, compose);
   const main = el("div", "chat-main");
@@ -495,23 +531,32 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       strip.hidden = true;
       return;
     }
-    const nextHeader = JSON.stringify([chat.id, chat.name, chat.mode, chat.round, chat.members, agents, sideHandle, sideWindow, sideOn, detailsOpen]);
+    const nextHeader = JSON.stringify([chat.id, chat.name, chat.mode, chat.round, chat.members, agents, sideHandle, sideWindow, sideOn, detailsOpen, notesTab, chat.cap, chat.archived]);
     if (headerSignature !== nextHeader) {
     headerSignature = nextHeader;
     const name = btn("chat-name", chat.name, "Double-click to rename (or use Rename in settings)");
     name.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); renameAt(name, chat!.id, chat!.name); };
     name.onclick = (e) => { if (e.detail === 0) { e.stopPropagation(); renameAt(name, chat!.id, chat!.name); } };
     const mode = chat.mode ? chat.mode[0]!.toUpperCase() + chat.mode.slice(1) : "General";
-    const detailsBtn = btn(`chat-details-toggle${detailsOpen ? " on" : ""}`, `Details · ${mode}`, "Mode, brief, handoff, members and context");
-    detailsBtn.setAttribute("aria-expanded", String(detailsOpen));
+    const onSettings = detailsOpen && !notesTab;
+    const detailsBtn = btn(`chat-details-toggle${onSettings ? " on" : ""}`, `Settings · ${mode}`, "Name, max agent replies, mode, brief, rounds, members");
+    detailsBtn.setAttribute("aria-expanded", String(onSettings));
     detailsBtn.setAttribute("aria-controls", details.id);
-    detailsBtn.onclick = () => setDetails(!detailsOpen);
+    detailsBtn.onclick = () => { if (onSettings) setDetails(false); else { setNotesTab(false); setDetails(true); } };
+    const onNotes = detailsOpen && notesTab;
+    const notesBtn = btn(`chat-notes-toggle${onNotes ? " on" : ""}`, "Notes", "Your own notes on this chat");
+    notesBtn.onclick = () => { if (onNotes) setDetails(false); else { setNotesTab(true); setDetails(true); } };
     const round = chat.round?.state === "open" ? btn("chat-round-pill", `Round ${chat.round.submitted.length}/${chat.round.participants.length}`, "Independent round open: peer answers withheld until all submit. Open details to reveal.") : null;
     if (round) round.onclick = () => setDetails(true);
     const find = btn("chat-find", "Find", "Find in this chat's messages and notes (⌘F)");
     find.onclick = () => host.find();
-    const more = btn("chat-more icon-btn", "⋯", "Chat settings");
-    more.onclick = (e) => { e.stopPropagation(); toggleMenu(more, settingsMenu()); };
+    const more = btn("chat-more icon-btn", "⋯", "Chat menu");
+    more.onclick = (e) => {
+      e.stopPropagation();
+      const c = chats.find((x) => x.id === chat!.id);
+      if (c) chatMenuAt(more, c, () => renameAt(name, c.id, c.name));
+    };
+    onContextMenu(name, (at) => { const c = chats.find((x) => x.id === chat!.id); if (c) chatMenuAt(at, c, () => renameAt(name, c.id, c.name)); });
     const narrowSwitch = el("div", "chat-switch");
     if (sideWindow) {
       const a = btn(`seg${sideOn ? "" : " on"}`, "Chat");
@@ -523,7 +568,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     // On a phone the top bar's menu button is out of sight: the chat brings its own.
     const burger = btn("chat-burger icon-btn", "☰", "Show the sidebar");
     burger.onclick = () => document.getElementById("hamburger")?.click();
-    head.replaceChildren(burger, name, agentBar, el("span", "sp"), narrowSwitch, ...(round ? [round] : []), find, detailsBtn, more);
+    head.replaceChildren(burger, name, agentBar, el("span", "sp"), narrowSwitch, ...(round ? [round] : []), notesBtn, find, detailsBtn, more);
+    paintSettings();
     agentBar.replaceChildren();
     for (const m of chat.members) {
       if (m.kind === "user" || m.left) continue;
@@ -540,7 +586,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       b.append(agentMark(m.kind, m.shape), el("span", "chat-agent-handle", m.handle), stateEl);
       b.disabled = !canOpen(m, live);
       if (b.disabled) b.title = memberStatus(chat, m, live).text;
-      b.onclick = () => openSide(m.handle);
+      // One picked member for both views: the note when a note is showing, else the terminal.
+      b.onclick = () => (host.agentNoteShowing() ? host.showAgentNote(m.windowId ?? null) : openSide(m.handle));
       onContextMenu(b, (at) => memberMenuAt(at, m));
       agentBar.append(b);
     }
@@ -636,6 +683,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     if (chat.paused) {
       const why = chat.paused.reason === "cap" ? `after ${chat.cap} agent replies` : `by ${chat.paused.by ?? "an agent"}${chat.paused.detail ? `: ${chat.paused.detail}` : ""}`;
       strip.replaceChildren(el("b", "", "‖ Paused"), ` ${why}${held ? ` · ${held} held` : ""} · your next message ${held ? "releases them" : "resumes it"}`, el("span", "sp"));
+      if (chat.paused.reason === "cap") {
+        const limit = btn("chat-discard", "Change limit", "Max agent replies, in Settings");
+        limit.onclick = () => { setNotesTab(false); setDetails(true); capInput?.focus(); };
+        strip.append(limit);
+      }
       if (held) {
         const d = btn("chat-discard", "Discard");
         d.onclick = () => host.send({ t: "chat-discard-held", id: chat!.id });
@@ -980,32 +1032,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     host.send({ t: "chat-reconnect", id: chat!.id, handle: m.handle });
   }
 
-  function settingsMenu(): HTMLElement {
-    const box = el("div", "chat-settings-menu");
-    if (!chat) return box;
-    box.append(el("div", "chat-menu-title", "Chat settings"));
-    const renameItem = btn("chat-mi", "Rename…");
-    renameItem.onclick = (e) => { e.stopPropagation(); rename(); };
-    const cap = btn("chat-mi", "");
-    cap.append("Max agent replies: ", el("span", "k", chat.cap ? String(chat.cap) : "no limit"));
-    cap.onclick = (e) => {
-      e.stopPropagation();
-      ask("Max agent replies in a row before it waits for you (0 = no limit)", String(chat!.cap), (v) => {
-        const n = parseCap(v);
-        if (n !== null) host.send({ t: "chat-settings", id: chat!.id, cap: n });
-      }, "number");
-    };
-    const rules = btn("chat-mi", "House rules…");
-    rules.onclick = () => { closeMenu(); showRules(); };
-    const archive = btn("chat-mi", chat.archived ? "Reopen chat" : "Archive chat");
-    archive.append(el("span", "k", chat.archived ? "wakes nobody" : "keeps history"));
-    archive.onclick = () => { host.send({ t: "chat-archive", id: chat!.id, archived: !chat!.archived }); closeMenu(); };
-    const del = btn("chat-mi danger", "Delete chat…");
-    del.append(el("span", "k", "for good"));
-    del.onclick = (e) => { e.stopPropagation(); confirmDelete(); };
-    box.append(renameItem, cap, rules, el("div", "chat-sep"), archive, del);
-    return box;
-  }
+
 
   /** Rename a chat in place on its row. */
   function renameRow(r: HTMLElement, id: string, name: string) {
@@ -1021,7 +1048,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
 
   /** A chat row's menu (right-click). Delete's "also shut down" needs the chat's members, so only the open one has it. */
-  function chatMenuAt(at: Anchor, r: HTMLElement, c: ChatSummary) {
+  function chatMenuAt(at: Anchor, c: ChatSummary, rename: () => void) {
     const isOpen = c.id === openId && chat?.id === c.id;
     const down = isOpen ? shutdownList(chat!, chats, agents).down : [];
     const shutdown = down.length ? `Also shut down ${down.join(", ")}: closes ${down.length === 1 ? "its tab" : "their tabs"}` : undefined;
@@ -1034,7 +1061,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
           setNotesTab(action === "chat-notes");
           setDetails(true);
           return;
-        case "chat-rename": return renameRow(r, c.id, c.name);
+        case "chat-rename": return rename();
         case "chat-archive": return void host.send({ t: "chat-archive", id: c.id, archived: true });
         case "chat-reopen": return void host.send({ t: "chat-archive", id: c.id, archived: false });
         case "chat-delete": return void host.send({ t: "chat-delete", id: c.id, closeTabs: option });
@@ -1082,6 +1109,64 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     });
   }
 
+  /** Name, Max agent replies (− n +), then after the members: House rules, Archive, Delete. */
+  function paintSettings() {
+    if (!chat) return;
+    const c = chat;
+    const nameRow = el("div", "chat-set-row");
+    const nameVal = btn("chat-set-name", c.name, "Click to rename");
+    nameVal.onclick = () => inlineEdit(nameVal, { value: c.name, label: "Chat name", save: (n) => host.send({ t: "chat-settings", id: c.id, name: n }), done: () => { headerSignature = ""; paintChat(); } });
+    nameRow.append(el("span", "chat-set-label", "Name"), nameVal);
+
+    const capRow = el("div", "chat-set-row chat-cap");
+    const capText = el("span", "chat-set-label");
+    capText.append(el("span", "chat-set-title", "Max agent replies"), el("span", "chat-set-note", c.cap ? `Waits for you after ${c.cap} in a row. 0 = never` : "Never waits for you"));
+    const setCap = (n: number) => { const v = Math.max(0, Math.min(50, n)); if (v !== c.cap) host.send({ t: "chat-settings", id: c.id, cap: v }); };
+    const dec = btn("chat-step", "−", "Fewer");
+    dec.onclick = () => setCap(c.cap - 1);
+    dec.disabled = c.cap <= 0;
+    const val = el("input", "chat-step-value");
+    val.type = "number"; val.min = "0"; val.max = "50"; val.value = String(c.cap);
+    val.setAttribute("aria-label", "Max agent replies (0 = never wait)");
+    val.onchange = () => { const n = parseCap(val.value); if (n !== null) setCap(n); else val.value = String(c.cap); };
+    val.addEventListener("keydown", (e) => e.stopPropagation());
+    capInput = val;
+    const inc = btn("chat-step", "+", "More");
+    inc.onclick = () => setCap(c.cap + 1);
+    inc.disabled = c.cap >= 50;
+    capRow.append(capText, dec, val, inc);
+    basics.replaceChildren(nameRow, capRow);
+
+    const rules = btn("chat-set-link", "House rules…", "The standing rules every agent here gets");
+    rules.onclick = () => showRules();
+    const archive = btn("chat-btn", c.archived ? "Reopen chat" : "Archive chat");
+    archive.onclick = () => host.send({ t: "chat-archive", id: c.id, archived: !c.archived });
+    const del = btn("chat-btn danger", "Delete chat…");
+    const buttons = el("div", "chat-set-buttons");
+    del.onclick = () => {
+      // Asked here, in place: what goes, and whether its agents go too.
+      const { down } = shutdownList(c, chats, agents);
+      const box = el("div", "chat-set-confirm");
+      box.append(el("div", "", `Delete "${c.name}" for good? Its messages go. Its agents keep running.`));
+      let shut: HTMLInputElement | null = null;
+      if (down.length) {
+        const label = el("label", "chat-delete-shut");
+        shut = el("input"); shut.type = "checkbox";
+        label.append(shut, `Also shut down ${down.join(", ")}`);
+        box.append(label);
+      }
+      const yes = btn("chat-btn danger", "Delete");
+      yes.onclick = () => host.send({ t: "chat-delete", id: c.id, closeTabs: shut?.checked ?? false });
+      const no = btn("chat-btn", "Cancel");
+      no.onclick = () => { headerSignature = ""; paintChat(); };
+      box.append(no, yes);
+      buttons.replaceWith(box);
+      no.focus();
+    };
+    buttons.append(archive, del);
+    ends.replaceChildren(rules, buttons);
+  }
+
   function renameAt(anchor: HTMLElement, id: string, name: string) {
     closeMenu();
     toggleMenu(anchor, el("div", "chat-settings-menu"));
@@ -1089,37 +1174,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   }
 
   /** The name field, in place of the open menu (none open, as when the name was clicked again: nothing). */
-  function rename() {
-    if (!chat) return;
-    const id = chat.id;
-    ask("Chat name", chat.name, (n) => { if (n.trim()) host.send({ t: "chat-settings", id, name: n.trim() }); });
-  }
+
 
   /** In place of the open menu: what Delete does, and whether its agents go too (off unless ticked). */
-  function confirmDelete() {
-    if (!menu || !chat) return;
-    const c = chat;
-    const { down, kept } = shutdownList(c, chats, agents);
-    const box = el("div", "chat-ask chat-delete");
-    box.append(el("div", "chat-menu-title", `Delete "${c.name}" for good?`), el("p", "chat-delete-note", "Its messages go. Its agents keep running."));
-    let shut: HTMLInputElement | null = null;
-    if (down.length) {
-      const label = el("label", "chat-delete-shut");
-      shut = el("input");
-      shut.type = "checkbox";
-      label.append(shut, `Also shut down ${down.join(", ")}: closes ${down.length === 1 ? "its tab" : "their tabs"}`);
-      box.append(label);
-    }
-    if (kept.length) box.append(el("p", "chat-delete-note", `${kept.join(", ")} ${kept.length === 1 ? "is" : "are"} in another open chat and ${kept.length === 1 ? "keeps" : "keep"} running.`));
-    const yes = btn("chat-btn danger", "Delete");
-    yes.onclick = () => { host.send({ t: "chat-delete", id: c.id, closeTabs: shut?.checked ?? false }); closeMenu(); };
-    const no = btn("chat-btn", "Cancel");
-    no.onclick = () => closeMenu();
-    box.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") closeMenu(); });
-    box.append(el("span", "sp"), no, yes);
-    menu.replaceChildren(box);
-    no.focus();
-  }
+
 
   // ---- new chat and adding ----------------------------------------------------
 
@@ -1212,6 +1270,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     asking: () => chatsAsking(chats, showing ? openId : null),
     tabChats: () => tabChats(chats),
     newChat,
+    /** ⌘⇧E in a chat: the picked member's note. */
+    agentNote: () => showAgentNote(),
+    /** The right side gives way to a note: the chat's panel closes. */
+    closeDock: () => { if (dockView) { setDock(null); paintChat(); } },
     /** The tab strip's chat mark: that agent's chats, and a way to start another with it. */
     tabMenu(anchor: HTMLElement, list: ChatSummary[], windowId: string) {
       const box = el("div", "chat-tab-menu");

@@ -80,6 +80,8 @@ export interface Notes {
   openNote(noteId: string): void;
   /** The owner may have changed: a state push, a focus move. */
   sync(): void;
+  /** Close without sending the keys to the terminal: another panel is taking the right side. */
+  close(): void;
   receive(m: Extract<ServerMessage, { t: "note" }>): void;
   list(notes: NoteSummary[]): void;
   /** A note was deleted: if it is the one shown, its window starts a new one. */
@@ -219,7 +221,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     else if (tab === "window" && focus) editor.focus();
   }
 
-  function hide() {
+  function hide(focusTerminal = true) {
     if (!open) return;
     flush();
     explorer.flush();
@@ -229,7 +231,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     remember();
     layout();
     host.opened(false);
-    host.focusTerminal();
+    if (focusTerminal) host.focusTerminal();
   }
 
   // iPad Safari drops a background tab without warning: save on the way out.
@@ -247,6 +249,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   // is no socket to ask on yet.
 
   return {
+    close: () => hide(false),
     get open() { return open; },
     get tab() { return tab; },
     toggle: () => (open ? hide() : show(tab)),

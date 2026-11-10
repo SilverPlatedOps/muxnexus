@@ -71,6 +71,11 @@ const viewToggle = document.getElementById("view-toggle")!;
 const chatEl = document.getElementById("chat")!;
 /** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
 let chatUI: ChatUI | null = null;
+/**
+ * In a chat, the member whose tab note the right panel shows (Agent note), in
+ * place of the chat's own panel; null outside a chat or when none is picked.
+ */
+let agentNote: { session: string; windowId: string } | null = null;
 let globalSearch: ReturnType<typeof createGlobalSearch> | null = null;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
@@ -136,8 +141,26 @@ function showTerminal(on: boolean) {
 let sidebarBefore: boolean | null = null;
 
 /** What the main area shows: a chat while one is open, a view while one is up, else the terminal or the empty prompt. */
+/** Whether a chat showed at the last paint, and whether a workspace note was open as it came up. */
+let wasChatting = false;
+let notesBeforeChat = false;
+
 function paintMain() {
   const chatting = chatUI?.isShowing() ?? false;
+  // One right panel: a chat brings its own, so the workspace's note steps aside
+  // while it shows and comes back after; a member's note shown in the chat goes with it.
+  if (chatting !== wasChatting) {
+    wasChatting = chatting;
+    agentNote = null;
+    if (chatting) {
+      notesBeforeChat = notes.open;
+      if (notes.open) notes.close();
+    } else {
+      if (notesBeforeChat && !notes.open) notes.show(notes.tab, false);
+      else notes.sync();
+      notesBeforeChat = false;
+    }
+  }
   const viewing = !chatting && views.showing();
   const full = viewing && views.fullWindow();
   chatEl.hidden = !chatting;
@@ -500,10 +523,10 @@ const notes = createNotes({
   allView: document.getElementById("notes-all")!,
 }, {
   send: (m) => conn.send(m),
-  session: () => current,
+  session: () => noteSession(),
   owner: () => notesOwner(),
   ownerPlace: () => {
-    const s = sessions.find((x) => x.name === current);
+    const s = sessions.find((x) => x.name === noteSession());
     const w = notesOwner();
     return s && w ? { session: sessionLabel(s), window: tabLabel(w) } : null;
   },
@@ -650,7 +673,15 @@ document.getElementById("system-close")!.onclick = () => notes.toggle();
 // The footer line's readings stop on a phone layout and start again on a wide one.
 matchMedia(PHONE).addEventListener("change", () => syncSystem());
 
+const chatting = () => chatUI?.isShowing() ?? false;
+/** The session the note panel is about: the member's in a chat, else the one attached. */
+const noteSession = (): string | null => (chatting() ? agentNote?.session ?? null : current);
+
 function notesOwner(): WindowInfo | undefined {
+  if (chatting()) {
+    if (!agentNote) return undefined;
+    return sessions.find((s) => s.name === agentNote!.session)?.windows.find((w) => w.id === agentNote!.windowId);
+  }
   const ws = currentWindows();
   // A file beside is read against the note of the window it was opened from.
   const side = split.state?.windowId ?? split.state?.file.from;
@@ -982,6 +1013,13 @@ document.addEventListener("keydown", (e) => {
     if (onPhone()) setDrawer(false);
     notes.show("all");
   } else if (e.shiftKey && (e.key === "e" || e.key === "E")) {
+    if (chatting()) {
+      // In a chat: the picked member's note, in the one right panel.
+      e.preventDefault();
+      if (notes.open && notes.tab === "window") notes.close();
+      else chatUI?.agentNote();
+      return;
+    }
     if (wrapEl.hidden) return;
     e.preventDefault();
     if (notes.open && notes.tab === "window") notes.toggle();
@@ -1035,6 +1073,14 @@ chatUI = createChatUI({
   onPhone,
   find: () => globalSearch?.open(true),
   agentFor: (windowId) => menus.forWindow(windowId),
+  showAgentNote: (windowId) => {
+    const s = windowId ? sessions.find((x) => x.windows.some((w) => w.id === windowId)) : undefined;
+    agentNote = s && windowId ? { session: s.name, windowId } : null;
+    notes.show("window");
+    notes.sync();
+  },
+  agentNoteShowing: () => chatting() && notes.open && notes.tab === "window",
+  dockOpened: () => { if (chatting() && notes.open) notes.close(); },
 });
 chatUI.init();
 
