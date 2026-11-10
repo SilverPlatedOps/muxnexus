@@ -21,6 +21,8 @@ export interface NoteEditorHooks {
   /** The text was typed in: not on a load or a remote change. */
   onEdit(): void;
   onBlur(): void;
+  /** Esc that nothing in the editor wanted: true when it was used. */
+  onEscape?(): boolean;
 }
 
 export interface NoteEditor {
@@ -61,7 +63,7 @@ export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
 
   const extensions = () => [
     history(),
-    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
+    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap, { key: "Escape", run: () => hooks.onEscape?.() ?? false }]),
     markdownLook,
     EditorView.contentAttributes.of({ "aria-label": hooks.label, spellcheck: "false" }),
     readOnly.of(EditorState.readOnly.of(isReadOnly)),

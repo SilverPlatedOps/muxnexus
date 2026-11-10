@@ -116,6 +116,8 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
       timer = setTimeout(flush, SAVE_MS);
     },
     onBlur: () => flush(),
+    // Back to the agent the note is about; the note stays open beside it.
+    onEscape: () => { host.focusTerminal(); return true; },
   });
   els.text.replaceWith(editor.el);
 

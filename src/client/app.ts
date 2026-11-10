@@ -335,7 +335,8 @@ function attach(session: string, rejoin = false) {
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
-  if (session === current) return;
+  // The row of the workspace on screen: the keys go back to its terminal.
+  if (session === current) { if (!rejoin) term.focus(); return; }
   showTerminal(true);
   conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   conn.send({ t: "attach", session });
@@ -450,7 +451,7 @@ const notes = createNotes({
     return s && w ? { session: sessionLabel(s), window: tabLabel(w) } : null;
   },
   phone: onPhone,
-  focusTerminal: () => term.focus(),
+  focusTerminal: () => (notePane === "side" && split.state ? split.focusSide() : term.focus()),
   toast: (m) => sidebar.toast(m),
   goTo: ({ session, windowId }) => {
     openWindow(session, windowId);
@@ -902,6 +903,13 @@ document.addEventListener("keydown", (e) => {
     if (onPhone()) setDrawer(true);
     sidebar.focusSearch();
     term.fit();
+  } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
+    // Jump to whatever wants you next, from a note too. ⌘⇧J as well, in case iPad
+    // Safari keeps ⌘J for itself -- it costs one clause and saves finding out the hard way.
+    const go = nextJump();
+    if (!go) return;
+    e.preventDefault();
+    go();
   } else if (inNote) {
     return;
   } else if (e.key === "b") {
@@ -911,13 +919,6 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" && !wrapEl.hidden) {
     e.preventDefault();
     openFind();
-  } else if (e.key === "j" || (e.shiftKey && e.key === "J")) {
-    // Jump to whatever wants you next. ⌘⇧J as well, in case iPad Safari keeps
-    // ⌘J for itself -- it costs one clause and saves finding out the hard way.
-    const go = nextJump();
-    if (!go) return;
-    e.preventDefault();
-    go();
   }
 });
 
