@@ -18,6 +18,7 @@ import {
   parseCap,
   canOpen,
   creditsText,
+  firstChatHit,
   replyQuote,
   nearAgent,
   prefill,
@@ -146,6 +147,12 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
   els.tabChats.onclick = () => setTab("chats");
   els.tabWorkspaces.onclick = () => setTab("workspaces");
   els.search.addEventListener("input", () => { if (tab === "chats") paintList(); });
+  els.search.addEventListener("keydown", (e) => {
+    if (tab !== "chats" || e.key !== "Enter") return;
+    e.preventDefault();
+    const id = firstChatHit(chats, els.search.value);
+    if (id) open(id);
+  });
 
   const sidebarRows = new Map<string, HTMLButtonElement>();
   function paintList() {

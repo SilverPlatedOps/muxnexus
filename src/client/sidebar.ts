@@ -458,6 +458,8 @@ export function createSidebar(
         rerender();
         search.blur();
       } else if (e.key === "Enter") {
+        // The box is shared with the Chats list; there, Enter is the chat list's.
+        if (root.hidden) return;
         // The first thing found, as drawn: a window if the search named one.
         e.preventDefault();
         const first = root.querySelector<HTMLElement>(".win-hit") ?? root.querySelector<HTMLElement>(".group .name");

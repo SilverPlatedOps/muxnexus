@@ -4,6 +4,7 @@ import {
   chatsAsking,
   parseCap,
   chatRows,
+  firstChatHit,
   composerState,
   headerSummary,
   heldCount,
@@ -51,6 +52,13 @@ describe("the sidebar", () => {
     expect(rows.active.map((r) => r.id)).toEqual(["a", "c"]);
     expect(rows.archived.map((r) => r.id)).toEqual(["b"]);
     expect(chatRows([summary({ id: "a", name: "plan review" }), summary({ id: "c", name: "api contract" })], "API").active.map((r) => r.id)).toEqual(["c"]);
+  });
+
+  test("firstChatHit picks the first drawn active chat, then archived, else null", () => {
+    const chats = [summary({ id: "a", name: "plan review" }), summary({ id: "b", name: "storefront", archived: true })];
+    expect(firstChatHit(chats, "plan")).toBe("a");
+    expect(firstChatHit(chats, "store")).toBe("b");
+    expect(firstChatHit(chats, "nothing")).toBeNull();
   });
 
   test("chats asking the user, not counting the one on screen", () => {

@@ -32,6 +32,12 @@ export function chatRows(chats: readonly ChatSummary[], query: string): { active
   return { active: rows.filter((r) => !r.archived), archived: rows.filter((r) => r.archived) };
 }
 
+/** What Enter in the Chats filter opens: the first row drawn, active before archived. */
+export function firstChatHit(chats: readonly ChatSummary[], query: string): string | null {
+  const { active, archived } = chatRows(chats, query);
+  return (active[0] ?? archived[0])?.id ?? null;
+}
+
 /** Chats with a question for the user, except the one on screen: what Next waiting counts. */
 export function chatsAsking(chats: readonly ChatSummary[], openId: string | null): ChatSummary[] {
   return chats.filter((c) => c.glyph === "input" && !c.archived && c.id !== openId);
