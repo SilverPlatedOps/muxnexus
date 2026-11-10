@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import { VIEW_CHOICES, type ViewName } from "./view-host";
+import { setTermTheme, termTheme } from "./theme";
 
 /**
  * What the tabs and rows wear besides their name, and the one modal that
@@ -101,16 +102,20 @@ export function openDisplay(
   const back = el("div", "modal-back");
   const box = el("div", "move display");
   box.setAttribute("role", "dialog");
-  box.setAttribute("aria-label", "Display");
+  box.setAttribute("aria-label", "Settings");
   const head = el("div", "move-head");
-  head.append(el("span", "move-title", "Display"));
+  head.append(el("span", "move-title", "Settings"));
+  const x = el("button", "icon-btn move-close", "✕");
+  x.type = "button";
+  x.setAttribute("aria-label", "Close");
+  x.onclick = () => close();
+  head.append(x);
   box.append(head);
 
   const rows: [string, string, () => boolean, (on: boolean) => void][] = [
     ["Account badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
     ["Shared checkout", "Two live agents working in one git checkout, marked on both", marksShown, setMarksShown],
-    ["System overview", "CPU, memory, the busiest apps and Docker's containers, under the notes", systemShown, setSystemShown],
-    ["Memory on tabs", "Each tab's memory, and each session's total in the sidebar; the ranked list stays in the system overview", memoryShown, setMemoryShown],
+    ["Memory on tabs", "Each tab's memory, and each workspace's total in the sidebar; the ranked list stays in System", memoryShown, setMemoryShown],
   ];
   for (const [name, note, get, set] of rows) {
     const row = el("label", "display-row");
@@ -136,9 +141,26 @@ export function openDisplay(
     select.onchange = () => view.choose(select.value as ViewName);
     const text = el("span", "display-text");
     text.append(
-      el("span", "move-opt-name", "View"),
+      el("span", "move-opt-name", "Main area can also show"),
       el("span", "move-opt-note", "What the main area can show besides the terminal; the top bar switches between them"),
     );
+    row.append(text, select);
+    box.append(row);
+  }
+
+  {
+    // The terminal palette, which only ?theme=light could pick before: saved, and taken on reload.
+    const row = el("label", "display-row");
+    const select = el("select", "display-select");
+    for (const [value, title] of [["dark", "Dark"], ["light", "Light"]] as const) {
+      const o = el("option", undefined, title);
+      o.value = value;
+      o.selected = value === termTheme();
+      select.append(o);
+    }
+    select.onchange = () => { setTermTheme(select.value === "light" ? "light" : "dark"); location.reload(); };
+    const text = el("span", "display-text");
+    text.append(el("span", "move-opt-name", "Terminal colours"), el("span", "move-opt-note", "Reloads the page to repaint the terminals"));
     row.append(text, select);
     box.append(row);
   }

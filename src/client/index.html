@@ -40,14 +40,6 @@
         <button id="global-search-open" class="icon-btn" type="button" aria-label="Search everything (Command Shift K)" title="Search everything &#8984;&#8679;K">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 3 3"></path></svg>
         </button>
-        <button id="display" class="icon-btn" type="button" aria-label="Display and about" title="Display and about">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
-            <line x1="2.5" y1="4.5" x2="13.5" y2="4.5"></line>
-            <line x1="2.5" y1="11.5" x2="13.5" y2="11.5"></line>
-            <circle cx="10" cy="4.5" r="1.7" fill="var(--chrome)"></circle>
-            <circle cx="6" cy="11.5" r="1.7" fill="var(--chrome)"></circle>
-          </svg>
-        </button>
         <button id="collapse" class="icon-btn" type="button" aria-label="Hide sidebar (Command B)" title="Hide sidebar &#8984;B">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
             <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"></rect>
@@ -72,6 +64,9 @@
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"></circle><line x1="10.4" y1="10.4" x2="13.5" y2="13.5"></line></svg>
         <input id="side-search-input" type="search" placeholder="Filter workspaces and tabs" aria-label="Filter workspaces and tabs" autocomplete="off" spellcheck="false" />
         <kbd>&#8984;K</kbd>
+        <button id="side-new" class="icon-btn" type="button" aria-label="New" title="New agent (Workspaces) or new chat (Chats)">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="3" x2="8" y2="13"></line><line x1="3" y1="8" x2="13" y2="8"></line></svg>
+        </button>
       </div>
       <!-- Outside #sessions, which is rebuilt on every render. -->
       <button id="next-waiting" type="button" title="Go to the next session waiting on you, else the next with news (&#8984;J)" disabled>
@@ -85,6 +80,11 @@
       <!-- A sibling of the footer, not a child: the footer is rebuilt on every
            session render and would take the panel with it. -->
       <div id="usage" aria-label="Quota"></div>
+      <!-- The machine and the settings, one click each, under both lists. -->
+      <div id="side-status">
+        <button id="side-system" class="side-status-row" type="button" title="System: CPU, memory, the busiest apps, Docker"><span class="k">System</span><span id="side-system-text" class="v">…</span></button>
+        <button id="display" class="side-status-row" type="button" title="Settings: marks, view, terminal colours, about"><span class="k">Settings</span><span class="v dim">marks, view, colours</span></button>
+      </div>
       <footer id="side-foot"></footer>
     </aside>
 
@@ -99,6 +99,7 @@
             </svg>
           </button>
           <span class="chip"><span id="chip-dot" class="glyph none"></span><span id="chip-name"></span></span>
+          <span id="top-solo" hidden></span>
           <button id="chat-back" class="btn chat-back" type="button" hidden></button>
         </div>
         <button id="view-toggle" class="icon-btn" type="button" aria-label="Switch between the terminal and the view" aria-pressed="false" title="Terminal / view" hidden>

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
+import { termTheme } from "./theme";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
@@ -109,7 +110,7 @@ const LIGHT = {
   brightBlack: "#696c77", brightRed: "#ca1243", brightGreen: "#3d8c3c", brightYellow: "#986801",
   brightBlue: "#2f5ee0", brightMagenta: "#8d1d8b", brightCyan: "#0997b3", brightWhite: "#ffffff",
 };
-const THEME = typeof location !== "undefined" && new URLSearchParams(location.search).get("theme") === "light" ? LIGHT : DARK;
+const THEME = termTheme() === "light" ? LIGHT : DARK;
 const light = THEME === LIGHT;
 
 /**

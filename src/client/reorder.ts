@@ -227,7 +227,7 @@ export function makeReorderable(container: HTMLElement, opts: ReorderOptions): (
     // The row's controls keep their own press: the rename field selects text,
     // the icon buttons and the menu's buttons act. The row's body is a button
     // too, but its click is a tap, and the slop below tells a tap from a drag.
-    if ((e.target as HTMLElement).closest("input, .row-btn, .btn")) return;
+    if ((e.target as HTMLElement).closest("input, .row-btn, .btn, .win-sub, .cat-add")) return;
     from = rows.indexOf(row);
     dragged = row;
     startPos = pos(e);

@@ -56,6 +56,10 @@ export interface SidebarActions {
   openMenu(session: string, at: Anchor): void;
   /** A group header's menu. */
   openGroupMenu(category: string, at: Anchor): void;
+  /** A tab's menu, from its sub-row under a workspace with several. */
+  openTabMenu(session: string, id: string, at: Anchor): void;
+  /** The ＋ on a group header: a new agent in that group. */
+  newInGroup(category: string): void;
 }
 
 export interface Sidebar {
@@ -261,14 +265,17 @@ export function createSidebar(
     // a click still attaches and a double-click still renames.
     r.append(name, menuButton(row.name));
     group.append(r);
+    // A workspace with several tabs lists them under its row (one tab is the row itself).
+    if (!found && row.windows.length > 1) for (const w of row.windows) group.append(renderHit(row.name, w, true));
     for (const w of found?.get(row.name) ?? []) group.append(renderHit(row.name, w));
 
     return group;
   }
 
   /** A window the search found, under its session: one click shows it. */
-  function renderHit(session: string, w: WindowInfo): HTMLElement {
-    const b = button(`row win-hit${w.active && session === lastCurrent ? " current" : ""}`);
+  function renderHit(session: string, w: WindowInfo, sub = false): HTMLElement {
+    const b = button(`row ${sub ? "win-sub" : "win-hit"}${w.active && session === lastCurrent ? " current" : ""}`);
+    if (sub) onContextMenu(b, (at) => actions.openTabMenu(session, w.id, at));
     const g = windowGlyph(w);
     const mark = el("span", `glyph ${g}`, GLYPH[g]);
     mark.title = agentTitle(w);
@@ -419,6 +426,14 @@ export function createSidebar(
     const chevron = el("span", "chevron");
     chevron.innerHTML = ICONS.chevron;
     head.append(chevron, el("span", "cat-name", category));
+    if (!opts.archive) {
+      const add = el("span", "cat-add", "＋");
+      add.setAttribute("role", "button");
+      add.setAttribute("aria-label", `New agent in ${category}`);
+      add.title = `New agent in ${category}`;
+      add.onclick = (e) => { e.stopPropagation(); actions.newInGroup(category); };
+      head.append(add);
+    }
     // The count only when folded: open, the rows below already are the count.
     if (folded && opts.archive) {
       // Put away means quiet: no urgency on the header, only how many.

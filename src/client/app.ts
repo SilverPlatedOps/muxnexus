@@ -22,7 +22,7 @@ import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
 import { createDockerPanel, loadTab, type OverviewTab, saveTab } from "./docker";
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
-import type { SessionInfo, SwapNotice, UsageSource, WindowInfo } from "../shared/protocol";
+import type { SessionInfo, SwapNotice, SystemStats, UsageSource, WindowInfo } from "../shared/protocol";
 import { createFolded } from "./folded";
 import { buildWorld, nextWaiting, type World } from "./world";
 import { diffWorlds } from "./transitions";
@@ -358,6 +358,8 @@ const sidebar = createSidebar(sessionsEl, layout, {
   openWindow,
   openMenu: (session, at) => menus.session(session, at),
   openGroupMenu: (category, at) => menus.group(category, at),
+  openTabMenu: (session, id, at) => menus.tab(session, id, at),
+  newInGroup: (category) => sidebar.startNewSession(`[${category}] `),
 }, footEl, document.getElementById("side-search-input") as HTMLInputElement, folded);
 
 /** The last quota snapshot, so the account picker can list the same rows the panel shows. */
@@ -385,7 +387,7 @@ const tabs = createTabs(tabsEl, {
     leave: () => split.leave(),
     drop: (id, x, y) => split.drop(id, x, y),
   },
-});
+}, document.getElementById("top-solo")!);
 
 /** A tab's note, beside the pane that shows the tab. */
 function tabsOpenNote(id: string) {
@@ -582,15 +584,18 @@ for (const [tab, b] of Object.entries(overviewTabs)) {
 // The System tab keeps reading behind the Docker one, so its CPU line still
 // has its last minute when you come back to it.
 function syncSystem() {
-  const on = notes.open && systemShown();
-  systemEl.hidden = !on;
+  const panel = notes.open && systemShown();
+  systemEl.hidden = !panel;
+  // The footer's CPU and memory line wants the cheap readings on a desktop;
+  // the costly ones (Docker, the process list) still need the panel.
+  const on = panel || !onPhone();
   // Docker is read only while its list shows: one line never shows it.
-  const dockerOn = on && !systemFolded && overviewTab === "docker";
+  const dockerOn = panel && !systemFolded && overviewTab === "docker";
   if (dockerOn !== dockerSent) {
     if (dockerOn) docker.reset();
     if (conn.send({ t: "docker", on: dockerOn })) dockerSent = dockerOn;
   }
-  const list = on && !systemFolded && overviewTab === "system" && system.listOpen();
+  const list = panel && !systemFolded && overviewTab === "system" && system.listOpen();
   if (on === systemSent && list === listSent) return;
   if (on && !systemSent) system.reset();
   if (conn.send({ t: "system", on, list })) {
@@ -617,6 +622,25 @@ const nudge = createNudge(document.body, {
     syncSystem();
   },
 });
+/** The footer's line: CPU and memory now, coloured as the overview colours pressure. */
+const sideSystemText = document.getElementById("side-system-text")!;
+function paintSideSystem(st: SystemStats) {
+  const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
+  const parts = [st.cpu === undefined ? null : `CPU ${Math.round(st.cpu)}%`, st.mem ? `Mem ${gb(st.mem.used)}/${gb(st.mem.total)} GB` : null].filter(Boolean);
+  sideSystemText.textContent = parts.join(" · ") || "…";
+  sideSystemText.dataset.pressure = st.mem?.pressure ?? "normal";
+}
+/** System in view, from the footer: notes panel open, the overview on and unfolded. */
+function openSystem() {
+  if (!notes.open) notes.show("window");
+  setSystemShown(true);
+  systemFolded = false;
+  setSystemCollapsed(false);
+  paintSystemToggle();
+  syncSystem();
+}
+document.getElementById("side-system")!.onclick = () => openSystem();
+
 document.getElementById("system-close")!.onclick = () => {
   setSystemShown(false);
   syncSystem();
@@ -829,6 +853,7 @@ const conn = new Connection(wsUrl, {
         break;
       case "system":
         if (systemSent) system.receive(m.stats);
+        paintSideSystem(m.stats);
         break;
       case "swap":
         lastSwap = m.notice;
@@ -895,6 +920,11 @@ nextBtn.onclick = () => {
   if (onPhone()) setDrawer(false);
 };
 drawerClose.onclick = () => setDrawer(false);
+// ＋ beside the filter: something new in the list on show.
+document.getElementById("side-new")!.onclick = () => {
+  if (chatUI?.tab() === "chats") chatUI.newChat();
+  else sidebar.startNewSession();
+};
 // The badges are worn by the tabs and legended by the quota panel; the checkout
 // mark by the tabs and the sidebar. A switch redraws all of them.
 displayBtn.onclick = () => openDisplay(document.body, () => {

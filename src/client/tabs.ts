@@ -4,7 +4,7 @@
 import type { NewWindowAgent, SessionInfo, WindowInfo } from "../shared/protocol";
 import type { ChatSummary } from "../shared/chat";
 import { makeReorderable } from "./reorder";
-import { onContextMenu, type Anchor } from "./popover";
+import { onContextMenu, openMenu, type Anchor } from "./popover";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
@@ -66,8 +66,6 @@ const ICON = {
   plus: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="3.5" x2="8" y2="12.5"></line><line x1="3.5" y1="8" x2="12.5" y2="8"></line></svg>',
 };
 
-/** `ui.menu` when the new-window menu is open. Window ids all start with `@`, so it cannot collide. */
-const NEW_MENU = "new";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -95,10 +93,14 @@ function checkoutMark(sh: Sharing): HTMLElement {
   return m;
 }
 
-export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
-  // Keyed by window id, so an open menu or kill confirm stays on its own tab
-  // when a poll arrives with the windows in new slots.
-  const ui: { menu: string | null; editing: string | null } = { menu: null, editing: null };
+/**
+ * `solo`: where a one-tab workspace's tab goes instead of a strip -- the title
+ * bar, which already names it. Its marks (account, note, chats, memory) and the
+ * one-click `+` come along; the strip itself only shows for two tabs or more.
+ */
+export function createTabs(root: HTMLElement, actions: TabActions, solo?: HTMLElement): Tabs {
+  // The tab being renamed, by window id: a poll arriving mid-rename leaves it alone.
+  const ui: { editing: string | null } = { editing: null };
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
@@ -229,79 +231,54 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     }
     const windows = tabsModel(sessions, current);
     root.replaceChildren();
-    root.hidden = windows.length === 0;
+    const lone = windows.length === 1 && solo !== undefined;
+    root.hidden = windows.length === 0 || lone;
+    if (solo) { solo.replaceChildren(); solo.hidden = !lone; }
     if (windows.length === 0) {
       revealed = null; // shown again, the strip starts at its left edge
       return;
     }
 
     sharing = marksShown() ? sharedCheckouts(sessions, windowPlace) : new Map();
-    for (const w of windows) root.append(renderTab(w));
-
-    // `+` stays one click to a shell, the common case; the agents sit a click
-    // further, behind the chevron.
-    const adds = el("div", `tab-new${ui.menu === NEW_MENU ? " menu-open" : ""}`);
-    const add = button("row-btn");
-    add.setAttribute("aria-label", "New window");
-    add.title = "New window";
-    add.innerHTML = ICON.plus;
-    add.onclick = () => actions.newWindow();
-    const more = button("row-btn tab-new-more");
-    more.setAttribute("aria-label", "New window with an agent");
-    more.setAttribute("aria-expanded", String(ui.menu === NEW_MENU));
-    more.title = "New window with an agent";
-    more.innerHTML = ICON.chevron;
-    more.onclick = (e) => {
-      e.stopPropagation();
-      ui.menu = ui.menu === NEW_MENU ? null : NEW_MENU;
-      rerender();
-    };
-    adds.append(add, more);
-    if (ui.menu === NEW_MENU) {
-      const m = el("div", "tab-menu");
-      const codex = button("btn", "New Codex tab");
-      codex.onclick = (e) => {
-        e.stopPropagation();
-        ui.menu = null;
-        actions.newWindow("codex");
-        rerender();
-      };
-      m.append(codex);
-      adds.append(m);
+    if (lone) {
+      const tab = renderTab(windows[0]!);
+      tab.classList.add("solo");
+      solo!.append(tab, newTabButtons());
+      revealed = null;
+      return;
     }
-    root.append(adds);
+    root.replaceChildren(...windows.map(renderTab), newTabButtons());
     fitTitles();
     revealActive(windows);
-    // Fixed to the chevron rather than hung off the strip: the strip scrolls on
-    // a phone, and this sits at its far end, so an in-flow menu lands off screen.
-    const menu = adds.querySelector<HTMLElement>(".tab-menu");
-    if (menu) {
-      const r = more.getBoundingClientRect();
-      menu.style.top = `${r.bottom + 4}px`;
-      menu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
-    }
-    // A tab's own menu hangs off that tab, so one opened far along the strip
-    // runs past the column's clipped edge and takes its buttons with it. The
-    // strip is the boundary, not the viewport: the notes panel covers the gap
-    // between the two whenever it is open.
-    for (const m of root.querySelectorAll<HTMLElement>(":scope > .tab > .tab-menu")) {
-      m.style.maxWidth = `${Math.max(120, root.clientWidth - 16)}px`;
-      const strip = root.getBoundingClientRect();
-      // Slid, not re-anchored: `left` is read against the tab's own box and
-      // feeds back into how wide this one is allowed to be, while a translate
-      // moves the box it just measured by exactly as much as it overhangs.
-      const box = m.getBoundingClientRect();
-      const shift = Math.round(Math.max(strip.right - 8 - box.right, strip.left + 8 - box.left));
-      if (shift < 0) m.style.transform = `translateX(${shift}px)`;
-    }
   }
 
   /**
-   * Every title whole while the strip has the room, so a lone tab is not cut to
-   * "Helium browser …"; back to 220px each, as they always were, once they
-   * would scroll. All of them or none, never the active one alone: a tab that
-   * grew on being chosen would slide its neighbours out from under the pointer.
+   * `+` stays one click to a shell, the common case; Claude and Codex sit a
+   * click further, behind the chevron, in the same menu as everywhere.
    */
+  function newTabButtons(): HTMLElement {
+    const adds = el("div", "tab-new");
+    const add = button("row-btn");
+    add.setAttribute("aria-label", "New tab");
+    add.title = "New tab (a shell, in this tab's folder)";
+    add.innerHTML = ICON.plus;
+    add.onclick = () => actions.newWindow();
+    const more = button("row-btn tab-new-more");
+    more.setAttribute("aria-label", "New tab with an agent");
+    more.title = "New tab with an agent";
+    more.innerHTML = ICON.chevron;
+    more.onclick = (e) => {
+      e.stopPropagation();
+      openMenu(more, { title: "New tab", sub: "In this workspace, in this tab's folder", sections: [[
+        { action: "new-tab-claude", label: "Claude" },
+        { action: "new-tab-codex", label: "Codex" },
+        { action: "new-tab-shell", label: "Shell" },
+      ]] }, (action) => actions.newWindow(action === "new-tab-claude" ? "claude" : action === "new-tab-codex" ? "codex" : undefined));
+    };
+    adds.append(add, more);
+    return adds;
+  }
+
   function fitTitles() {
     const last = root.lastElementChild as HTMLElement | null;
     if (!last) return;
@@ -352,7 +329,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   return {
     render: draw,
     startRename(id) {
-      const tab = root.querySelector<HTMLElement>(`.tab[data-id="${CSS.escape(id)}"]`);
+      const tab = (root.hidden ? solo : root)?.querySelector<HTMLElement>(`.tab[data-id="${CSS.escape(id)}"]`);
       const w = tabsModel(lastSessions, lastCurrent).find((x) => x.id === id);
       if (tab && w) inlineRename(tab, id, tabLabel(w));
     },

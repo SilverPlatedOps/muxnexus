@@ -214,7 +214,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
    agent read as noise. Only the attached session has tabs, so at most one
    session's arcs move, and app.ts pins them to one clock so a rebuild does not
    restart them. */
-#tabs .glyph.running::before { animation: spin 1.2s linear infinite; }
+#tabs .glyph.running::before, #top-solo .glyph.running::before { animation: spin 1.2s linear infinite; }
 
 @keyframes spin {
   from { transform: rotate(45deg); }
@@ -223,7 +223,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 
 /* Motion is an accent, not information: the arc still differs from "○" without it. */
 @media (prefers-reduced-motion: reduce) {
-  #tabs .glyph.running::before { animation: none; }
+  #tabs .glyph.running::before, #top-solo .glyph.running::before { animation: none; }
 }
 
 /* How long a blocked agent has been waiting. Pushed to the right so the names
@@ -251,7 +251,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .row.tight .elapsed { padding-left: 4px; }
 .wcount { display: flex; align-items: center; gap: 1px; color: var(--muted); font-size: 11px; }
 
-#tabs .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
+#tabs .glyph, #top-solo .glyph { width: 12px; font-size: 13px; margin-right: 1px; }
 
 /* An agent sharing its git checkout with another. Yellow, the colour the app
    already gives a hazard that is not yet a problem (a quota nearing its limit,
@@ -564,9 +564,6 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 /* The selected row's menu is always in sight; the rest show theirs dimly. */
 .group.current .menu-btn { color: var(--muted); }
 
-.menu { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 10px 8px 12px; }
-.menu .btn { text-align: left; }
-.menu.window { padding-left: 28px; }
 
 .btn {
   height: 26px;
@@ -593,17 +590,6 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   border-radius: 6px;
 }
 
-.confirm {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 10px 10px 12px;
-  padding: 8px 10px;
-  background: rgba(224, 108, 117, 0.08);
-  border: 1px solid rgba(224, 108, 117, 0.35);
-  border-radius: 6px;
-}
-.confirm .label { flex: 1; font-size: 11.5px; color: var(--red); }
 
 .rename {
   flex: 1;
@@ -732,7 +718,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 }
 #tabs::-webkit-scrollbar { display: none; }
 /* A menu or rename box has to escape the scroll container to be seen. */
-#tabs:has(.tab.menu-open), #tabs:has(.tab-rename) { overflow: visible; }
+#tabs:has(.tab-rename) { overflow: visible; }
 
 .tab {
   position: relative;
@@ -791,9 +777,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .tab .tab-dots.menu-open { background: var(--sel); color: var(--fg); }
 .tab-new { position: relative; display: flex; align-items: center; margin: 0 0 3px 4px; }
 .tab-new .tab-new-more { width: 16px; }
-.tab-new.menu-open .tab-new-more { background: var(--sel); color: var(--fg); }
-/* Placed by tabs.ts under the chevron; fixed, so the strip can keep scrolling. */
-.tab-new .tab-menu { position: fixed; left: auto; }
+.tab-new .tab-new-more.menu-open { background: var(--sel); color: var(--fg); }
 
 .tab-rename {
   width: 100px;
@@ -806,27 +790,6 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   color: var(--fg-strong);
 }
 
-.tab-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  white-space: nowrap;
-}
-.tab-menu .label { display: flex; min-width: 0; color: var(--muted); font-size: 11.5px; }
-/* The named tab gives way first: the buttons keep their width, the name eats
-   the ellipsis, and the "?" rides behind it. */
-.tab-menu .label > .who { min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; }
-.tab-menu.confirm .label::after { content: "?"; }
-.tab-menu .btn { flex: none; }
 
 #terminal, #terminal-side { height: 100%; min-height: 0; }
 #terminal .xterm, #terminal-side .xterm { height: 100%; }
@@ -1318,7 +1281,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 }
 
 /* A window the search found, under its session. */
-.row.win-hit {
+.row.win-hit, .row.win-sub {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1333,11 +1296,11 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   text-align: left;
   cursor: pointer;
 }
-.row.win-hit:hover { background: var(--hover); }
-.row.win-hit.current { color: var(--fg-strong); }
-.row.win-hit .glyph { width: 12px; flex: none; }
-.row.win-hit .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row.win-hit .folder { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: 11px; }
+.row.win-hit:hover, .row.win-sub:hover { background: var(--hover); }
+.row.win-hit.current, .row.win-sub.current { color: var(--fg-strong); }
+.row.win-hit .glyph, .row.win-sub .glyph { width: 12px; flex: none; }
+.row.win-hit .label, .row.win-sub .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.win-hit .folder, .row.win-sub .folder { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: 11px; }
 
 /* ---------- the notes panel ---------- */
 
@@ -2369,3 +2332,34 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 }
 .pop-btn.danger { background: var(--red); border-color: var(--red); color: var(--chrome); font-weight: 700; }
 .pop-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* A one-tab workspace has no strip: its tab's marks sit in the title bar after
+   the name (the name and menu are the title's own), with the one-click +. */
+#top-solo { display: flex; align-items: center; gap: 4px; min-width: 0; }
+#top-solo[hidden] { display: none; }
+#top-solo .tab.solo { height: 26px; padding: 0 4px; background: none; border-radius: 6px; max-width: none; }
+#top-solo .tab.solo .label, #top-solo .tab.solo .tab-dots { display: none; }
+#top-solo .tab-new { margin: 0; }
+#crumb:has(#top-solo:not([hidden])) #chip-dot { display: none; }
+
+/* ---- sidebar footer: System and Settings, one click each ---- */
+#side-status { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px 6px; border-top: 1px solid var(--line-soft); }
+.side-status-row {
+  display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px;
+  background: none; color: var(--fg); font: 500 11.5px/1 var(--mono); text-align: left; cursor: pointer;
+}
+.side-status-row:hover { background: var(--hover); }
+.side-status-row .k { width: 62px; flex: none; color: var(--dim); }
+.side-status-row .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-status-row .v.dim { color: var(--dim); }
+#side-system-text[data-pressure="warning"] { color: var(--yellow); }
+#side-system-text[data-pressure="critical"] { color: var(--red); }
+
+/* A tab of a workspace with several, under its row: quieter than the row. */
+.row.win-sub { color: var(--muted); font-size: 12px; }
+.row.win-sub .folder { display: none; }
+/* ＋ on a group header and beside the filter: a new agent there. */
+.cat-add { flex: none; width: 20px; text-align: center; border-radius: 4px; color: var(--faint); font-size: 13px; cursor: pointer; }
+.cat-head:hover .cat-add { color: var(--muted); }
+.cat-add:hover { background: var(--sel); color: var(--fg); }
+#side-search #side-new { width: 22px; height: 22px; flex: none; margin-right: -4px; }
