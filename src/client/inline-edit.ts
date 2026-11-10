@@ -44,7 +44,8 @@ export function inlineEdit(host: HTMLElement, o: InlineEditOpts): HTMLInputEleme
     if (e.key === "Enter") { e.preventDefault(); finish(true); }
     else if (e.key === "Escape") { e.preventDefault(); finish(false); }
   });
-  input.addEventListener("blur", () => finish(true));
+  // Clicking away saves; the field vanishing in a re-render does not.
+  input.addEventListener("blur", () => finish(input.isConnected));
   for (const ev of ["click", "mousedown", "dblclick", "pointerdown"]) input.addEventListener(ev, (e) => e.stopPropagation());
   host.replaceChildren(input);
   input.focus();

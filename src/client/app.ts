@@ -283,7 +283,8 @@ function paintFind(s: { total: number; index: number }) {
  * while the bar is open so a click elsewhere doesn't split one search in two.
  */
 let findIn: TerminalView | null = null;
-const findTerm = (): TerminalView => findIn ?? term;
+// A beside pane closed or swapped while the bar was open falls back to the main one.
+const findTerm = (): TerminalView => (findIn && findIn !== term && findIn !== split.sideTerminal() ? term : findIn ?? term);
 
 function openFind() {
   const side = notePane === "side" ? split.sideTerminal() : null;
@@ -301,8 +302,8 @@ function closeFind() {
   const t = findTerm();
   findIn = null;
   t.clearSearch();
-  if (t === term) term.focus();
-  else split.focusSide();
+  if (t !== term && split.sideTerminal() === t) split.focusSide();
+  else term.focus();
 }
 
 // ---- connection status ----
@@ -336,7 +337,7 @@ function attach(session: string, rejoin = false) {
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
   // The row of the workspace on screen: the keys go back to its terminal.
-  if (session === current) { if (!rejoin) term.focus(); return; }
+  if (session === current) { if (!rejoin) focusNotePane(); return; }
   showTerminal(true);
   conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   conn.send({ t: "attach", session });
@@ -426,6 +427,11 @@ const currentWindows = (): WindowInfo[] => sessions.find((s) => s.name === curre
  * Focus moving into the note itself is not a move, so it is not listened for.
  */
 let notePane: "main" | "side" = "main";
+/** Keys back to the pane that last had them. */
+function focusNotePane() {
+  if (notePane === "side" && split.state) split.focusSide();
+  else term.focus();
+}
 document.getElementById("pane-main")!.addEventListener("focusin", () => { notePane = "main"; notes.sync(); });
 document.getElementById("pane-side")!.addEventListener("focusin", () => { notePane = "side"; notes.sync(); });
 
@@ -451,7 +457,7 @@ const notes = createNotes({
     return s && w ? { session: sessionLabel(s), window: tabLabel(w) } : null;
   },
   phone: onPhone,
-  focusTerminal: () => (notePane === "side" && split.state ? split.focusSide() : term.focus()),
+  focusTerminal: () => focusNotePane(),
   toast: (m) => sidebar.toast(m),
   goTo: ({ session, windowId }) => {
     openWindow(session, windowId);
