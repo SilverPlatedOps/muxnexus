@@ -459,6 +459,8 @@ interface SessionRow {
   workspaceId: string;
   order?: number;
   customName: string;
+  /** Put away by the user (`@muxnexus_archived`): kept running, out of the way. */
+  archived: boolean;
   /** A split pane's private view of the group (`@muxnexus_view`), never a sidebar row or a client of its own. */
   view: boolean;
   /** The tmux server, as `<pid>-<start time>`: the same on every row. */
@@ -517,17 +519,18 @@ export class Tmux {
     try {
       out = await this.run([
         "list-sessions", "-F",
-        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}\t#{@muxnexus_view}\t#{pid}-#{start_time}",
+        "#{session_name}\t#{session_attached}\t#{session_grouped}\t#{session_group}\t#{session_id}\t#{@muxnexus_workspace}\t#{@muxnexus_order}\t#{@muxnexus_name}\t#{@muxnexus_view}\t#{@muxnexus_archived}\t#{pid}-#{start_time}",
       ]);
     } catch (e) {
       if (e instanceof TmuxError && NO_SERVER.test(e.message)) return [];
       throw e;
     }
-    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 10).map(([name, attached, grouped, group, id, workspaceId, order, customName, view, server]) => ({
+    return lines(out).map((l) => l.split("\t")).filter((p) => p.length === 11).map(([name, attached, grouped, group, id, workspaceId, order, customName, view, archived, server]) => ({
       name, attached: Number(attached), grouped: grouped === "1", group, id: Number(id.replace(/^\$/, "")), workspaceId,
       order: order === "" ? undefined : Number(order),
       customName,
       view: view === "1",
+      archived: archived === "1",
       server,
     }));
   }
@@ -667,6 +670,7 @@ export class Tmux {
           windows: [],
           ...(rep.workspaceId ? { workspaceId: rep.workspaceId } : {}),
           ...(rep.customName ? { customName: rep.customName } : {}),
+          ...(rep.archived ? { archived: true } : {}),
           ...(rep.order === undefined || Number.isNaN(rep.order) ? {} : { order: rep.order }),
         },
         rep,
@@ -1025,6 +1029,12 @@ export class Tmux {
     // a session whose name is a cmux workspace, keeps the rename from racing the
     // guard's own name sync.
     await this.run(["set-option", "-t", target, "@muxnexus_name", name]);
+  }
+
+  /** Archive or bring back a workspace. Only a stamp: the session keeps running. */
+  async setArchived(session: string, on: boolean): Promise<void> {
+    const target = await this.target(session);
+    await this.run(on ? ["set-option", "-t", target, "@muxnexus_archived", "1"] : ["set-option", "-u", "-t", target, "@muxnexus_archived"]);
   }
 
   async renameWindow(session: string, id: string, name: string): Promise<void> {

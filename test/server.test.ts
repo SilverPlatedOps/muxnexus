@@ -747,6 +747,18 @@ test("window messages reject anything but window ids", async () => {
   c.ws.close();
 });
 
+test("archive-session wants a boolean", async () => {
+  await tmux.newSession("a");
+  const c = await connect();
+  await waitFor(() => c.last("state"), 2000, "state");
+  c.send({ t: "archive-session", session: "a", archived: "yes" });
+  await waitFor(() => c.last("error"), 2000, "error");
+  expect((c.last("error") as any).message).toBe("invalid archive-session");
+  c.send({ t: "archive-session", session: "a", archived: true });
+  await waitFor(() => (c.last("state") as any)?.sessions?.[0]?.archived === true, 3000, "archived state");
+  c.ws.close();
+});
+
 // ---- polling cost ----
 // A server left running in the background must not keep reading tmux, cmux, the
 // Keychain and the usage API for nobody. And one slow read must not overlap the

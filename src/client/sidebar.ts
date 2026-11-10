@@ -9,9 +9,12 @@ import { ICONS } from "./icons";
 import { marksShown, memoryShown } from "./display";
 import { memoryStore } from "./memory";
 import { sessionLabel, tabLabel, windowPlace } from "./labels";
-import { groupSessions, mergeOrder, moveWithinBlocks, visualOrder, type Block } from "./groups";
+import { groupSessions, isArchived, mergeOrder, moveWithinBlocks, splitArchived, visualOrder, type Block } from "./groups";
 import { categoryKey, splitCategory } from "../shared/category";
 import { createFolded, type Folded } from "./folded";
+
+/** The fold key recording that the Archived section was opened (it starts folded). */
+const ARCHIVE_OPEN = "\u0000archived-open";
 
 export type Row =
   | { kind: "session"; name: string; label: string; orphan: boolean; attached: boolean; current: boolean; windows: WindowInfo[] }
@@ -147,7 +150,9 @@ export function createSidebar(
    * from its stored position, so the stored order is not the one on screen.
    */
   function orderNames(): string[] {
-    return visualOrder(lastSessions, sessionLabel).map((s) => s.name);
+    // As drawn: the live groups, then the Archived section.
+    const { live, archived } = splitArchived(lastSessions, (s) => isArchived(s, sessionLabel(s)));
+    return [...visualOrder(live, sessionLabel), ...visualOrder(archived, sessionLabel)].map((s) => s.name);
   }
 
   function moveSession(name: string, delta: -1 | 1) {
@@ -374,7 +379,10 @@ export function createSidebar(
       return;
     }
     const windowCount = (name: string) => sessions.find((s) => s.name === name)?.windows.length ?? 0;
-    const blocks = groupSessions(sessionRows, (r) => r.label);
+    // Archived workspaces leave their groups for one folded section at the bottom.
+    const byName = new Map(sessions.map((x) => [x.name, x]));
+    const { live, archived } = splitArchived(sessionRows, (r) => isArchived(byName.get(r.name) ?? {}, r.label));
+    const blocks = groupSessions(live, (r) => r.label);
     blocks.forEach((block, bi) => {
       if (block.category === null) {
         const row = block.sessions[0]!;
@@ -384,6 +392,10 @@ export function createSidebar(
       root.append(renderCategory(block, (row, i) =>
         renderSession(row, windowCount(row.name), { up: i > 0, down: i < block.sessions.length - 1 })));
     });
+    if (archived.length) {
+      root.append(renderCategory({ category: "Archived", sessions: archived }, (row) =>
+        renderSession(row, windowCount(row.name), { up: false, down: false }), { archive: true }));
+    }
     fitDots();
     drawFoot();
   }
@@ -418,13 +430,15 @@ export function createSidebar(
   function renderCategory(
     block: Block<Extract<Row, { kind: "session" }>>,
     renderRow: (row: Extract<Row, { kind: "session" }>, i: number) => HTMLElement,
+    opts: { archive?: boolean } = {},
   ): HTMLElement {
     const category = block.category!;
-    const key = categoryKey(category);
+    // The Archived section starts folded: its key records it being opened, not closed.
+    const key = opts.archive ? ARCHIVE_OPEN : categoryKey(category);
     // A search looks inside folded groups too: a hit you cannot see is no hit.
-    const folded = collapsed.has(key) && found === null;
+    const folded = (opts.archive ? !collapsed.has(key) : collapsed.has(key)) && found === null;
     const holdsCurrent = block.sessions.some((r) => r.current);
-    const section = el("section", `cat${folded ? " folded" : ""}${folded && holdsCurrent ? " current" : ""}`);
+    const section = el("section", `cat${opts.archive ? " archive" : ""}${folded ? " folded" : ""}${folded && holdsCurrent ? " current" : ""}`);
 
     const head = button("cat-head");
     head.setAttribute("aria-expanded", String(!folded));
@@ -432,7 +446,10 @@ export function createSidebar(
     chevron.innerHTML = ICONS.chevron;
     head.append(chevron, el("span", "cat-name", category));
     // The count only when folded: open, the rows below already are the count.
-    if (folded) {
+    if (folded && opts.archive) {
+      // Put away means quiet: no urgency on the header, only how many.
+      head.append(el("span", "cat-count", String(block.sessions.length)));
+    } else if (folded) {
       const glyph = sessionGlyph(block.sessions.flatMap((r) => r.windows));
       const mark = el("span", `glyph ${glyph}`, GLYPH[glyph]);
       mark.title = GLYPH_TITLE[glyph];

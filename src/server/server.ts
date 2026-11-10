@@ -883,6 +883,10 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid select-window" });
           await tmux.selectWindow(m.session, m.id);
           break;
+        case "archive-session":
+          if (typeof m.archived !== "boolean") return send(ws, { t: "error", message: "invalid archive-session" });
+          await tmux.setArchived(m.session, m.archived);
+          break;
         case "rename-session": {
           // Grab the stamped workspace id before the rename: cmux's own lookup
           // falls back to matching on the old name, which is precisely wrong

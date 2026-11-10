@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import { createSidebar, sessionLabel } from "./sidebar";
-import { visualOrder } from "./groups";
+import { isArchived, visualOrder } from "./groups";
 import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
 import { Connection } from "./socket";
@@ -191,8 +191,12 @@ function updateChip() {
  * most of the time on a phone -- this is the only thing on screen that can say
  * something elsewhere needs you.
  */
+/** Archived workspaces keep running but ask for nothing: no counts, no ⌘J. */
+const liveSessions = (): SessionInfo[] => sessions.filter((s) => !isArchived(s, sessionLabel(s)));
+
 function updateAttention() {
-  const n = needsYouCount(sessions) + (chatUI?.asking().length ?? 0);
+  const live = liveSessions();
+  const n = needsYouCount(live) + (chatUI?.asking().length ?? 0);
   hamburger.dataset.count = n > 0 ? String(n) : "";
   hamburger.setAttribute(
     "aria-label",
@@ -202,7 +206,7 @@ function updateAttention() {
   // is blocked: the one on screen says so on its own chip. A view is on no
   // one session, so there every one counts.
   const chatting = chatUI?.isShowing() ?? false;
-  const elsewhere = needsYouCount(views.showing() || chatting ? sessions : sessions.filter((s) => s.name !== current)) + (chatUI?.asking().length ?? 0);
+  const elsewhere = needsYouCount(views.showing() || chatting ? live : live.filter((s) => s.name !== current)) + (chatUI?.asking().length ?? 0);
   nextBtn.disabled = !nextJump();
   nextCount.hidden = elsewhere === 0;
   nextCount.textContent = String(elsewhere);
@@ -217,10 +221,10 @@ function updateAttention() {
 function nextJump(): (() => void) | null {
   const chatting = chatUI?.isShowing() ?? false;
   if (views.showing() && !chatting) {
-    const ref = nextWaiting(sessions, current);
+    const ref = nextWaiting(liveSessions(), current);
     if (ref) return () => views.reveal(ref);
   } else {
-    const next = nextAttention(visualOrder(sessions, sessionLabel), chatting ? null : current);
+    const next = nextAttention(visualOrder(liveSessions(), sessionLabel), chatting ? null : current);
     if (next) return () => attach(next);
   }
   // Then a chat with a question for you.
@@ -634,7 +638,7 @@ const worldActions: WorldActions = {
     views.show(false);
     split.open(name, ref.window, split.state?.side ?? "right");
   },
-  nextWaiting: () => nextWaiting(sessions, current),
+  nextWaiting: () => nextWaiting(liveSessions(), current),
   setFolded: (key, on) => folded.set(key, on),
   newSession: (name) => conn.send({ t: "new-session", name }),
   renameSession(ref, name) {

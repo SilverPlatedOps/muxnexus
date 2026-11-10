@@ -159,6 +159,14 @@ describe("Tmux mutators", () => {
     expect(["sh", "bash"]).toContain(now);
   });
 
+  test("setArchived stamps and clears the flag", async () => {
+    await tmux.newSession("a");
+    await tmux.setArchived("a", true);
+    expect((await tmux.listSessions()).find((s) => s.name === "a")!.archived).toBe(true);
+    await tmux.setArchived("a", false);
+    expect((await tmux.listSessions()).find((s) => s.name === "a")!.archived).toBeUndefined();
+  });
+
   test("newWindow opens in the active pane's folder", async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "mx-cwd-")));
     await tmux.newSession("s", dir);

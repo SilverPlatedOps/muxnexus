@@ -123,6 +123,8 @@ export interface SessionInfo {
   orphan?: boolean;
   /** Sidebar position (`@muxnexus_order`). Absent until muxnexus has been told where this goes. */
   order?: number;
+  /** Archived by the user (`@muxnexus_archived`): still running, out of the list and out of ⌘J. */
+  archived?: boolean;
 }
 
 /** One quota window of one account: a 5h session limit, a weekly limit, and so on. */
@@ -178,6 +180,7 @@ export type ClientMessage =
   | { t: "kill-window"; session: string; id: string }
   | { t: "select-window"; session: string; id: string }
   | { t: "rename-session"; session: string; name: string }
+  | { t: "archive-session"; session: string; archived: boolean }
   | { t: "rename-window"; session: string; id: string; name: string }
   /** The whole wanted sidebar order, not one move: concurrent clients then settle on last-write-wins. */
   | { t: "reorder-sessions"; names: string[] }
