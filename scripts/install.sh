@@ -57,7 +57,7 @@ backup_zshrc() {
 }
 
 # With --yes, ~/.zshrc is only written for someone whose shell reads it.
-zsh_user() { [ "$YES" -eq 0 ] || [ "${SHELL##*/}" = "zsh" ]; }
+zsh_user() { local sh="${SHELL:-}"; [ "$YES" -eq 0 ] || [ "${sh##*/}" = "zsh" ]; }
 
 confirm() { # confirm <prompt> [Y|N]
   local prompt="$1" default="${2:-Y}" reply
@@ -192,7 +192,7 @@ if command -v codex >/dev/null 2>&1; then
   if [ -f "$ZSHRC" ] && grep -q "codex-tmux.zsh" "$ZSHRC"; then
     ok "~/.zshrc" "codex already wrapped"
   elif ! zsh_user; then
-    printf '    skipped — your shell is %s, not zsh; New Codex tab in muxnexus still starts it that way\n' "${SHELL##*/}"
+    printf '    skipped — your shell is not zsh; New Codex tab in muxnexus still starts it that way\n'
   elif confirm "Wrap codex inside tmux?" Y; then
     backup_zshrc
     printf '\n# muxnexus: inside tmux, run codex without its daemon and inline, so muxnexus can follow it.\n[[ -r "%s" ]] && source "%s"\n' "$CODEX_WRAPPER" "$CODEX_WRAPPER" >> "$ZSHRC"
@@ -209,7 +209,7 @@ printf 'hand — %smuxnexus start | stop | restart | status | logs%s.\n\n' "$D" 
 if [ -f "$ZSHRC" ] && grep -q "$ALIAS_MARKER" "$ZSHRC"; then
   ok "~/.zshrc" "alias already set"
 elif ! zsh_user; then
-  printf '    skipped — your shell is %s, not zsh; run %s directly instead\n' "${SHELL##*/}" "./scripts/muxnexusctl"
+  printf '    skipped — your shell is not zsh; run %s directly instead\n' "./scripts/muxnexusctl"
 elif confirm "Add the alias?" Y; then
   backup_zshrc
   printf '\n# muxnexus: manual control of the server.\n%s"%s"\n' "$ALIAS_MARKER" "$ROOT/scripts/muxnexusctl" >> "$ZSHRC"

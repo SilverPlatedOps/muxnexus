@@ -42,6 +42,8 @@ export function pressure(percent: number): Pressure {
 /**
  * Memory is the kernel's call, as in Activity Monitor: macOS keeps memory full
  * of cache on purpose, so a nearly full bar is no sign of trouble on its own.
+ * Linux gives no verdict; its in-use figure already leaves the cache out, so
+ * there the share in use is the measure.
  */
 export function memPressure(mem: NonNullable<SystemStats["mem"]>): Pressure {
   if (mem.pressure) return mem.pressure === "normal" ? "" : mem.pressure;

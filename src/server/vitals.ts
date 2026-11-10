@@ -45,7 +45,11 @@ interface Reading {
   used?: number;
   split?: MemSplit;
   swap?: { used: number; total: number };
-  /** The kernel's own verdict. macOS only: Linux has no equivalent the panel could colour by. */
+  /**
+   * The kernel's own verdict, macOS only. Linux's PSI (`/proc/pressure/memory`) measures
+   * stalls but has no levels, and any cut-off would be a guess: there the panel colours by
+   * the share in use instead.
+   */
   pressure?: Pressure;
   boot?: number;
   /** Pages written to swap since boot, and the size they count in. */
