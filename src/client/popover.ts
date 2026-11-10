@@ -38,7 +38,10 @@ export function closeMenus(): void {
   closeOpen?.();
 }
 
-export function openMenu(at: Anchor, menu: Menu, pick: (action: MenuAction, opts?: { option: boolean }) => void): () => void {
+/** What a pick reports: the action, the item itself (its label tells same-action rows apart), and the confirm's checkbox. */
+export type Pick = (action: MenuAction, picked: { item: MenuItem; option: boolean }) => void;
+
+export function openMenu(at: Anchor, menu: Menu, pick: Pick): () => void {
   closeOpen?.();
   const opener = at instanceof HTMLElement ? at : (document.activeElement as HTMLElement | null);
   const box = el("div", "pop-menu");
@@ -70,7 +73,7 @@ export function openMenu(at: Anchor, menu: Menu, pick: (action: MenuAction, opts
     const buttons = el("div", "pop-confirm-buttons");
     buttons.append(yes, no);
     c.append(buttons);
-    yes.onclick = () => { const o = option?.checked ?? false; close(); pick(item.action, { option: o }); };
+    yes.onclick = () => { const o = option?.checked ?? false; close(); pick(item.action, { item, option: o }); };
     no.onclick = () => { c.replaceWith(row); row.focus(); };
     row.replaceWith(c);
     no.focus();
@@ -93,7 +96,7 @@ export function openMenu(at: Anchor, menu: Menu, pick: (action: MenuAction, opts
       if (item.children) { toggleChildren(b, item); return; }
       if (item.confirm) { confirmIn(b, item); return; }
       close();
-      pick(item.action);
+      pick(item.action, { item, option: false });
     };
     return b;
   }

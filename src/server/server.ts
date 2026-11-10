@@ -32,7 +32,9 @@ import type { VitalsSampler } from "./vitals";
 // Inline, because its alternate screen never reaches tmux's history, so there
 // would be nothing to scroll. `command` skips scripts/codex-tmux.zsh, which
 // would add the same flags again -- and Codex refuses --no-daemon twice.
-const AGENTS: Record<NewWindowAgent, string> = { codex: `command codex --no-daemon -c 'tui.alternate_screen="never"'` };
+// A new Claude tab takes its account from the session's environment, which a
+// `[Work]`-style tag set when the session was made (categoryProfile).
+const AGENTS: Record<NewWindowAgent, string> = { codex: `command codex --no-daemon -c 'tui.alternate_screen="never"'`, claude: "claude" };
 
 /** What a Codex started from a chat is told first: enough to start its thread, nothing to do. */
 const CODEX_OPENING = "You've been added to a muxnexus group chat. Nothing to do yet: reply only with the word ready. Chat messages will arrive here, each headed [muxnexus · …].";

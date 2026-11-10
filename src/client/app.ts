@@ -3,6 +3,8 @@
 
 import { createSidebar, sessionLabel } from "./sidebar";
 import { isArchived, visualOrder } from "./groups";
+import { createMenuActions } from "./menu-actions";
+import { onContextMenu } from "./popover";
 import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
 import { Connection } from "./socket";
@@ -354,6 +356,8 @@ const sidebar = createSidebar(sessionsEl, layout, {
   renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
   reorderSessions,
   openWindow,
+  openMenu: (session, at) => menus.session(session, at),
+  openGroupMenu: (category, at) => menus.group(category, at),
 }, footEl, document.getElementById("side-search-input") as HTMLInputElement, folded);
 
 /** The last quota snapshot, so the account picker can list the same rows the panel shows. */
@@ -372,40 +376,80 @@ const tabs = createTabs(tabsEl, {
   renameWindow: (id, name) => { if (current) conn.send({ t: "rename-window", session: current, id, name }); },
   killWindow: (id) => { if (current) conn.send({ t: "kill-window", session: current, id }); },
   reorderWindows,
-  moveWindow: (id) => {
-    const win = sessions.find((s) => s.name === current)?.windows.find((w) => w.id === id);
-    if (!win?.conversation) return;
-    openMove(
-      document.body,
-      win,
-      win.conversation,
-      targets(usageSources, profileLabels, win.agent?.profile),
-      { moveTo: (wid, profile) => { if (current) conn.send({ t: "move-window-to", session: current, id: wid, profile }); } },
-      Date.now(),
-    );
-  },
-  openNote: (id) => {
-    if (!current) return;
-    if (split.state?.windowId === id) {
-      split.focusSide();
-      notePane = "side";
-    } else {
-      notePane = "main";
-      if (!currentWindows().find((w) => w.id === id)?.active) conn.send({ t: "select-window", session: current, id });
-    }
-    notes.show("window");
-  },
-  openBeside: (id) => {
-    if (!current) return;
-    if (onPhone()) return sidebar.toast("Split needs a wider screen");
-    split.open(current, id, split.state?.side ?? "right");
-  },
+  moveWindow: (id) => { if (current) changeAccount(current, id); },
+  openNote: (id) => tabsOpenNote(id),
+  openBeside: (id) => openBeside(id),
+  openMenu: (id, at) => { if (current) menus.tab(current, id, at); },
   dragOut: {
     over: (id, x, y) => split.over(id, x, y),
     leave: () => split.leave(),
     drop: (id, x, y) => split.drop(id, x, y),
   },
 });
+
+/** A tab's note, beside the pane that shows the tab. */
+function tabsOpenNote(id: string) {
+  if (!current) return;
+  if (split.state?.windowId === id) {
+    split.focusSide();
+    notePane = "side";
+  } else {
+    notePane = "main";
+    if (!currentWindows().find((w) => w.id === id)?.active) conn.send({ t: "select-window", session: current, id });
+  }
+  notes.show("window");
+}
+
+function openBeside(id: string) {
+  if (!current) return;
+  if (onPhone()) return sidebar.toast("Split needs a wider screen");
+  split.open(current, id, split.state?.side ?? "right");
+}
+
+/** The account picker for a tab: carry its conversation to another account. */
+function changeAccount(session: string, id: string) {
+  const win = sessions.find((s) => s.name === session)?.windows.find((w) => w.id === id);
+  if (!win?.conversation) return sidebar.toast("Nothing to carry yet: this tab's agent hasn't started a conversation");
+  openMove(
+    document.body,
+    win,
+    win.conversation,
+    targets(usageSources, profileLabels, win.agent?.profile),
+    { moveTo: (wid, profile) => conn.send({ t: "move-window-to", session, id: wid, profile }) },
+    Date.now(),
+  );
+}
+
+/** One menu per thing, whichever row, tab or title it is opened from (menu-actions.ts). */
+const menus = createMenuActions({
+  sessions: () => sessions,
+  current: () => current,
+  send: (m) => { conn.send(m); },
+  attach,
+  openBeside,
+  openNote: (session, id) => {
+    if (session === current) return tabsOpenNote(id);
+    // Another workspace: go there, show the tab, and the note follows it.
+    attach(session);
+    conn.send({ t: "select-window", session, id });
+    notePane = "main";
+    notes.show("window");
+  },
+  startChat: (id) => chatUI?.newChat(id),
+  changeAccount,
+  renameWorkspace: (session, seed) => sidebar.startRename(session, seed),
+  renameTab: (id) => tabs.startRename(id),
+  renameGroup: (category, commit) => sidebar.startGroupRename(category, commit),
+  newInGroup: (category) => sidebar.startNewSession(`[${category}] `),
+  isFolded: (category) => sidebar.isFolded(category),
+  toggleFold: (category) => sidebar.toggleFold(category),
+});
+
+const topMenu = document.getElementById("top-menu") as HTMLButtonElement;
+topMenu.onclick = () => { if (current) menus.session(current, topMenu); };
+onContextMenu(chipName, (at) => { if (current) menus.session(current, at); });
+// The name in the title bar renames, like the row: one name for a one-tab agent.
+chipName.ondblclick = () => { if (current) sidebar.startRename(current); };
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 

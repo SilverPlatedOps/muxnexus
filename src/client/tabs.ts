@@ -3,7 +3,8 @@
 
 import type { NewWindowAgent, SessionInfo, WindowInfo } from "../shared/protocol";
 import type { ChatSummary } from "../shared/chat";
-import { MENU_REORDER, makeReorderable, moveItem } from "./reorder";
+import { makeReorderable } from "./reorder";
+import { onContextMenu, type Anchor } from "./popover";
 import { agentTitle, GLYPH, profileBadge, sharedCheckouts, sharingTitle, windowGlyph, type Sharing } from "./agent";
 import { ICONS } from "./icons";
 import { tabLabel, windowPlace } from "./labels";
@@ -37,6 +38,8 @@ export interface TabActions {
   openBeside(id: string): void;
   /** Open this window's note. */
   openNote(id: string): void;
+  /** The tab's menu (`⋯` or right-click). */
+  openMenu(id: string, at: Anchor): void;
   /** Where a tab dragged off the strip can land instead: the terminal, to open it beside. */
   dragOut?: {
     over(id: string, x: number, y: number): boolean;
@@ -53,6 +56,8 @@ export interface Tabs {
   setBeside(id: string | null): void;
   /** The chats each tab's agent is in; a tab in any wears a mark that lists them. */
   setChatMarks(marks: Map<string, ChatSummary[]>, open: (anchor: HTMLElement, chats: ChatSummary[], windowId: string) => void): void;
+  /** Rename a tab in place, from its menu. */
+  startRename(id: string): void;
 }
 
 const ICON = {
@@ -93,7 +98,7 @@ function checkoutMark(sh: Sharing): HTMLElement {
 export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
   // Keyed by window id, so an open menu or kill confirm stays on its own tab
   // when a poll arrives with the windows in new slots.
-  const ui: { menu: string | null; confirm: string | null; editing: string | null } = { menu: null, confirm: null, editing: null };
+  const ui: { menu: string | null; editing: string | null } = { menu: null, editing: null };
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
   let sharing = new Map<string, Sharing>();
@@ -136,103 +141,9 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     input.select();
   }
 
-  function menuFor(tab: HTMLElement, w: WindowInfo): HTMLElement {
-    const m = el("div", "tab-menu");
-    const rename = button("btn", "Rename");
-    rename.onclick = (e) => {
-      e.stopPropagation();
-      ui.menu = null;
-      m.remove();
-      inlineRename(tab, w.id, tabLabel(w));
-    };
-    m.append(rename);
-    // Dragging the tab onto the terminal does the same; this is the half a
-    // keyboard or a missed long-press can reach.
-    if (!w.active && w.id !== beside) {
-      const open = button("btn", "Open beside");
-      open.onclick = (e) => {
-        e.stopPropagation();
-        ui.menu = null;
-        m.remove();
-        actions.openBeside(w.id);
-      };
-      m.append(open);
-    }
-    const note = button("btn", "Note");
-    note.onclick = (e) => {
-      e.stopPropagation();
-      ui.menu = null;
-      m.remove();
-      actions.openNote(w.id);
-    };
-    m.append(note);
-    // Dragging is the other half of this; on a phone the menu is the only half.
-    const order = tabsModel(lastSessions, lastCurrent).map((x) => x.id);
-    const at = order.indexOf(w.id);
-    const move = (delta: number) => {
-      const to = at + delta + (delta > 0 ? 1 : 0); // insertion point, not position
-      ui.menu = null;
-      actions.reorderWindows(moveItem(order, at, to));
-    };
-    if (MENU_REORDER && at > 0) {
-      const left = button("btn", "Move left");
-      left.onclick = (e) => { e.stopPropagation(); move(-1); };
-      m.append(left);
-    }
-    if (MENU_REORDER && at >= 0 && at < order.length - 1) {
-      const right = button("btn", "Move right");
-      right.onclick = (e) => { e.stopPropagation(); move(1); };
-      m.append(right);
-    }
-    // Between reordering and destroying: this is where the tab's own state goes,
-    // and it is absent rather than disabled when the window holds no conversation.
-    if (w.conversation) {
-      const move = button("btn", "Change account\u2026");
-      move.onclick = (e) => {
-        e.stopPropagation();
-        ui.menu = null;
-        m.remove();
-        actions.moveWindow(w.id);
-      };
-      m.append(move);
-    }
-    const kill = button("btn", "Kill");
-    kill.onclick = (e) => {
-      e.stopPropagation();
-      ui.menu = null;
-      ui.confirm = w.id;
-      rerender();
-    };
-    m.append(kill);
-    return m;
-  }
-
-  function confirmFor(w: WindowInfo): HTMLElement {
-    const c = el("div", "tab-menu confirm");
-    // Named by what the tab shows: its index is not on screen any more. The
-    // name is its own span so it can ellipsise -- a tab wearing a raw shell
-    // title would otherwise stretch the row until the buttons leave the strip.
-    const label = el("span", "label");
-    label.append("Kill", el("span", "who", tabLabel(w)));
-    c.append(label);
-    const yes = button("btn danger", "Kill");
-    yes.onclick = (e) => {
-      e.stopPropagation();
-      ui.confirm = null;
-      actions.killWindow(w.id);
-    };
-    const no = button("btn", "Cancel");
-    no.onclick = (e) => {
-      e.stopPropagation();
-      ui.confirm = null;
-      rerender();
-    };
-    c.append(yes, no);
-    return c;
-  }
-
   function renderTab(w: WindowInfo): HTMLElement {
-    const tab = el("div", `tab${w.active ? " active" : ""}${w.id === beside ? " beside" : ""}${ui.menu === w.id || ui.confirm === w.id ? " menu-open" : ""}`);
+    const tab = el("div", `tab${w.active ? " active" : ""}${w.id === beside ? " beside" : ""}`);
+    tab.dataset.id = w.id;
 
     const name = button("name");
     // The same glyph as the sidebar row, so the eye that found the session in
@@ -291,18 +202,16 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     const menuBtn = button("row-btn tab-dots");
     menuBtn.setAttribute("aria-label", `Tab ${w.index} menu`);
     menuBtn.innerHTML = ICON.dots;
+    menuBtn.title = "Menu (or right-click the tab)";
     menuBtn.onclick = (e) => {
       e.stopPropagation();
-      ui.menu = ui.menu === w.id ? null : w.id;
-      ui.confirm = null;
-      rerender();
+      actions.openMenu(w.id, menuBtn);
     };
+    onContextMenu(tab, (at) => actions.openMenu(w.id, at));
 
     // The whole tab drags: reorder.ts arms on the name after enough travel, so
     // a click still selects and a double-click still renames.
     tab.append(name, menuBtn);
-    if (ui.menu === w.id) tab.append(menuFor(tab, w));
-    if (ui.confirm === w.id) tab.append(confirmFor(w));
     return tab;
   }
 
@@ -345,7 +254,6 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     more.onclick = (e) => {
       e.stopPropagation();
       ui.menu = ui.menu === NEW_MENU ? null : NEW_MENU;
-      ui.confirm = null;
       rerender();
     };
     adds.append(add, more);
@@ -443,6 +351,11 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
 
   return {
     render: draw,
+    startRename(id) {
+      const tab = root.querySelector<HTMLElement>(`.tab[data-id="${CSS.escape(id)}"]`);
+      const w = tabsModel(lastSessions, lastCurrent).find((x) => x.id === id);
+      if (tab && w) inlineRename(tab, id, tabLabel(w));
+    },
     setChatMarks(marks, open) {
       const key = (m: Map<string, ChatSummary[]>) => [...m].map(([w, cs]) => `${w}:${cs.map((c) => c.id).join(",")}`).join(";");
       openChats = open;

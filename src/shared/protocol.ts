@@ -452,7 +452,7 @@ export interface DockerStats {
 }
 
 /** Agents a new window can start with. */
-export type NewWindowAgent = "codex";
+export type NewWindowAgent = "codex" | "claude";
 
 export type DetachReason = "session-killed" | "exited";
 

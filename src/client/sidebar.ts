@@ -2,15 +2,16 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { SessionInfo, WindowInfo } from "../shared/protocol";
-import { MENU_REORDER, makeReorderable } from "./reorder";
+import { makeReorderable } from "./reorder";
+import { onContextMenu, type Anchor } from "./popover";
 import { agentTitle, formatElapsed, GLYPH, GLYPH_TITLE, sessionAgent, sessionGlyph, sharedCheckouts, sharingTitle, windowDots, dotCounts, windowGlyph, type Sharing } from "./agent";
 import { findSessions, folderOf } from "./find";
 import { ICONS } from "./icons";
 import { marksShown, memoryShown } from "./display";
 import { memoryStore } from "./memory";
 import { sessionLabel, tabLabel, windowPlace } from "./labels";
-import { groupSessions, isArchived, mergeOrder, moveWithinBlocks, splitArchived, visualOrder, type Block } from "./groups";
-import { categoryKey, splitCategory } from "../shared/category";
+import { groupSessions, isArchived, mergeOrder, splitArchived, visualOrder, type Block } from "./groups";
+import { categoryKey, editableName, renameKeepingTag, splitCategory } from "../shared/category";
 import { createFolded, type Folded } from "./folded";
 
 /** The fold key recording that the Archived section was opened (it starts folded). */
@@ -51,15 +52,26 @@ export interface SidebarActions {
   reorderSessions(names: string[]): void;
   /** A window found by the search: its session, showing it. */
   openWindow(session: string, id: string): void;
+  /** The row's menu (`⋯` or right-click): agent or workspace, menu-actions.ts decides. */
+  openMenu(session: string, at: Anchor): void;
+  /** A group header's menu. */
+  openGroupMenu(category: string, at: Anchor): void;
 }
 
 export interface Sidebar {
   render(sessions: SessionInfo[], current: string | null): void;
   toast(message: string): void;
   toggle(): void;
-  /** Open the "new session" prompt in the footer and focus it. */
-  startNewSession(): void;
+  /** Open the "new session" prompt in the footer and focus it, optionally prefilled (`[Work] `). */
+  startNewSession(prefill?: string): void;
   focusSearch(): void;
+  /** Rename a workspace in place, from its menu; `seed` puts other text in the field (a `[]` to type a new group into). */
+  startRename(session: string, seed?: { text: string; caret: number }): void;
+  /** Rename a group in place on its header; `commit` gets the new group name. */
+  startGroupRename(category: string, commit: (name: string) => void): void;
+  /** Whether a group is folded, and fold or unfold it. */
+  isFolded(category: string): boolean;
+  toggleFold(category: string): void;
 }
 
 const ICON = {
@@ -81,8 +93,6 @@ function button(cls: string, text?: string): HTMLButtonElement {
 }
 
 interface UiState {
-  menu: string | null;
-  confirm: string | null;
   editing: string | null;
 }
 
@@ -94,7 +104,8 @@ export function createSidebar(
   search?: HTMLInputElement | null,
   folded?: Folded,
 ): Sidebar {
-  const ui: UiState = { menu: null, confirm: null, editing: null };
+  const ui: UiState = { editing: null };
+  let prefill = "";
   const collapsed = folded ?? createFolded();
   let lastSessions: SessionInfo[] = [];
   let lastCurrent: string | null = null;
@@ -111,37 +122,12 @@ export function createSidebar(
     const b = button("row-btn menu-btn");
     b.setAttribute("aria-label", `${name} menu`);
     b.innerHTML = ICON.dots;
-    b.title = "Rename or kill";
+    b.title = "Menu (or right-click the row)";
     b.onclick = (e) => {
       e.stopPropagation();
-      ui.menu = ui.menu === name ? null : name;
-      ui.confirm = null;
-      rerender();
+      actions.openMenu(name, b);
     };
     return b;
-  }
-
-  function menuFor(onRename: () => void, onKill: () => void, move?: { up?: () => void; down?: () => void }): HTMLElement {
-    const m = el("div", "menu");
-    const rename = button("btn", "Rename");
-    rename.onclick = () => { ui.menu = null; m.remove(); onRename(); };
-    m.append(rename);
-    // The keyboard- and touch-reachable half of reordering; dragging is the
-    // other half, and neither is the fallback for the other.
-    if (MENU_REORDER && move?.up) {
-      const up = button("btn", "Move up");
-      up.onclick = () => { ui.menu = null; move.up!(); };
-      m.append(up);
-    }
-    if (MENU_REORDER && move?.down) {
-      const down = button("btn", "Move down");
-      down.onclick = () => { ui.menu = null; move.down!(); };
-      m.append(down);
-    }
-    const kill = button("btn", "Kill");
-    kill.onclick = onKill;
-    m.append(kill);
-    return m;
   }
 
   /**
@@ -155,23 +141,7 @@ export function createSidebar(
     return [...visualOrder(live, sessionLabel), ...visualOrder(archived, sessionLabel)].map((s) => s.name);
   }
 
-  function moveSession(name: string, delta: -1 | 1) {
-    const next = moveWithinBlocks(groupSessions(lastSessions, sessionLabel), (s) => s.name, name, delta);
-    if (next) actions.reorderSessions(next);
-  }
-
-  function confirmFor(label: string, onYes: () => void): HTMLElement {
-    const c = el("div", "confirm");
-    const yes = button("btn danger", "Kill");
-    yes.onclick = () => { ui.confirm = null; onYes(); };
-    const no = button("btn", "Cancel");
-    no.onclick = () => { ui.confirm = null; rerender(); };
-    c.append(el("span", "label", label), yes, no);
-    return c;
-  }
-
-  /** Swap a row's label for an input; commit on Enter or blur, cancel on Escape. */
-  function inlineRename(row: HTMLElement, name: string, commit: (next: string) => void) {
+  function inlineRename(row: HTMLElement, name: string, commit: (next: string) => void, seed?: { text: string; caret: number }) {
     const labelEl = row.querySelector(".label");
     if (!labelEl) return;
     ui.editing = name;
@@ -198,7 +168,19 @@ export function createSidebar(
     };
     input.onblur = () => finish(true);
     input.focus();
-    input.select();
+    if (seed) {
+      input.value = seed.text;
+      input.setSelectionRange(seed.caret, seed.caret);
+    } else input.select();
+  }
+
+  /** The field shows the name without its group; saving keeps the group. */
+  function renameRow(r: HTMLElement, session: string, label: string, seed?: { text: string; caret: number }) {
+    inlineRename(r, editableName(label), (next) => {
+      // A "New group…" seed left with its brackets empty is a plain rename.
+      const typed = next.replace(/^\[\s*\]\s*/, "");
+      if (typed) actions.renameSession(session, renameKeepingTag(label, typed));
+    }, seed);
   }
 
   function renderSession(row: Extract<Row, { kind: "session" }>, windows: number, move: { up: boolean; down: boolean }) {
@@ -208,7 +190,7 @@ export function createSidebar(
     // box still starts from the whole name, so renaming keeps the session in
     // its group unless the tag itself is edited.
     const shown = splitCategory(row.label)?.rest ?? row.label;
-    const r = el("div", `row session${ui.menu === row.name ? " menu-open" : ""}${row.orphan ? " orphan" : ""}`);
+    const r = el("div", `row session${row.orphan ? " orphan" : ""}`);
 
     const name = button("name");
     // The glyph replaces the old attached dot and window count: from a phone
@@ -271,8 +253,9 @@ export function createSidebar(
     // the stamped workspace id, so a row showing a cmux title renames there.
     name.ondblclick = (e) => {
       e.preventDefault();
-      inlineRename(r, row.label, (next) => actions.renameSession(row.name, next));
+      renameRow(r, row.name, row.label);
     };
+    onContextMenu(r, (at) => actions.openMenu(row.name, at));
 
     // The whole row drags: reorder.ts arms on the name after enough travel, so
     // a click still attaches and a double-click still renames.
@@ -280,19 +263,6 @@ export function createSidebar(
     group.append(r);
     for (const w of found?.get(row.name) ?? []) group.append(renderHit(row.name, w));
 
-    if (ui.menu === row.name) {
-      group.append(menuFor(
-        () => inlineRename(r, row.label, (next) => actions.renameSession(row.name, next)),
-        () => { ui.menu = null; ui.confirm = row.name; rerender(); },
-        {
-          up: move.up ? () => moveSession(row.name, -1) : undefined,
-          down: move.down ? () => moveSession(row.name, 1) : undefined,
-        },
-      ));
-    }
-    if (ui.confirm === row.name) {
-      group.append(confirmFor(`Kill ${windows} window${windows === 1 ? "" : "s"}?`, () => actions.killSession(row.name)));
-    }
     return group;
   }
 
@@ -323,6 +293,7 @@ export function createSidebar(
     input.type = "text";
     input.placeholder = "name";
     input.setAttribute("aria-label", "New session name");
+    input.value = prefill;
     input.onkeydown = (e) => {
       e.stopPropagation();
       if (e.key === "Enter" && input.value.trim()) { ui.editing = null; actions.newSession(input.value.trim()); drawFoot(); }
@@ -341,9 +312,12 @@ export function createSidebar(
     if (ui.editing === "new-session") (foot.firstElementChild as HTMLInputElement | null)?.focus();
   }
 
-  function startNewSession() {
+  function startNewSession(pre = "") {
+    prefill = pre;
     ui.editing = "new-session";
     drawFoot();
+    const input = foot?.querySelector("input");
+    if (input && pre) input.setSelectionRange(pre.length, pre.length);
   }
 
   function draw(sessions: SessionInfo[], current: string | null) {
@@ -458,6 +432,7 @@ export function createSidebar(
     head.onclick = () => {
       collapsed.toggle(key); // redraws through the subscription
     };
+    if (!opts.archive) onContextMenu(head, (at) => actions.openGroupMenu(category, at));
     section.append(head);
     if (!folded) block.sessions.forEach((row, i) => section.append(renderRow(row, i)));
     return section;
@@ -512,6 +487,41 @@ export function createSidebar(
       layout.classList.toggle("collapsed");
     },
     startNewSession,
+    startRename(session, seed) {
+      const r = root.querySelector<HTMLElement>(`.group[data-name="${CSS.escape(session)}"] .row.session`);
+      const s = lastSessions.find((x) => x.name === session);
+      if (r && s) renameRow(r, session, sessionLabel(s), seed);
+    },
+    startGroupRename(category, commit) {
+      const head = [...root.querySelectorAll<HTMLElement>(".cat-head")].find((h) => h.querySelector(".cat-name")?.textContent === category);
+      const nameEl = head?.querySelector<HTMLElement>(".cat-name");
+      if (!head || !nameEl) return;
+      ui.editing = `group:${category}`;
+      const input = el("input", "rename") as HTMLInputElement;
+      input.value = category;
+      input.setAttribute("aria-label", "Group name");
+      nameEl.replaceWith(input);
+      let done = false;
+      const finish = (save: boolean) => {
+        if (done) return;
+        done = true;
+        ui.editing = null;
+        const next = input.value.trim().replace(/[[\]]/g, "");
+        if (save && next && next !== category) commit(next);
+        rerender();
+      };
+      input.onkeydown = (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      };
+      for (const ev of ["click", "pointerdown"] as const) input.addEventListener(ev, (e) => e.stopPropagation());
+      input.onblur = () => finish(true);
+      input.focus();
+      input.select();
+    },
+    isFolded: (category) => collapsed.has(categoryKey(category)),
+    toggleFold: (category) => collapsed.toggle(categoryKey(category)),
     focusSearch() {
       if (!search) return;
       layout.classList.remove("collapsed");
