@@ -92,7 +92,7 @@ export function createMenuActions(host: MenuHost) {
   }
 
   function agentPick(s: SessionInfo, w: WindowInfo, isWorkspace: boolean, at: Anchor) {
-    return (action: MenuAction) => {
+    return (action: MenuAction): void => {
       switch (action) {
         case "open":
           host.attach(s.name);
@@ -141,6 +141,16 @@ export function createMenuActions(host: MenuHost) {
           default: return;
         }
       });
+    },
+    /** A chat member's tab, for the agent half of its menu: null when the tab is gone. */
+    forWindow(windowId: string): { target: AgentTarget; pick: (action: MenuAction) => void } | null {
+      const s = host.sessions().find((x) => x.windows.some((w) => w.id === windowId));
+      const w = s?.windows.find((x) => x.id === windowId);
+      if (!s || !w) return null;
+      const one = s.windows.length === 1;
+      // A follow-up menu (Move to group) opens near the top of the page: the member's own menu is gone by then.
+      const pick = agentPick(s, w, one, { x: Math.round(innerWidth / 2) - 120, y: 96 });
+      return { target: target(s, w, one), pick: (action) => pick(action) };
     },
     /** A tab of a workspace with several: always the agent. */
     tab(session: string, windowId: string, at: Anchor) {

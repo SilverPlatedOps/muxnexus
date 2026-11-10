@@ -1000,6 +1000,7 @@ chatUI = createChatUI({
   toast: (message) => sidebar.toast(message),
   onPhone,
   find: () => globalSearch?.open(true),
+  agentFor: (windowId) => menus.forWindow(windowId),
 });
 chatUI.init();
 

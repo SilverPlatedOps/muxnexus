@@ -35,6 +35,8 @@ import {
   withChips,
 } from "./model";
 import { inlineEdit } from "../inline-edit";
+import { chatMenu, memberMenu, type AgentTarget, type MenuAction } from "../menus";
+import { onContextMenu, openMenu, type Anchor } from "../popover";
 import { openPicker } from "./picker";
 import { renderMarkdown } from "./markdown";
 import { createChatNotes } from "./notes";
@@ -65,6 +67,8 @@ export interface ChatHost {
   onPhone(): boolean;
   /** Find in this chat: the search, scoped to it. */
   find(): void;
+  /** A member's tab as an agent menu sees it, and what its items do; null when the tab is gone. */
+  agentFor(windowId: string): { target: AgentTarget; pick: (action: MenuAction) => void } | null;
 }
 
 export interface ChatEls {
@@ -194,7 +198,11 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     if (r.dataset.content !== `${c.glyph}:${c.name}`) { r.replaceChildren(glyph, el("span", "label", c.name)); r.dataset.content = `${c.glyph}:${c.name}`; }
     r.title = "Double-click to rename";
     r.onclick = (e) => { if (e.detail > 1 || (openId === c.id && showing)) return; open(c.id); if (host.onPhone()) document.getElementById("drawer-close")?.click(); };
-    r.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); renameAt(r, c.id, c.name); };
+    r.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); renameRow(r, c.id, c.name); };
+    if (!r.dataset.menu) {
+      r.dataset.menu = "1";
+      onContextMenu(r, (at) => { const now = chats.find((x) => x.id === c.id); if (now) chatMenuAt(at, r, now); });
+    }
     return r;
   }
 
@@ -533,6 +541,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       b.disabled = !canOpen(m, live);
       if (b.disabled) b.title = memberStatus(chat, m, live).text;
       b.onclick = () => openSide(m.handle);
+      onContextMenu(b, (at) => memberMenuAt(at, m));
       agentBar.append(b);
     }
     const roster = membersMenu();
@@ -922,6 +931,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       const live = agents[m.handle];
       const st = memberStatus(chat, m, live);
       const r = el("div", "chat-member");
+      r.dataset.handle = m.handle;
       const shape = agentMark(m.kind, m.shape);
       const glyph = el("span", `glyph ${live?.state === "input" ? "input" : live?.state === "running" ? "running" : live?.online ? "seen" : "none"}`, live?.state === "input" ? "●" : live?.state === "running" ? "" : live?.online ? "○" : "·");
       const name = btn("chat-member-name", m.handle, "Open its terminal beside the chat");
@@ -948,8 +958,9 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
           };
           r.append(b);
         }
-        const dots = btn("chat-fix more", "⋯", "More");
-        dots.onclick = (e) => { e.stopPropagation(); memberMore(r, m); };
+        const dots = btn("chat-fix more", "⋯", "Menu (or right-click)");
+        dots.onclick = (e) => { e.stopPropagation(); closeMenu(); memberMenuAt(dots, m); };
+        onContextMenu(r, (at) => { closeMenu(); memberMenuAt(at, m); });
         r.append(dots);
       }
       box.append(r);
@@ -962,29 +973,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     return box;
   }
 
-  function memberMore(rowEl: HTMLElement, m: ChatMember) {
-    const box = el("div", "chat-member-more");
-    const role = btn("chat-mi", `Change role…${m.role ? ` (${m.role})` : ""}`);
-    role.onclick = (e) => {
-      e.stopPropagation();
-      // In place, wherever the list is drawn: ask() only works inside an open menu.
-      const slot = el("div", "chat-mi chat-mi-edit");
-      role.replaceWith(slot);
-      inlineEdit(slot, {
-        value: m.role ?? "",
-        label: `Role for ${m.handle} (empty for none)`,
-        allowEmpty: true,
-        save: (r) => host.send({ t: "chat-role", id: chat!.id, handle: m.handle, role: r }),
-        done: () => slot.replaceWith(role),
-      });
-    };
-    const replace = btn("chat-mi", "Replace…", "Bring in another agent under a new handle");
-    replace.onclick = () => { closeMenu(); addAgents(m.handle); };
-    const remove = btn("chat-mi danger", "Remove from chat");
-    remove.onclick = () => { host.send({ t: "chat-remove", id: chat!.id, handle: m.handle }); closeMenu(); };
-    box.append(role, replace, remove);
-    rowEl.after(box);
-  }
+
 
   function reconnect(m: ChatMember) {
     // The server looks for the tab holding this member's conversation, of either kind.
@@ -1016,6 +1005,81 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     del.onclick = (e) => { e.stopPropagation(); confirmDelete(); };
     box.append(renameItem, cap, rules, el("div", "chat-sep"), archive, del);
     return box;
+  }
+
+  /** Rename a chat in place on its row. */
+  function renameRow(r: HTMLElement, id: string, name: string) {
+    const label = r.querySelector<HTMLElement>(".label");
+    if (!label) return;
+    inlineEdit(label, {
+      value: name,
+      label: "Chat name",
+      save: (n) => host.send({ t: "chat-settings", id, name: n }),
+      // The row only redraws its content when that changes: make it.
+      done: () => { r.dataset.content = ""; paintList(); },
+    });
+  }
+
+  /** A chat row's menu (right-click). Delete's "also shut down" needs the chat's members, so only the open one has it. */
+  function chatMenuAt(at: Anchor, r: HTMLElement, c: ChatSummary) {
+    const isOpen = c.id === openId && chat?.id === c.id;
+    const down = isOpen ? shutdownList(chat!, chats, agents).down : [];
+    const shutdown = down.length ? `Also shut down ${down.join(", ")}: closes ${down.length === 1 ? "its tab" : "their tabs"}` : undefined;
+    openMenu(at, chatMenu({ name: c.name, archived: c.archived, current: isOpen && showing, members: c.members, ...(shutdown ? { shutdown } : {}) }), (action, { option }) => {
+      switch (action) {
+        case "chat-open": return open(c.id);
+        case "chat-notes":
+        case "chat-settings":
+          open(c.id);
+          setNotesTab(action === "chat-notes");
+          setDetails(true);
+          return;
+        case "chat-rename": return renameRow(r, c.id, c.name);
+        case "chat-archive": return void host.send({ t: "chat-archive", id: c.id, archived: true });
+        case "chat-reopen": return void host.send({ t: "chat-archive", id: c.id, archived: false });
+        case "chat-delete": return void host.send({ t: "chat-delete", id: c.id, closeTabs: option });
+        default: return;
+      }
+    });
+  }
+
+  /** A member's menu: what it does in this chat, then the same agent menu as everywhere. */
+  function memberMenuAt(at: Anchor, m: ChatMember) {
+    if (!chat) return;
+    const id = chat.id;
+    const a = m.windowId ? host.agentFor(m.windowId) : null;
+    openMenu(at, memberMenu({ handle: m.handle, ...(m.role ? { role: m.role } : {}), present: a !== null, agent: a?.target ?? null }), (action) => {
+      switch (action) {
+        case "member-note": return a?.pick("note");
+        case "member-terminal": return openSide(m.handle);
+        case "change-role": return editRole(m);
+        case "replace": return addAgents(m.handle);
+        case "remove": return void host.send({ t: "chat-remove", id, handle: m.handle });
+        case "reconnect": return reconnect(m);
+        case "kill":
+          host.send({ t: "chat-remove", id, handle: m.handle });
+          return a?.pick("kill");
+        default: return a?.pick(action);
+      }
+    });
+  }
+
+  /** The role, edited in place on the member's row in Setup (opened for it if need be). */
+  function editRole(m: ChatMember) {
+    if (!chat) return;
+    const id = chat.id;
+    setNotesTab(false);
+    setDetails(true);
+    const row = detailsMembers.querySelector<HTMLElement>(`.chat-member[data-handle="${CSS.escape(m.handle)}"]`);
+    const meta = row?.querySelector<HTMLElement>(".chat-member-meta");
+    if (!meta) return;
+    inlineEdit(meta, {
+      value: m.role ?? "",
+      label: `Role for ${m.handle} (empty for none)`,
+      allowEmpty: true,
+      save: (r) => host.send({ t: "chat-role", id, handle: m.handle, role: r }),
+      done: () => paintChat(),
+    });
   }
 
   function renameAt(anchor: HTMLElement, id: string, name: string) {
