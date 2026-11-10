@@ -16,7 +16,7 @@ import { createExplorer } from "./explorer";
 import { createNoteEditor } from "./note-editor";
 import { crumb } from "./labels";
 
-export type NotesTab = "window" | "all";
+export type NotesTab = "window" | "all" | "system";
 
 /** A save this long after the last keystroke. */
 const SAVE_MS = 500;
@@ -45,6 +45,8 @@ export interface NoteElements {
   button: HTMLElement;
   tabWindow: HTMLElement;
   tabAll: HTMLElement;
+  /** System: the machine's overview, a tab of the same panel rather than a second one. */
+  tabSystem: HTMLElement;
   close: HTMLElement;
   windowView: HTMLElement;
   heading: HTMLElement;
@@ -72,7 +74,8 @@ export interface Notes {
   readonly open: boolean;
   readonly tab: NotesTab;
   toggle(): void;
-  show(tab: NotesTab): void;
+  /** `focus`: put the keys in the note (or the list) as it opens. */
+  show(tab: NotesTab, focus?: boolean): void;
   /** Open an exact note from global search, including notes whose window is gone. */
   openNote(noteId: string): void;
   /** The owner may have changed: a state push, a focus move. */
@@ -88,7 +91,7 @@ export interface Notes {
 function load(): { open: boolean; tab: NotesTab } {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    return { open: v.open === true, tab: v.tab === "all" ? "all" : "window" };
+    return { open: v.open === true, tab: v.tab === "all" || v.tab === "system" ? v.tab : "window" };
   } catch {
     return { open: false, tab: "window" };
   }
@@ -151,6 +154,9 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     els.tabAll.classList.toggle("on", tab === "all");
     els.tabWindow.setAttribute("aria-selected", String(tab === "window"));
     els.tabAll.setAttribute("aria-selected", String(tab === "all"));
+    els.tabSystem.classList.toggle("on", tab === "system");
+    els.tabSystem.setAttribute("aria-selected", String(tab === "system"));
+    els.panel.classList.toggle("on-system", tab === "system");
   }
 
   function flush() {
@@ -210,7 +216,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     host.opened(true);
     sync();
     if (tab === "all") explorer.activate(focus);
-    else if (focus) editor.focus();
+    else if (tab === "window" && focus) editor.focus();
   }
 
   function hide() {
@@ -233,6 +239,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
 
   els.tabWindow.onclick = () => show("window");
   els.tabAll.onclick = () => show("all", false);
+  els.tabSystem.onclick = () => show("system", false);
   els.close.onclick = () => hide();
   els.button.onclick = () => (open ? hide() : show(tab));
   layout();

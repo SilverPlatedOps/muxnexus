@@ -158,7 +158,13 @@ export function openDisplay(
       o.selected = value === termTheme();
       select.append(o);
     }
-    select.onchange = () => { setTermTheme(select.value === "light" ? "light" : "dark"); location.reload(); };
+    select.onchange = () => {
+      setTermTheme(select.value === "light" ? "light" : "dark");
+      // A `?theme=` in the address would win over the choice on reload: drop it.
+      const url = new URL(location.href);
+      url.searchParams.delete("theme");
+      location.replace(url);
+    };
     const text = el("span", "display-text");
     text.append(el("span", "move-opt-name", "Terminal colours"), el("span", "move-opt-note", "Reloads the page to repaint the terminals"));
     row.append(text, select);

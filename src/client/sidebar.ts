@@ -429,6 +429,8 @@ export function createSidebar(
     if (!opts.archive) {
       const add = el("span", "cat-add", "＋");
       add.setAttribute("role", "button");
+      add.tabIndex = 0;
+      add.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); actions.newInGroup(category); } };
       add.setAttribute("aria-label", `New agent in ${category}`);
       add.title = `New agent in ${category}`;
       add.onclick = (e) => { e.stopPropagation(); actions.newInGroup(category); };

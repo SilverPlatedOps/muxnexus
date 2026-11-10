@@ -16,7 +16,7 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { marksShown, memoryShown, openDisplay, setSystemShown, systemShown } from "./display";
+import { marksShown, memoryShown, openDisplay } from "./display";
 import { memoryStore } from "./memory";
 import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
@@ -492,6 +492,7 @@ const notes = createNotes({
   button: document.getElementById("note-btn")!,
   tabWindow: document.getElementById("notes-tab-window")!,
   tabAll: document.getElementById("notes-tab-all")!,
+  tabSystem: document.getElementById("notes-tab-system")!,
   close: document.getElementById("notes-close")!,
   windowView: document.getElementById("notes-window")!,
   heading: document.getElementById("note-heading")!,
@@ -555,7 +556,7 @@ function syncMemory() {
   if (!on) memoryStore.clear();
   if (conn.send({ t: "memory", on })) memorySent = on;
 }
-systemEl.hidden = !(notes.open && systemShown());
+systemEl.hidden = !(notes.open && notes.tab === "system");
 const dockerBody = document.getElementById("docker-body")!;
 const docker = createDockerPanel(dockerBody);
 const overviewTabs = { system: document.getElementById("system-tab-system")!, docker: document.getElementById("system-tab-docker")! };
@@ -584,7 +585,7 @@ for (const [tab, b] of Object.entries(overviewTabs)) {
 // The System tab keeps reading behind the Docker one, so its CPU line still
 // has its last minute when you come back to it.
 function syncSystem() {
-  const panel = notes.open && systemShown();
+  const panel = notes.open && notes.tab === "system";
   systemEl.hidden = !panel;
   // The footer's CPU and memory line wants the cheap readings on a desktop;
   // the costly ones (Docker, the process list) still need the panel.
@@ -609,9 +610,8 @@ let lastSwap: SwapNotice | null = null;
 const nudge = createNudge(document.body, {
   ack: (episode) => { conn.send({ t: "swap-ack", episode }); },
   showList: () => {
-    if (!notes.open) notes.show("window");
-    setSystemShown(true);
-    systemFolded = false;
+    unfoldSystem();
+    notes.show("system", false);
     setSystemCollapsed(false);
     paintSystemToggle();
     overviewTab = "system";
@@ -630,21 +630,25 @@ function paintSideSystem(st: SystemStats) {
   sideSystemText.textContent = parts.join(" · ") || "…";
   sideSystemText.dataset.pressure = st.mem?.pressure ?? "normal";
 }
-/** System in view, from the footer: notes panel open, the overview on and unfolded. */
-function openSystem() {
-  if (!notes.open) notes.show("window");
-  setSystemShown(true);
+/** As a tab, System is shown whole: its one-line folded form was for sharing the panel with a note. */
+function unfoldSystem() {
+  if (!systemFolded) return;
   systemFolded = false;
   setSystemCollapsed(false);
   paintSystemToggle();
-  syncSystem();
 }
-document.getElementById("side-system")!.onclick = () => openSystem();
-
-document.getElementById("system-close")!.onclick = () => {
-  setSystemShown(false);
-  syncSystem();
+/** System in view, from the footer: the right panel's System tab. */
+document.getElementById("side-system")!.onclick = () => {
+  if (notes.open && notes.tab === "system") return notes.toggle();
+  unfoldSystem();
+  overviewTab = "system";
+  saveTab(overviewTab);
+  showOverviewTab();
+  notes.show("system", false);
 };
+document.getElementById("system-close")!.onclick = () => notes.toggle();
+// The footer line's readings stop on a phone layout and start again on a wide one.
+matchMedia(PHONE).addEventListener("change", () => syncSystem());
 
 function notesOwner(): WindowInfo | undefined {
   const ws = currentWindows();

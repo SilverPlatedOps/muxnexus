@@ -2363,3 +2363,9 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .cat-head:hover .cat-add { color: var(--muted); }
 .cat-add:hover { background: var(--sel); color: var(--fg); }
 #side-search #side-new { width: 22px; height: 22px; flex: none; margin-right: -4px; }
+
+/* System as a tab: the overview takes the whole panel; its fold, grip and ✕ were for sharing it with a note. */
+#notes-panel.on-system #system { flex: 1 1 auto; max-height: none; border-top: 0; }
+#notes-panel.on-system #system :is(#system-body, #docker-body) { flex: 1 1 auto; }
+#notes-panel.on-system :is(#system-grip, #system-close, .sys-toggle) { display: none; }
+#notes-panel:not(.on-system) #system { display: none; }
