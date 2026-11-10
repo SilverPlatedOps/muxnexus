@@ -5,20 +5,33 @@
 # Start and stop the muxnexus server by hand.
 #   muxnexusctl start [-- <server args>]   background, detached, logs to a file
 #   muxnexusctl stop | restart | status | logs
+# On a Linux server, run it as a systemd user service instead, which starts at
+# boot (with linger) and comes back after a crash:
+#   muxnexusctl install-service [-- <server args>] | uninstall-service
+# Once it is installed, start, stop, restart and status go through systemd.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/muxnexus"
 PIDFILE="$STATE/server.pid"
 LOG="$STATE/server.log"
+UNIT_NAME="muxnexus.service"
+UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT_NAME"
 
-if [ -t 1 ]; then B=$'\033[1m'; D=$'\033[2m'; G=$'\033[32m'; R=$'\033[31m'; X=$'\033[0m'
-else B=''; D=''; G=''; R=''; X=''; fi
+if [ -t 1 ]; then B=$'\033[1m'; D=$'\033[2m'; G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; X=$'\033[0m'
+else B=''; D=''; G=''; R=''; Y=''; X=''; fi
 
-# The pid of a running server: the pidfile when it is still alive, otherwise a
-# process started some other way (`bun run start` in a terminal, say).
+# Installed as a systemd user service: systemd owns the process from then on.
+under_systemd() { [ -f "$UNIT" ] && command -v systemctl >/dev/null 2>&1; }
+
+# The pid of a running server: the service's, the pidfile's when it is still
+# alive, otherwise a process started some other way (`bun run start` in a terminal, say).
 server_pid() {
   local pid
+  if under_systemd; then
+    pid="$(systemctl --user show -p MainPID --value "$UNIT_NAME" 2>/dev/null || true)"
+    if [ -n "$pid" ] && [ "$pid" != "0" ]; then printf '%s' "$pid"; return 0; fi
+  fi
   if [ -f "$PIDFILE" ] && pid="$(cat "$PIDFILE" 2>/dev/null)" && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     printf '%s' "$pid"; return 0
   fi
@@ -38,6 +51,13 @@ port_from_args() {
 }
 
 cmd_start() {
+  if under_systemd; then
+    [ $# -eq 0 ] || printf '%sthe service keeps its own arguments: run install-service again to change them%s\n' "$D" "$X"
+    systemctl --user start "$UNIT_NAME"
+    sleep 2
+    cmd_status
+    return
+  fi
   local pid; pid="$(server_pid || true)"
   if [ -n "$pid" ]; then
     printf '%salready running%s (pid %s) — %smuxnexusctl restart%s to replace it\n' "$G" "$X" "$pid" "$D" "$X"
@@ -69,6 +89,11 @@ cmd_start() {
 }
 
 cmd_stop() {
+  if under_systemd; then
+    systemctl --user stop "$UNIT_NAME"
+    printf '%sstopped%s (systemd service; tmux and its tabs keep running)\n' "$G" "$X"
+    return
+  fi
   local pid; pid="$(server_pid || true)"
   if [ -z "$pid" ]; then printf 'not running\n'; rm -f "$PIDFILE"; return 0; fi
   kill "$pid" 2>/dev/null || true
@@ -84,16 +109,90 @@ cmd_stop() {
 
 cmd_status() {
   local pid; pid="$(server_pid || true)"
-  if [ -z "$pid" ]; then printf '%snot running%s\n' "$R" "$X"; return 1; fi
-  printf '%srunning%s (pid %s)\n' "$G" "$X" "$pid"
+  if [ -z "$pid" ]; then
+    printf '%snot running%s' "$R" "$X"
+    under_systemd && printf ' (systemd: %s)' "$(systemctl --user is-active "$UNIT_NAME" 2>/dev/null || true)"
+    printf '\n'
+    return 1
+  fi
+  printf '%srunning%s (pid %s%s)\n' "$G" "$X" "$pid" "$(under_systemd && printf ', systemd service')"
   grep -E 'listening|tmux socket|mirror' "$LOG" 2>/dev/null | tail -3 | sed 's/^/  /'
   printf '  %slog: %s%s\n' "$D" "$LOG" "$X"
+}
+
+cmd_install_service() {
+  if [ "$(uname -s)" != "Linux" ] || ! command -v systemctl >/dev/null 2>&1; then
+    printf 'install-service is for Linux with systemd; elsewhere use %smuxnexusctl start%s\n' "$D" "$X" >&2
+    return 1
+  fi
+  local bun; bun="$(command -v bun 2>/dev/null || true)"
+  if [ -z "$bun" ] && [ -x "$HOME/.bun/bin/bun" ]; then bun="$HOME/.bun/bin/bun"; fi
+  if [ -z "$bun" ]; then printf 'bun not found: run scripts/install.sh first\n' >&2; return 1; fi
+  local a args=""
+  # systemd splits ExecStart on spaces and expands % and $, so only what needs no quoting goes in.
+  for a in "$ROOT" "$bun" "$HOME" "$@"; do
+    case "$a" in
+      ""|*[!A-Za-z0-9._:/=@,+-]*) printf 'cannot put this in a systemd unit as it is: %s\n' "$a" >&2; return 2 ;;
+    esac
+  done
+  for a in "$@"; do args="$args $a"; done
+  # A server started by hand holds the port the service needs.
+  if ! under_systemd && [ -n "$(server_pid || true)" ]; then cmd_stop; fi
+  mkdir -p "$(dirname "$UNIT")" "$STATE"
+  local tmp="$UNIT.tmp.$$"
+  cat >"$tmp" <<EOF
+# Written by muxnexusctl install-service; run it again to change, uninstall-service to remove.
+[Unit]
+Description=muxnexus, tmux in the browser
+# Tailscale can come up after this does: the server then exits without its
+# address and is started again, for as long as it takes.
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=$ROOT
+ExecStart=$bun $ROOT/src/server/main.ts$args
+# A user manager's PATH has neither bun's folder nor ~/.local/bin, where claude, codex and mux live.
+Environment=PATH=$(dirname "$bun"):$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=10
+# With no tmux server running, the server starts one, and it lands in this
+# unit's cgroup: a stop or restart takes the server only, never every agent.
+KillMode=process
+StandardOutput=append:$LOG
+StandardError=append:$LOG
+
+[Install]
+WantedBy=default.target
+EOF
+  mv "$tmp" "$UNIT"
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT_NAME" 2>/dev/null
+  systemctl --user restart "$UNIT_NAME"
+  printf '%sinstalled%s %s\n' "$G" "$X" "$UNIT"
+  if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)" != "yes" ]; then
+    printf '  %s!%s linger is off: the service stops when you log out and does not start at boot. Once:\n' "$Y" "$X"
+    printf '      sudo loginctl enable-linger %s\n' "$USER"
+  fi
+  sleep 2
+  cmd_status || true
+}
+
+cmd_uninstall_service() {
+  if ! under_systemd; then printf 'no service installed (%s)\n' "$UNIT"; return 0; fi
+  systemctl --user disable --now "$UNIT_NAME" 2>/dev/null || true
+  rm -f "$UNIT"
+  systemctl --user daemon-reload
+  printf '%sremoved%s %s (tmux and its tabs keep running)\n' "$G" "$X" "$UNIT"
 }
 
 case "${1:-}" in
   start)   shift; [ "${1:-}" = "--" ] && shift; cmd_start "$@" ;;
   stop)    cmd_stop ;;
-  restart) shift; [ "${1:-}" = "--" ] && shift; cmd_stop; cmd_start "$@" ;;
+  restart)
+    shift; [ "${1:-}" = "--" ] && shift
+    if under_systemd; then systemctl --user restart "$UNIT_NAME"; sleep 2; cmd_status; else cmd_stop; cmd_start "$@"; fi ;;
+  install-service)   shift; [ "${1:-}" = "--" ] && shift; cmd_install_service "$@" ;;
+  uninstall-service) cmd_uninstall_service ;;
   status)  cmd_status ;;
   logs)    shift; tail "${@:--f}" "$LOG" ;;
   # The server snapshots on its own; these are for taking one by hand and for
@@ -103,6 +202,7 @@ case "${1:-}" in
   snapshots) bun "$ROOT/src/server/restore-cli.ts" snapshots ;;
   *)
     printf '%susage:%s muxnexusctl start [-- <server args>] | stop | restart | status | logs\n' "$B" "$X"
+    printf '       muxnexusctl install-service [-- <server args>] | uninstall-service   (Linux, systemd)\n'
     printf '       muxnexusctl snapshot | restore [--dry-run] [<snapshot.json>] | snapshots\n'
     exit 2 ;;
 esac

@@ -126,6 +126,17 @@ export interface LegendPart { key: "apps" | "system" | "compressed" | "available
 
 /** The Mem bar's parts, in the bar's order. */
 export function memLegend(split: MemSplit): LegendPart[] {
+  // Linux counts differently: there is no wired figure, and the compressed
+  // part is the zswap pool, which most kernels never fill -- so it is only
+  // named when it holds something.
+  if (split.from === "meminfo") {
+    return [
+      { key: "apps", label: "apps", bytes: split.apps },
+      { key: "system", label: "system", bytes: split.system, tooltip: "In use but not by apps: the kernel's own memory, page tables, shared memory and file cache Linux can't drop" },
+      ...(split.compressed > 0 ? [{ key: "compressed" as const, label: "compressed", bytes: split.compressed, tooltip: "zswap: swapped-out pages kept compressed in RAM" }] : []),
+      { key: "available", label: "available", bytes: split.available, tooltip: "MemAvailable: free memory plus the file cache Linux can reclaim, the room before it has to swap" },
+    ];
+  }
   return [
     { key: "apps", label: "apps", bytes: split.apps },
     { key: "system", label: "system", bytes: split.system, tooltip: "Wired: memory the kernel keeps in RAM for itself, drivers and the GPU, sometimes on an app's behalf. It can't be compressed or swapped." },

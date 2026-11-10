@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
+import { readFile as fsReadFile } from "node:fs/promises";
 import { cpus as osCpus, loadavg as osLoadavg, totalmem as osTotalmem, type CpuInfo } from "node:os";
 import type { MemSplit, RatePoint } from "../shared/protocol";
 import { INITIAL_LEVEL, stepLevel, type LevelState, type Pressure } from "./levels";
-import { cpuPercent, memSplit, parseBootTime, parsePressure, parseSwap, parseVmCounters, parseVmStat } from "./system";
+import {
+  cpuPercent, linuxSplit, linuxSwap, memSplit, parseBootTime, parseBtime, parseMeminfo, parsePressure, parseSwap,
+  parseSwapouts, parseVmCounters, parseVmStat,
+} from "./system";
 
 /**
  * The cheap readings, taken whether or not anyone is looking: `vm_stat`, one
- * `sysctl` and the CPU counters. This is the one
+ * `sysctl` and the CPU counters (on Linux, three files in `/proc`). This is the one
  * owner of the swap counter, so the rate, its five-minute history and the
  * alarm level come from one place; everything costly (the process list,
  * footprints) is the memory reader's, and runs only on demand.
@@ -32,8 +36,20 @@ export interface Vitals {
   rate: number | null;
   /** Bytes written to swap since boot. */
   written: number | null;
-  /** When the Mac booted, ms. */
+  /** When the machine booted, ms. */
   bootTime: number | null;
+}
+
+/** One reading of memory and swap, however this OS gives it. A figure that could not be read is left out. */
+interface Reading {
+  used?: number;
+  split?: MemSplit;
+  swap?: { used: number; total: number };
+  /** The kernel's own verdict. macOS only: Linux has no equivalent the panel could colour by. */
+  pressure?: Pressure;
+  boot?: number;
+  /** Pages written to swap since boot, and the size they count in. */
+  swapouts?: { pages: number; pageSize: number };
 }
 
 export interface VitalsSampler {
@@ -88,6 +104,9 @@ const defaultSchedule = (fn: () => void, ms: number) => {
 
 export function createVitalsSampler(deps: {
   run?: Runner;
+  /** `/proc` files, on Linux. */
+  readFile?: (path: string) => Promise<string>;
+  platform?: NodeJS.Platform;
   now?: () => number;
   cpus?: () => CpuInfo[];
   totalmem?: () => number;
@@ -95,6 +114,8 @@ export function createVitalsSampler(deps: {
   schedule?: (fn: () => void, ms: number) => () => void;
 } = {}): VitalsSampler {
   const exec = deps.run ?? run;
+  const readFile = deps.readFile ?? ((path: string) => fsReadFile(path, "utf8"));
+  const linux = (deps.platform ?? process.platform) === "linux";
   const now = deps.now ?? Date.now;
   const cpus = deps.cpus ?? osCpus;
   const totalmem = deps.totalmem ?? osTotalmem;
@@ -120,6 +141,48 @@ export function createVitalsSampler(deps: {
     }
   };
 
+  async function readMac(): Promise<Reading> {
+    const [vm, sys] = await Promise.all([
+      attempt(exec(["vm_stat"], RUN_TIMEOUT_MS)),
+      attempt(exec(["sysctl", "-n", "vm.swapusage", "kern.memorystatus_vm_pressure_level", "kern.boottime"], RUN_TIMEOUT_MS)),
+    ]);
+    const counters = vm === undefined ? undefined : parseVmCounters(vm);
+    const used = vm === undefined ? undefined : parseVmStat(vm);
+    const pressure = sys === undefined ? undefined : parsePressure(sys);
+    const swap = sys === undefined ? undefined : parseSwap(sys);
+    const boot = sys === undefined ? undefined : parseBootTime(sys);
+    return {
+      ...(used === undefined ? {} : { used }),
+      ...(counters ? { split: memSplit(counters, totalmem()), swapouts: { pages: counters.swapouts, pageSize: counters.pageSize } } : {}),
+      ...(swap ? { swap } : {}),
+      ...(pressure ? { pressure } : {}),
+      ...(boot === undefined ? {} : { boot }),
+    };
+  }
+
+  /** `pswpout` counts pages; asked of `getconf` once, and 4 KB if it will not say. */
+  let pageSize: Promise<number> | null = null;
+  async function readLinux(): Promise<Reading> {
+    pageSize ??= exec(["getconf", "PAGESIZE"], RUN_TIMEOUT_MS).then((out) => Number(out.trim()) || 4096, () => 4096);
+    const [mem, vmstat, stat, page] = await Promise.all([
+      attempt(readFile("/proc/meminfo")),
+      attempt(readFile("/proc/vmstat")),
+      attempt(readFile("/proc/stat")),
+      pageSize,
+    ]);
+    const m = mem === undefined ? undefined : parseMeminfo(mem);
+    const split = m ? linuxSplit(m) : undefined;
+    const swap = m ? linuxSwap(m) : undefined;
+    const pages = vmstat === undefined ? undefined : parseSwapouts(vmstat);
+    const boot = stat === undefined ? undefined : parseBtime(stat);
+    return {
+      ...(split ? { used: split.total - split.available, split } : {}),
+      ...(swap ? { swap } : {}),
+      ...(pages === undefined ? {} : { swapouts: { pages, pageSize: page } }),
+      ...(boot === undefined ? {} : { boot }),
+    };
+  }
+
   function arm() {
     cancel?.();
     cancel = started ? schedule(() => { if (started) void sampleNow().catch(() => {}).finally(arm); }, fast ? FAST_MS : SLOW_MS) : null;
@@ -127,24 +190,21 @@ export function createVitalsSampler(deps: {
 
   async function sample(): Promise<void> {
     const started = now();
-    const [vm, sys] = await Promise.all([
-      attempt(exec(["vm_stat"], RUN_TIMEOUT_MS)),
-      attempt(exec(["sysctl", "-n", "vm.swapusage", "kern.memorystatus_vm_pressure_level", "kern.boottime"], RUN_TIMEOUT_MS)),
-    ]);
+    const r = await (linux ? readLinux() : readMac());
     // Timed after the tools ran, not before: their counters are from then.
     const at = now();
     const slow = at - started > SLOW_SAMPLE_MS;
 
-    const counters = vm === undefined ? undefined : parseVmCounters(vm);
-    const boot = sys === undefined ? undefined : parseBootTime(sys);
+    const counters = r.swapouts;
+    const boot = r.boot;
     let rate: number | null = null;
     if (counters) {
       const prev = counted;
-      if (!slow && prev && prev.boot === boot && prev.pageSize === counters.pageSize && counters.swapouts >= prev.swapouts
+      if (!slow && prev && prev.boot === boot && prev.pageSize === counters.pageSize && counters.pages >= prev.swapouts
         && at > prev.at && at - prev.at <= MAX_GAP_MS) {
-        rate = ((counters.swapouts - prev.swapouts) * counters.pageSize) / ((at - prev.at) / 1000);
+        rate = ((counters.pages - prev.swapouts) * counters.pageSize) / ((at - prev.at) / 1000);
       }
-      counted = { at, swapouts: counters.swapouts, pageSize: counters.pageSize, boot };
+      counted = { at, swapouts: counters.pages, pageSize: counters.pageSize, boot };
     }
     history = [...history.filter((p) => p.at >= at - HISTORY_MS), { at, rate }];
 
@@ -154,19 +214,17 @@ export function createVitalsSampler(deps: {
     if (age >= CPU_MIN_MS) prevCpu = { at, cpus: sample };
 
     const total = totalmem();
-    const used = vm === undefined ? undefined : parseVmStat(vm);
-    const pressure = sys === undefined ? undefined : parsePressure(sys);
-    const swap = sys === undefined ? undefined : parseSwap(sys);
+    const { used, pressure, swap, split } = r;
     level = stepLevel(level, at, history, pressure);
     latest = {
       at,
       ...(cpu === undefined ? {} : { cpu }),
       load: loadavg(),
       ...(used === undefined ? {} : { mem: { used: Math.min(used, total), total, ...(pressure ? { pressure } : {}) } }),
-      ...(counters ? { split: memSplit(counters, total) } : {}),
+      ...(split ? { split } : {}),
       ...(swap ? { swap } : {}),
       rate,
-      written: counters ? counters.swapouts * counters.pageSize : null,
+      written: counters ? counters.pages * counters.pageSize : null,
       bootTime: boot ?? null,
     };
     tell();

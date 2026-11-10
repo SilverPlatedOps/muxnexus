@@ -341,6 +341,11 @@ export interface MemSplit {
   compressed: number;
   available: number;
   total: number;
+  /**
+   * Linux's `/proc/meminfo` rather than macOS's `vm_stat`: system is then
+   * everything in use that apps do not hold, and compressed the zswap pool.
+   */
+  from?: "meminfo";
 }
 
 /**

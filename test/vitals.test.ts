@@ -22,6 +22,7 @@ Pages occupied by compressor:                 196608.
 Swapouts:                                 ${m.swapouts}.
 `;
   const s = createVitalsSampler({
+    platform: "darwin",
     run: async (cmd) => {
       m.calls.push(cmd[0]);
       m.onRun?.(cmd);
@@ -206,5 +207,94 @@ describe("the rest of the figures", () => {
     expect(v.mem).toBeUndefined();
     expect(v.split).toBeUndefined();
     expect(v.swap).toEqual({ used: 3 * GiB, total: 4 * GiB });
+  });
+});
+
+describe("on Linux", () => {
+  function linuxRig() {
+    const m = { t: 1_000_000, pswpout: 1000, btime: 1792468718, gone: new Set<string>(), read: [] as string[], ran: [] as string[] };
+    const meminfo = () => `MemTotal:       16000000 kB
+MemFree:          400000 kB
+MemAvailable:    8000000 kB
+Buffers:          170000 kB
+Cached:          8000000 kB
+SwapCached:        80000 kB
+SwapTotal:       4000000 kB
+SwapFree:        1000000 kB
+AnonPages:       5000000 kB
+Shmem:            400000 kB
+`;
+    const files: Record<string, () => string> = {
+      "/proc/meminfo": meminfo,
+      "/proc/vmstat": () => `nr_free_pages 100000\npswpin 500\npswpout ${m.pswpout}\n`,
+      "/proc/stat": () => `cpu  1 2 3 4\nbtime ${m.btime}\nprocesses 1234\n`,
+    };
+    const s = createVitalsSampler({
+      platform: "linux",
+      readFile: async (path) => {
+        m.read.push(path);
+        if (m.gone.has(path) || !files[path]) throw new Error("ENOENT");
+        return files[path]();
+      },
+      run: async (cmd) => {
+        m.ran.push(cmd[0]);
+        return cmd[0] === "getconf" ? "4096\n" : "";
+      },
+      now: () => m.t,
+      cpus: () => [cpu(0, 0)],
+      totalmem: () => 16_000_000 * 1024,
+      loadavg: () => [1, 2, 3],
+      schedule: () => () => {},
+    });
+    return { s, m };
+  }
+  const KB = 1024;
+
+  test("memory is what free counts: the total less MemAvailable, apps the anonymous part", async () => {
+    const { s } = linuxRig();
+    await s.sampleNow();
+    const v = s.latest()!;
+    expect(v.mem).toEqual({ used: 8_000_000 * KB, total: 16_000_000 * KB });
+    expect(v.split).toEqual({ apps: 5_000_000 * KB, system: 3_000_000 * KB, compressed: 0, available: 8_000_000 * KB, total: 16_000_000 * KB, from: "meminfo" });
+    expect(v.swap).toEqual({ used: 3_000_000 * KB, total: 4_000_000 * KB });
+    expect(v.bootTime).toBe(1792468718 * 1000);
+  });
+
+  test("the swap rate counts pswpout pages at the page size getconf gives, asked once", async () => {
+    const { s, m } = linuxRig();
+    await s.sampleNow();
+    m.t += 5000;
+    m.pswpout += 2560;
+    await s.sampleNow();
+    expect(s.latest()!.rate).toBe((2560 * 4096) / 5);
+    expect(s.latest()!.written).toBe((1000 + 2560) * 4096);
+    expect(m.ran).toEqual(["getconf"]);
+  });
+
+  test("no pressure verdict: Linux has none for the level or the colour", async () => {
+    const { s } = linuxRig();
+    await s.sampleNow();
+    expect(s.latest()!.mem!.pressure).toBeUndefined();
+    expect(s.level().severity).toBe("calm");
+  });
+
+  test("a file that cannot be read leaves its figures out and the rest standing", async () => {
+    const { s, m } = linuxRig();
+    m.gone.add("/proc/meminfo");
+    await s.sampleNow();
+    const v = s.latest()!;
+    expect(v.mem).toBeUndefined();
+    expect(v.split).toBeUndefined();
+    expect(v.swap).toBeUndefined();
+    expect(v.written).toBe(1000 * 4096);
+    expect(v.bootTime).toBe(1792468718 * 1000);
+  });
+
+  test("never runs vm_stat or sysctl", async () => {
+    const { s, m } = linuxRig();
+    await s.sampleNow();
+    expect(m.ran).not.toContain("vm_stat");
+    expect(m.ran).not.toContain("sysctl");
+    expect(m.read).toEqual(["/proc/meminfo", "/proc/vmstat", "/proc/stat"]);
   });
 });

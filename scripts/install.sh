@@ -5,7 +5,19 @@
 # muxnexus setup: check prerequisites, install dependencies, and optionally wire
 # the cmux tmux guard into ~/.zshrc. Nothing is installed without a yes.
 # Safe to run again: every step checks before it acts.
+#
+#   --yes   answer every question with its default, for a script or an SSH session.
+#           Nothing that needs sudo is run (its command is printed instead), and
+#           ~/.zshrc is only written for a zsh user.
 set -euo pipefail
+
+YES=0
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) YES=1 ;;
+    *) printf 'usage: %s [--yes]\n' "$0" >&2; exit 2 ;;
+  esac
+done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUARD="$ROOT/scripts/cmux-tmux-guard.zsh"
@@ -44,8 +56,12 @@ backup_zshrc() {
   printf '    %sbacked up to %s%s\n' "$D" "$backup" "$X"
 }
 
+# With --yes, ~/.zshrc is only written for someone whose shell reads it.
+zsh_user() { [ "$YES" -eq 0 ] || [ "${SHELL##*/}" = "zsh" ]; }
+
 confirm() { # confirm <prompt> [Y|N]
   local prompt="$1" default="${2:-Y}" reply
+  if [ "$YES" -eq 1 ]; then [ "$default" = "Y" ]; return; fi
   [ "$INTERACTIVE" -eq 1 ] || return 1
   if [ "$default" = "Y" ]; then prompt="$prompt [Y/n] "; else prompt="$prompt [y/N] "; fi
   read -r -p "  $prompt" reply </dev/tty 2>/dev/null || return 1
@@ -71,6 +87,11 @@ offer() {
   cmd="$(install_cmd "$bin")"
   if [ -z "$cmd" ]; then
     printf '    %s\n' "$fallback"
+    missing=$((missing + 1))
+    return
+  fi
+  if [ "$YES" -eq 1 ] && [ "${cmd%% *}" = "sudo" ]; then
+    printf '    needs sudo, so --yes leaves it to you: %s\n' "$cmd"
     missing=$((missing + 1))
     return
   fi
@@ -170,6 +191,8 @@ if command -v codex >/dev/null 2>&1; then
   printf 'left alone. It appends 2 lines to ~/.zshrc.\n\n'
   if [ -f "$ZSHRC" ] && grep -q "codex-tmux.zsh" "$ZSHRC"; then
     ok "~/.zshrc" "codex already wrapped"
+  elif ! zsh_user; then
+    printf '    skipped — your shell is %s, not zsh; New Codex tab in muxnexus still starts it that way\n' "${SHELL##*/}"
   elif confirm "Wrap codex inside tmux?" Y; then
     backup_zshrc
     printf '\n# muxnexus: inside tmux, run codex without its daemon and inline, so muxnexus can follow it.\n[[ -r "%s" ]] && source "%s"\n' "$CODEX_WRAPPER" "$CODEX_WRAPPER" >> "$ZSHRC"
@@ -185,6 +208,8 @@ printf 'hand — %smuxnexus start | stop | restart | status | logs%s.\n\n' "$D" 
 
 if [ -f "$ZSHRC" ] && grep -q "$ALIAS_MARKER" "$ZSHRC"; then
   ok "~/.zshrc" "alias already set"
+elif ! zsh_user; then
+  printf '    skipped — your shell is %s, not zsh; run %s directly instead\n' "${SHELL##*/}" "./scripts/muxnexusctl"
 elif confirm "Add the alias?" Y; then
   backup_zshrc
   printf '\n# muxnexus: manual control of the server.\n%s"%s"\n' "$ALIAS_MARKER" "$ROOT/scripts/muxnexusctl" >> "$ZSHRC"

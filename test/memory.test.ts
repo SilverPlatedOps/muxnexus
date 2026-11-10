@@ -91,6 +91,14 @@ describe("attribute", () => {
     expect(a.windows.find((w) => w.windowId === "@1")!.parts.map((p) => p.name)).toEqual(["claude", "node", "zsh"]);
   });
 
+  test("Linux's ps names java bare, and it is still asked for its arguments", () => {
+    const bare = PROCS.map((p) => (p.pid === 301 ? { ...p, path: "java" } : p));
+    const asked: number[] = [];
+    const a = attribute(bare, PANES, mem(SIZES), { argsOf: (pid) => { asked.push(pid); return pid === 301 ? "java org.apache.maven.surefire.booter.ForkedBooter" : undefined; } });
+    expect(asked).toEqual([301]);
+    expect(a.windows.find((w) => w.windowId === "@2")!.parts[0].name).toBe("java · maven tests");
+  });
+
   test("the Virtualization VM takes the name its open files give it", () => {
     const a = attribute(PROCS, PANES, mem(SIZES), { vmNameOf: (pid) => (pid === 500 ? "Docker VM · Rancher" : undefined) });
     expect(a.apps.find((x) => x.name === "Docker VM · Rancher")).toMatchObject({ mem: 3000 * MiB });
