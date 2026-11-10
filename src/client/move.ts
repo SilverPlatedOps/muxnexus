@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { ConversationInfo, UsageSource, WindowInfo } from "../shared/protocol";
-import { bar, formatReset, kindLabel, trafficLight } from "./usage";
+import { bar, formatReset, kindLabel, windowTone } from "./usage";
 
 /**
  * "Move to...": carry the conversation a tab holds to another account.
@@ -48,16 +48,11 @@ export function targets(sources: readonly UsageSource[], profiles: readonly stri
     const w = src?.windows.find((x) => kindLabel(x.kind) === SHORT) ?? src?.windows[0];
     return {
       label,
-      ...(w ? { percent: w.percent, tone: tone(w.percent) } : {}),
+      ...(w ? { percent: w.percent, tone: windowTone(w) } : {}),
       ...(w?.resetsAt ? { resetsAt: w.resetsAt } : {}),
       here: label === on,
     };
   });
-}
-
-/** The quota panel's traffic light, so the picker's bars match the panel's. */
-function tone(percent: number): string | undefined {
-  return trafficLight(percent) || undefined;
 }
 
 /**

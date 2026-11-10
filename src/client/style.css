@@ -369,8 +369,9 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .usage-kind { grid-column: kind; color: var(--dim); }
 .usage-meter { display: block; height: 7px; overflow: hidden; border-radius: 2px; background: var(--line); }
 .usage-grid .usage-meter { grid-column: meter; }
-/* A traffic light on the share used (trafficLight in usage.ts): green, yellow from 50%, red from 90%. */
-.usage-fill { display: block; height: 100%; background: var(--green); }
+.usage-fill { display: block; height: 100%; background: var(--accent); }
+/* Quota bars are a traffic light on the share used (windowTone in usage.ts): green, yellow from 50%, red from 90%. */
+.usage-fill.good { background: var(--green); }
 .usage-fill.warning { background: var(--yellow); }
 .usage-fill.critical { background: var(--red); }
 .usage-pct { grid-column: pct; text-align: right; color: var(--fg); }
@@ -1182,7 +1183,8 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .move .uname { width: 88px; color: var(--muted); }
 .move .ukind { width: 22px; color: var(--dim); }
 .move .umeter { letter-spacing: -0.5px; }
-.move .ufill { color: var(--green); }
+.move .ufill { color: var(--accent); }
+.move .ufill.good { color: var(--green); }
 .move .ufill.warning { color: var(--yellow); }
 .move .ufill.critical { color: var(--red); }
 .move .utrack { color: var(--line); }

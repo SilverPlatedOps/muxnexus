@@ -54,7 +54,7 @@ describe("targets", () => {
       [source("a", 10), source("b", 50), source("c", 85), source("d", 90), source("e", 100)],
       ["a", "b", "c", "d", "e"],
     );
-    expect(out.map((t) => t.tone)).toEqual([undefined, "warning", "warning", "critical", "critical"]);
+    expect(out.map((t) => t.tone)).toEqual(["good", "warning", "warning", "critical", "critical"]);
   });
 
   // An account with no quota source is still a place the conversation can go.

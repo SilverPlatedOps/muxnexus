@@ -81,19 +81,24 @@ export function kindLabel(kind: string): string {
   return KIND[kind] ?? kind;
 }
 
+export type QuotaTone = "good" | "warning" | "critical";
+
 /**
  * A traffic light on the share used: green under half, yellow from 50%, red from
  * 90%. The same bands as the desk board's Quota page, so one bar never wears two
- * colours on two screens. Green is the bar's own colour, so it has no class.
+ * colours on two screens. Judged on the whole number the label shows, so a bar
+ * never reads "50%" in green.
  */
-export function trafficLight(percent: number): "" | "warning" | "critical" {
-  if (percent >= 90) return "critical";
-  if (percent >= 50) return "warning";
-  return "";
+export function trafficLight(percent: number): QuotaTone {
+  const shown = Math.round(percent);
+  if (shown >= 90) return "critical";
+  if (shown >= 50) return "warning";
+  return "good";
 }
 
-function tone(w: UsageWindow): string {
-  return trafficLight(w.percent);
+/** A quota window's colour: its traffic light, or red once the provider says it is at its limit. */
+export function windowTone(w: UsageWindow): QuotaTone {
+  return atLimit(w) ? "critical" : trafficLight(w.percent);
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -170,7 +175,7 @@ function setExpanded(on: boolean): void {
  * A bar drawn to whatever width its column gives it, so the panel can narrow
  * without the bars running off its edge. Any usage at all gets a sliver: an
  * empty bar next to a non-zero number reads as "untouched" when it is not.
- * `tone` is a traffic-light class (`warning`, `critical`) or empty for green.
+ * `tone` is a colour class (a quota bar's `good`, `warning`, `critical`) or empty for the accent.
  */
 export function meter(percent: number, tone: string = ""): HTMLElement {
   const clamped = Math.max(0, Math.min(100, percent));
@@ -219,7 +224,7 @@ export function renderUsage(root: HTMLElement, sources: UsageSource[], now: numb
       const row = el("div", `usage-row${stale}${spent(w, now) ? " spent" : ""}`);
       row.append(
         el("span", "usage-kind", kindLabel(w.kind)),
-        meter(w.percent, tone(w)),
+        meter(w.percent, windowTone(w)),
         el("span", "usage-pct", `${Math.round(w.percent)}%`),
         el("span", "usage-reset", formatReset(w.resetsAt, now)),
       );

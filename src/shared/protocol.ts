@@ -133,7 +133,7 @@ export interface UsageWindow {
   kind: string;
   percent: number;
   resetsAt?: string;
-  /** The provider's own judgement (`normal`, `warning`, ...), which is what colours the bar. */
+  /** The provider's own judgement (`normal`, `warning`, `exceeded`, ...). Bars are coloured by share used; only `exceeded` turns one red early. */
   severity?: string;
 }
 

@@ -13,7 +13,7 @@ import {
   parseRetryAfter,
   profileLabel,
 } from "../src/server/usage";
-import { bar, formatReset, kindLabel, trafficLight } from "../src/client/usage";
+import { bar, formatReset, kindLabel, trafficLight, windowTone } from "../src/client/usage";
 import { badgesShown, marksShown, setBadgesShown, setMarksShown, type Store } from "../src/client/display";
 import type { UsageSource } from "../src/shared/protocol";
 import type { UsageStore } from "../src/server/usage";
@@ -636,8 +636,13 @@ describe("bar", () => {
 });
 
 describe("trafficLight", () => {
-  test("green under 50% used, yellow from 50%, red from 90%", () => {
-    expect([0, 49.9, 50, 89.9, 90, 100].map(trafficLight)).toEqual(["", "", "warning", "warning", "critical", "critical"]);
+  test("green under 50% used, yellow from 50%, red from 90%, on the number the label shows", () => {
+    expect([0, 49.4, 49.5, 89.4, 89.5, 100].map(trafficLight)).toEqual(["good", "good", "warning", "warning", "critical", "critical"]);
+  });
+
+  test("a window the provider says is at its limit is red whatever its share", () => {
+    expect(windowTone({ kind: "session", percent: 40, severity: "exceeded" })).toBe("critical");
+    expect(windowTone({ kind: "session", percent: 30, severity: "warning" })).toBe("good");
   });
 });
 
