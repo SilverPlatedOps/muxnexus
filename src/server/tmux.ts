@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import { existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import type { AgentInfo, AgentSource, AgentState, ConversationInfo, SessionInfo } from "../shared/protocol";
@@ -894,13 +895,18 @@ export class Tmux {
    * reading its rc files can drop what is typed at it.
    */
   async newWindow(session: string, command?: string): Promise<void> {
-    const target = `${await this.target(session)}:`;
+    const base = await this.target(session);
+    const target = `${base}:`;
+    // Beside the tab you were in, not in the server's own folder: without -c,
+    // tmux starts a window where the tmux client -- this server -- runs.
+    const here = (await this.run(["display-message", "-p", "-t", base, "#{pane_current_path}"]).catch(() => "")).trim();
+    const cwd = here && (await stat(here).catch(() => null))?.isDirectory() ? ["-c", here] : [];
     if (!command) {
-      await this.run(["new-window", "-t", target]);
+      await this.run(["new-window", "-t", target, ...cwd]);
       return;
     }
     const shell = (await this.run(["show-options", "-gv", "default-shell"])).trim() || "/bin/sh";
-    await this.run(["new-window", "-t", target, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
+    await this.run(["new-window", "-t", target, ...cwd, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
   }
 
   /**

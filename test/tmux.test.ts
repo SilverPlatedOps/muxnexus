@@ -159,6 +159,24 @@ describe("Tmux mutators", () => {
     expect(["sh", "bash"]).toContain(now);
   });
 
+  test("newWindow opens in the active pane's folder", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "mx-cwd-")));
+    await tmux.newSession("s", dir);
+    await tmux.newWindow("s");
+    const [, id] = await windowIds("s");
+    const cwd = (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_path}"])).trim();
+    expect(realpathSync(cwd)).toBe(dir);
+    rmSync(dir, { recursive: true });
+  });
+
+  test("newWindow still opens when that folder is gone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mx-gone-"));
+    await tmux.newSession("g", dir);
+    rmSync(dir, { recursive: true });
+    await tmux.newWindow("g");
+    expect((await windowIds("g")).length).toBe(2);
+  });
+
   test("renameWindow, selectWindow, killWindow target the window by id", async () => {
     await tmux.newSession("s");
     await tmux.newWindow("s");
