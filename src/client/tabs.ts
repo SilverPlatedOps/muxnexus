@@ -187,7 +187,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     // Between reordering and destroying: this is where the tab's own state goes,
     // and it is absent rather than disabled when the window holds no conversation.
     if (w.conversation) {
-      const move = button("btn", "Move to\u2026");
+      const move = button("btn", "Change account\u2026");
       move.onclick = (e) => {
         e.stopPropagation();
         ui.menu = null;
@@ -289,7 +289,7 @@ export function createTabs(root: HTMLElement, actions: TabActions): Tabs {
     };
 
     const menuBtn = button("row-btn tab-dots");
-    menuBtn.setAttribute("aria-label", `Window ${w.index} menu`);
+    menuBtn.setAttribute("aria-label", `Tab ${w.index} menu`);
     menuBtn.innerHTML = ICON.dots;
     menuBtn.onclick = (e) => {
       e.stopPropagation();

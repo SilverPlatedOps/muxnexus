@@ -109,7 +109,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
   /** The place the heading last drew, `session › window`. */
   let headingDrawn = "";
   const editor = createNoteEditor({
-    label: "This window's note",
+    label: "This tab's note",
     onEdit() {
       dirty = true;
       clearTimeout(timer);

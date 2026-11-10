@@ -102,7 +102,7 @@ export function openMove(
   const box = el("div", "move");
 
   const head = el("div", "move-head");
-  head.append(el("span", "move-title", w.customName ?? w.label ?? w.name));
+  head.append(el("span", "move-title", `Change account: ${w.customName ?? w.label ?? w.name}`));
   const weight = weigh(bytes);
   head.append(el("span", "move-sub", [w.agent?.profile ? `on ${w.agent.profile}` : null, weight]
     .filter(Boolean).join(" · ")));

@@ -141,8 +141,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     els.tabWorkspaces.setAttribute("aria-selected", String(t === "workspaces"));
     els.sessions.hidden = t !== "workspaces";
     els.list.hidden = t !== "chats";
-    els.search.placeholder = t === "chats" ? "Chats" : "Sessions and windows";
-    els.search.setAttribute("aria-label", t === "chats" ? "Search chats" : "Search sessions and windows");
+    els.search.placeholder = t === "chats" ? "Filter chats" : "Filter workspaces and tabs";
+    els.search.setAttribute("aria-label", t === "chats" ? "Filter chats" : "Filter workspaces and tabs");
     paintList();
   }
   els.tabChats.onclick = () => setTab("chats");
@@ -625,7 +625,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
 
     const held = heldCount(chat);
     if (chat.paused) {
-      const why = chat.paused.reason === "cap" ? `after ${chat.cap} agent posts` : `by ${chat.paused.by ?? "an agent"}${chat.paused.detail ? `: ${chat.paused.detail}` : ""}`;
+      const why = chat.paused.reason === "cap" ? `after ${chat.cap} agent replies` : `by ${chat.paused.by ?? "an agent"}${chat.paused.detail ? `: ${chat.paused.detail}` : ""}`;
       strip.replaceChildren(el("b", "", "‖ Paused"), ` ${why}${held ? ` · ${held} held` : ""} · your next message ${held ? "releases them" : "resumes it"}`, el("span", "sp"));
       if (held) {
         const d = btn("chat-discard", "Discard");
@@ -998,10 +998,10 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const renameItem = btn("chat-mi", "Rename…");
     renameItem.onclick = (e) => { e.stopPropagation(); rename(); };
     const cap = btn("chat-mi", "");
-    cap.append(chat.cap ? "Pause after " : "Pause ", el("span", "k", chat.cap ? `${chat.cap} agent posts` : "never (no cap)"));
+    cap.append("Max agent replies: ", el("span", "k", chat.cap ? String(chat.cap) : "no limit"));
     cap.onclick = (e) => {
       e.stopPropagation();
-      ask("Pause after how many agent posts in a row without you? 0 for no cap", String(chat!.cap), (v) => {
+      ask("Max agent replies in a row before it waits for you (0 = no limit)", String(chat!.cap), (v) => {
         const n = parseCap(v);
         if (n !== null) host.send({ t: "chat-settings", id: chat!.id, cap: n });
       }, "number");

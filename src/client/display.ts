@@ -107,7 +107,7 @@ export function openDisplay(
   box.append(head);
 
   const rows: [string, string, () => boolean, (on: boolean) => void][] = [
-    ["Profile badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
+    ["Account badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
     ["Shared checkout", "Two live agents working in one git checkout, marked on both", marksShown, setMarksShown],
     ["System overview", "CPU, memory, the busiest apps and Docker's containers, under the notes", systemShown, setSystemShown],
     ["Memory on tabs", "Each tab's memory, and each session's total in the sidebar; the ranked list stays in the system overview", memoryShown, setMemoryShown],

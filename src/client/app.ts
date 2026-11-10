@@ -196,7 +196,7 @@ function updateAttention() {
   hamburger.dataset.count = n > 0 ? String(n) : "";
   hamburger.setAttribute(
     "aria-label",
-    n > 0 ? `Show sessions (${n} waiting for you)` : "Show sessions",
+    n > 0 ? `Show workspaces (${n} waiting for you)` : "Show workspaces",
   );
   // Live whenever ⌘J would go somewhere, counted only when someone elsewhere
   // is blocked: the one on screen says so on its own chip. A view is on no
