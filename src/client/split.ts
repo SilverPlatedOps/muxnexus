@@ -122,6 +122,8 @@ export interface Split {
   close(): void;
   render(sessions: SessionInfo[], current: string | null): void;
   focusSide(): void;
+  /** The beside pane's terminal while it shows a window (not a file): what ⌘F searches there. */
+  sideTerminal(): TerminalView | null;
   /** Drag hooks for the tab strip: a tab dragged over the terminal. */
   over(windowId: string, x: number, y: number): boolean;
   leave(): void;
@@ -454,6 +456,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
     open,
     openFile,
     close,
+    sideTerminal: () => (split && !split.file ? sideTerm : null),
     focusSide() {
       if (!split) return;
       setFocused("side");

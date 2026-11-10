@@ -6,7 +6,7 @@ import { visualOrder } from "./groups";
 import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
 import { Connection } from "./socket";
-import { createTerminal } from "./terminal";
+import { createTerminal, type TerminalView } from "./terminal";
 import { createSplit } from "./split";
 import { markdownPath } from "./file-links";
 import { createNotes } from "./notes";
@@ -278,18 +278,31 @@ function paintFind(s: { total: number; index: number }) {
   findCount.classList.toggle("none", findInput.value !== "" && s.total === 0);
 }
 
+/**
+ * The terminal the find bar searches: the pane that last had the keys, fixed
+ * while the bar is open so a click elsewhere doesn't split one search in two.
+ */
+let findIn: TerminalView | null = null;
+const findTerm = (): TerminalView => findIn ?? term;
+
 function openFind() {
+  const side = notePane === "side" ? split.sideTerminal() : null;
+  if (findIn && findIn !== (side ?? term)) findIn.clearSearch();
+  findIn = side ?? term;
   findEl.hidden = false;
   findInput.focus();
   findInput.select();
-  paintFind(term.search(findInput.value));
+  paintFind(findTerm().search(findInput.value));
 }
 
 function closeFind() {
   if (findEl.hidden) return;
   findEl.hidden = true;
-  term.clearSearch();
-  term.focus();
+  const t = findTerm();
+  findIn = null;
+  t.clearSearch();
+  if (t === term) term.focus();
+  else split.focusSide();
 }
 
 // ---- connection status ----
@@ -843,14 +856,14 @@ emptyNew.onclick = () => {
 };
 retryBtn.onclick = () => conn.retryNow();
 
-findInput.oninput = () => paintFind(term.search(findInput.value));
+findInput.oninput = () => paintFind(findTerm().search(findInput.value));
 findInput.onkeydown = (e) => {
   e.stopPropagation();
-  if (e.key === "Enter") { e.preventDefault(); paintFind(e.shiftKey ? term.findPrev() : term.findNext()); }
+  if (e.key === "Enter") { e.preventDefault(); paintFind(e.shiftKey ? findTerm().findPrev() : findTerm().findNext()); }
   else if (e.key === "Escape") { e.preventDefault(); closeFind(); }
 };
-findPrevBtn.onclick = () => paintFind(term.findPrev());
-findNextBtn.onclick = () => paintFind(term.findNext());
+findPrevBtn.onclick = () => paintFind(findTerm().findPrev());
+findNextBtn.onclick = () => paintFind(findTerm().findNext());
 findCloseBtn.onclick = () => closeFind();
 
 // Every running arc turns in step: each is pinned to the page's clock as it
