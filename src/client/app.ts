@@ -726,6 +726,10 @@ const conn = new Connection(wsUrl, {
         tabs.setProfiles(badgedLabels(m.sources));
         rebuildWorld();
         break;
+      case "focus":
+        // The desk board asked to show this agent (POST /api/focus).
+        openWindow(m.session, m.windowId);
+        break;
       case "attached":
         current = m.session;
         term.reset();

@@ -14,6 +14,7 @@ import { attachSession, type PtyHandle } from "./pty";
 import { shellQuote, Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
 import { claudeAdapter, codexAdapter } from "./chat/adapters";
+import { isThisMachine, parseFocusRequest } from "./focus";
 import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
 import { createImageStore } from "./chat/images";
 import { createChatStore, isChatId } from "./chat/store";
@@ -104,6 +105,8 @@ export interface RunningServer {
 }
 
 interface ConnData {
+  /** Opened from this machine, so POST /api/focus may move it. */
+  local: boolean;
   pty: PtyHandle | null;
   session: string | null;
   /** The attached session's id (`$3`): what `session` is re-derived from after a rename. */
@@ -497,6 +500,29 @@ export function createServer(opts: ServerOptions): RunningServer {
     void chatTick(true);
     void pushChats();
     return Response.json(r);
+  }
+
+  /**
+   * POST /api/focus { pane }: show that pane's window in the pages open on this machine,
+   * as a click in the sidebar would. For a program on this Mac (the desk board's feeder),
+   * never a browser page; a page on a phone or tablet is not moved.
+   */
+  async function focusPane(req: Request, ip: { address: string } | null): Promise<Response> {
+    if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    if (req.headers.get("origin") !== null || !isLoopback(ip?.address)) return new Response("Forbidden", { status: 403 });
+    const body = parseFocusRequest(await req.json().catch(() => null));
+    if (!body) return new Response("Bad request", { status: 400 });
+    const where = await tmux.windowOfPane(body.pane);
+    if (!where) return new Response("No such pane", { status: 404 });
+    const message: ServerMessage = { t: "focus", session: where.session, windowId: where.windowId };
+    const json = JSON.stringify(message);
+    let pages = 0;
+    for (const ws of clients) {
+      if (!ws.data.local || ws.readyState !== WebSocket.OPEN) continue;
+      ws.sendText(json);
+      pages++;
+    }
+    return Response.json({ session: where.session, windowId: where.windowId, pages });
   }
 
   const images = opts.chatsDir ? createImageStore(opts.chatsDir) : null;
@@ -1173,6 +1199,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       }
       if (url.pathname === "/licence") return licencePage();
       if (url.pathname === "/api/chat/hook") return chatHook(req, srv.requestIP(req));
+      if (url.pathname === "/api/focus") return focusPane(req, srv.requestIP(req));
       if (url.pathname.startsWith("/api/chat/image/")) return chatImage(req, url);
       if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
@@ -1193,7 +1220,7 @@ export function createServer(opts: ServerOptions): RunningServer {
           console.warn(`refused a WebSocket for Host "${host}"; pass --allow-host ${hostOnly(host ?? "")} to allow it`);
           return new Response("Forbidden: unrecognised Host", { status: 403 });
         }
-        const ok = srv.upgrade(req, { data: { pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, list: false, memory: false, docker: false, chats: false, chatOpen: null, sentChats: null, sentChat: null } });
+        const ok = srv.upgrade(req, { data: { local: isThisMachine(srv.requestIP(req)?.address), pty: null, session: null, sessionId: null, sentState: null, cols: 80, rows: 24, attachSeq: 0, view: null, scrolled: false, typing: null, system: false, list: false, memory: false, docker: false, chats: false, chatOpen: null, sentChats: null, sentChat: null } });
         return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
       }
       return new Response("Not found", { status: 404 });

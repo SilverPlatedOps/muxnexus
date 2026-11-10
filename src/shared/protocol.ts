@@ -471,6 +471,8 @@ export type ServerMessage =
   /** To a client that asked with `memory`: every window's memory, for the tab chips. */
   | { t: "memory"; tmuxServer: string | null; at: number; metric: MemoryMetric; windows: WindowMemory[] }
   | { t: "attached"; session: string }
+  /** Show this window, as a click in the sidebar would: sent to pages on this machine (POST /api/focus). */
+  | { t: "focus"; session: string; windowId: string }
   /**
    * The attached session now has this name -- renamed here, in cmux, or with
    * `C-b $`. The terminal is unchanged; only the name to address it by moved.
