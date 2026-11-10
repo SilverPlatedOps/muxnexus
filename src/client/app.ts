@@ -429,10 +429,13 @@ function tabsOpenNote(id: string) {
   notes.show("window");
 }
 
+/** A tab beside the one on screen: of this workspace, or of another (it stays as you move about). */
 function openBeside(id: string) {
   if (!current) return;
   if (onPhone()) return sidebar.toast("Split needs a wider screen");
-  split.open(current, id, split.state?.side ?? "right");
+  const owner = sessions.find((s) => s.windows.some((w) => w.id === id))?.name ?? current;
+  if (chatUI?.isShowing()) attach(current);
+  split.open(owner, id, split.state?.side ?? "right");
 }
 
 /** The account picker for a tab: carry its conversation to another account. */

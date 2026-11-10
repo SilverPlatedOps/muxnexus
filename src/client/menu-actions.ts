@@ -46,9 +46,7 @@ export function createMenuActions(host: MenuHost) {
     const current = host.current() === s.name && (isWorkspace || w.active);
     const kind = kindOf(w);
     const label = sessionLabel(s);
-    const beside: true | string =
-      host.current() !== s.name ? "Only tabs of the workspace on screen, for now"
-        : w.active ? "It's the tab on screen" : true;
+    const beside: true | string = host.current() === s.name && w.active ? "It's the tab on screen" : !host.current() ? "Open a workspace first" : true;
     return {
       name: isWorkspace ? editableName(label) : tabLabel(w),
       kind,

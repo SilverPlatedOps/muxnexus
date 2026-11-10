@@ -78,11 +78,18 @@ export function dropPlan(split: SplitState | null, mainWindow: string | null, dr
  * session, or with the window it covers on a phone: it outlives the window it
  * was opened from.
  */
-export function splitAfter<T extends SplitState & { session: string }>(
+export function splitAfter<T extends SplitState & { session: string; foreign?: boolean }>(
   split: T,
   sessions: readonly SessionInfo[],
   current: string | null,
 ): T | null {
+  // Another workspace's tab, opened beside on purpose: it stays while it exists,
+  // whatever the main pane shows -- unless the main pane comes to show it too.
+  if (split.foreign && !split.file) {
+    const w = sessions.find((x) => x.name === split.session)?.windows.find((x) => x.id === split.windowId);
+    if (!w || (current === split.session && w.active)) return null;
+    return split;
+  }
   if (current !== split.session) return null;
   const s = sessions.find((x) => x.name === current);
   if (!s) return null;
@@ -198,7 +205,7 @@ function header(onZoom: () => void, onClose: () => void) {
 }
 
 export function createSplit(els: SplitElements, host: SplitHost): Split {
-  let split: (SplitState & { session: string }) | null = null;
+  let split: (SplitState & { session: string; foreign?: boolean }) | null = null;
   let conn: Connection | null = null;
   let sessions: SessionInfo[] = [];
   let current: string | null = null;
@@ -307,7 +314,8 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
   function paintHeads() {
     if (!split) return;
     mainHead.paint(mainWindow(), zoomed === "main", !split.file);
-    sideHead.paint(split.file ?? windows().find((w) => w.id === split!.windowId), zoomed === "side");
+    const sideWindows = sessions.find((s) => s.name === split!.session)?.windows ?? [];
+    sideHead.paint(split.file ?? sideWindows.find((w) => w.id === split!.windowId), zoomed === "side");
   }
 
   function setFocused(p: Pane) {
@@ -319,7 +327,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
   function open(session: string, windowId: string, side: Side) {
     if (!host.enabled()) return;
     const same = split && split.session === session && split.windowId === windowId;
-    split = { session, windowId, side };
+    split = { session, windowId, side, ...(session !== current ? { foreign: true } : {}) };
     zoomed = null;
     focused = "side";
     sideReader?.close();

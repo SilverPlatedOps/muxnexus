@@ -66,6 +66,14 @@ describe("splitAfter", () => {
     expect(splitAfter(split, sessions, "t")).toBeNull();
   });
 
+  test("another workspace's tab, opened beside, stays while the main pane moves", () => {
+    const foreign = { ...split, foreign: true };
+    const sessions = [session("s", [win("@1", true), win("@2")]), session("t", [win("@9", true)])];
+    expect(splitAfter(foreign, sessions, "t")).toEqual(foreign);
+    expect(splitAfter(foreign, [session("t", [win("@9", true)])], "t")).toBeNull();
+    expect(splitAfter(foreign, [session("s", [win("@2", true)])], "s")).toBeNull();
+  });
+
   test("closes when the beside window is gone", () => {
     expect(splitAfter(split, [session("s", [win("@1", true)])], "s")).toBeNull();
   });
