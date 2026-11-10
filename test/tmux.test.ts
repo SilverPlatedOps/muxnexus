@@ -168,6 +168,15 @@ describe("Tmux mutators", () => {
     await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", id])).includes("agent-42 ran"), 3000, "command output");
   });
 
+  test("pasteText puts text in the window without pressing Enter", async () => {
+    await tmux.newSession("p");
+    const [id] = await windowIds("p");
+    await tmux.pasteText("p", id, "two\nlines");
+    await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", id])).includes("lines"), 3000, "pasted text");
+    const shown = await tmux.run(["capture-pane", "-p", "-t", id]);
+    expect(shown).toContain("two");
+  });
+
   test("setArchived stamps and clears the flag", async () => {
     await tmux.newSession("a");
     await tmux.setArchived("a", true);

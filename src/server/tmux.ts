@@ -1039,6 +1039,17 @@ export class Tmux {
     await this.run(["set-option", "-t", target, "@muxnexus_name", name]);
   }
 
+  /**
+   * Paste `text` into a window as a bracketed paste: an agent's prompt takes it
+   * whole, newlines included, and sends nothing -- the Enter stays the user's.
+   */
+  async pasteText(session: string, id: string, text: string): Promise<void> {
+    const target = await this.windowTarget(session, id);
+    const buffer = `muxnexus-note-${process.pid}`;
+    await this.run(["set-buffer", "-b", buffer, "--", text]);
+    await this.run(["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]);
+  }
+
   /** Archive or bring back a workspace. Only a stamp: the session keeps running. */
   async setArchived(session: string, on: boolean): Promise<void> {
     const target = await this.target(session);

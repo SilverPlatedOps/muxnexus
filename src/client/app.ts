@@ -5,7 +5,7 @@ import { createSidebar, sessionLabel } from "./sidebar";
 import { groupNames, isArchived, visualOrder } from "./groups";
 import { openNewAgent } from "./new-agent";
 import { knownFolders } from "./chat/model";
-import { createMenuActions } from "./menu-actions";
+import { createMenuActions, kindOf } from "./menu-actions";
 import { onContextMenu } from "./popover";
 import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
@@ -550,6 +550,16 @@ const notes = createNotes({
   },
   phone: onPhone,
   focusTerminal: () => focusNotePane(),
+  sendToAgent: (text) => {
+    const w = notesOwner();
+    const session = noteSession();
+    if (!w || !session) return sidebar.toast("This note has no tab to send to");
+    // An agent's prompt takes a bracketed paste whole; a plain shell would run each line.
+    const body = kindOf(w) === "shell" ? text.replace(/\s*\n\s*/g, " ") : text;
+    conn.send({ t: "paste-to-window", session, id: w.id, text: body });
+    sidebar.toast(`In ${tabLabel(w)}'s prompt: press Enter there to send`);
+    if (!chatting()) focusNotePane();
+  },
   toast: (m) => sidebar.toast(m),
   goTo: ({ session, windowId }) => {
     openWindow(session, windowId);

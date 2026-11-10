@@ -182,6 +182,8 @@ export type ClientMessage =
   | { t: "select-window"; session: string; id: string }
   | { t: "rename-session"; session: string; name: string }
   | { t: "archive-session"; session: string; archived: boolean }
+  /** Text from a note into that tab's prompt, as a paste: nothing is sent until the user presses Enter there. */
+  | { t: "paste-to-window"; session: string; id: string; text: string }
   | { t: "rename-window"; session: string; id: string; name: string }
   /** The whole wanted sidebar order, not one move: concurrent clients then settle on last-write-wins. */
   | { t: "reorder-sessions"; names: string[] }

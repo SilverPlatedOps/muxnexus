@@ -322,3 +322,11 @@ test("a note follows its conversation to a new window, never taken from a live o
     await tmux.killServer();
   }
 });
+
+import { paragraphAt } from "../src/client/note-editor";
+test("paragraphAt: the lines around the cursor up to blank lines", () => {
+  const doc = "first line\n\nask it to\nsplit the backfill\n\nlast";
+  expect(paragraphAt(doc, 14)).toBe("ask it to\nsplit the backfill");
+  expect(paragraphAt(doc, 2)).toBe("first line");
+  expect(paragraphAt(doc, doc.length)).toBe("last");
+});

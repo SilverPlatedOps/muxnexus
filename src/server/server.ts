@@ -914,6 +914,10 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (typeof m.id !== "string") return send(ws, { t: "error", message: "invalid select-window" });
           await tmux.selectWindow(m.session, m.id);
           break;
+        case "paste-to-window":
+          if (typeof m.id !== "string" || typeof m.text !== "string" || m.text.length > 100_000) return send(ws, { t: "error", message: "invalid paste-to-window" });
+          await tmux.pasteText(m.session, m.id, m.text);
+          break;
         case "archive-session":
           if (typeof m.archived !== "boolean") return send(ws, { t: "error", message: "invalid archive-session" });
           await tmux.setArchived(m.session, m.archived);

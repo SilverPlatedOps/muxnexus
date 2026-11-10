@@ -64,6 +64,8 @@ export interface NotesHost {
   ownerPlace(): { session: string; window: string } | null;
   phone(): boolean;
   focusTerminal(): void;
+  /** ⌘↵ in the note: paste this into the note's own tab, without pressing Enter. */
+  sendToAgent(text: string): void;
   toast(message: string): void;
   goTo(live: NonNullable<NoteSummary["live"]>): void;
   /** The panel opened or closed: what lives in it besides the notes follows. */
@@ -123,6 +125,7 @@ export function createNotes(els: NoteElements, host: NotesHost): Notes {
     onBlur: () => flush(),
     // Back to the agent the note is about; the note stays open beside it.
     onEscape: () => { host.focusTerminal(); return true; },
+    onSend: (text) => host.sendToAgent(text),
   });
   els.text.replaceWith(editor.el);
 

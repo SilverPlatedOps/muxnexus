@@ -23,6 +23,8 @@ export interface NoteEditorHooks {
   onBlur(): void;
   /** Esc that nothing in the editor wanted: true when it was used. */
   onEscape?(): boolean;
+  /** ⌘↵: the selection, else the paragraph the cursor is in, for the note's agent. */
+  onSend?(text: string): void;
 }
 
 export interface NoteEditor {
@@ -55,7 +57,27 @@ export const markdownLook = [
   EditorView.editorAttributes.of({ class: "note-editor" }),
 ];
 
+/** The paragraph around `pos`: the lines up to the blank ones on either side. */
+export function paragraphAt(doc: string, pos: number): string {
+  const lines = doc.split("\n");
+  let at = 0;
+  let line = 0;
+  while (line < lines.length - 1 && at + lines[line]!.length < pos) { at += lines[line]!.length + 1; line++; }
+  let from = line;
+  let to = line;
+  while (from > 0 && lines[from - 1]!.trim() !== "") from--;
+  while (to < lines.length - 1 && lines[to + 1]!.trim() !== "") to++;
+  return lines.slice(from, to + 1).join("\n").trim();
+}
+
 export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
+  const sendPart = (v: EditorView): boolean => {
+    if (!hooks.onSend) return false;
+    const sel = v.state.selection.main;
+    const text = sel.empty ? paragraphAt(v.state.doc.toString(), sel.head) : v.state.sliceDoc(sel.from, sel.to).trim();
+    if (text) hooks.onSend(text);
+    return true;
+  };
   const readOnly = new Compartment();
   const hint = new Compartment();
   let isReadOnly = false;
@@ -63,7 +85,7 @@ export function createNoteEditor(hooks: NoteEditorHooks): NoteEditor {
 
   const extensions = () => [
     history(),
-    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap, { key: "Escape", run: () => hooks.onEscape?.() ?? false }]),
+    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap, { key: "Escape", run: () => hooks.onEscape?.() ?? false }, { key: "Mod-Enter", run: (v) => sendPart(v) }]),
     markdownLook,
     EditorView.contentAttributes.of({ "aria-label": hooks.label, spellcheck: "false" }),
     readOnly.of(EditorState.readOnly.of(isReadOnly)),
