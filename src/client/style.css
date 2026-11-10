@@ -1138,7 +1138,8 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
 }
 
-.move-head { margin-bottom: 12px; }
+.move-head { margin-bottom: 12px; position: relative; padding-right: 32px; }
+.move-close { position: absolute; top: -4px; right: -4px; }
 .move-title { display: block; color: var(--fg-strong); font-weight: 600; }
 .move-sub { display: block; margin-top: 2px; color: var(--dim); font-size: 11px; }
 

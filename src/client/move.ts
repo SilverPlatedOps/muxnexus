@@ -106,6 +106,12 @@ export function openMove(
   const weight = weigh(bytes);
   head.append(el("span", "move-sub", [w.agent?.profile ? `on ${w.agent.profile}` : null, weight]
     .filter(Boolean).join(" · ")));
+  // Every dialog closes the same three ways: ✕, Esc, a click outside.
+  const x = el("button", "icon-btn move-close", "✕");
+  (x as HTMLButtonElement).type = "button";
+  x.setAttribute("aria-label", "Close");
+  x.onclick = () => close();
+  head.append(x);
   box.append(head);
 
   box.append(el("div", "move-cap", "CARRY"));
@@ -153,12 +159,17 @@ export function openMove(
     : "Quits the agent here and resumes the conversation in this tab on the account you pick. The original stays put."));
 
   back.append(box);
-  const close = () => back.remove();
+  const close = () => { back.remove(); document.removeEventListener("keydown", keys); };
   back.onclick = (e) => { if (e.target === back) close(); };
-  document.addEventListener("keydown", function esc(e) {
-    if (e.key !== "Escape") return;
-    close();
-    document.removeEventListener("keydown", esc);
-  });
+  // Esc closes; ⌘↵ takes the marked target, as clicking it would.
+  function keys(e: KeyboardEvent) {
+    if (e.key === "Escape") close();
+    else if (e.key === "Enter" && e.metaKey && pick && !busy && !list.find((t) => t.label === pick)?.here) {
+      e.preventDefault();
+      close();
+      actions.moveTo(w.id, pick);
+    }
+  }
+  document.addEventListener("keydown", keys);
   host.append(back);
 }
