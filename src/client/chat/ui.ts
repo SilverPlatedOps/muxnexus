@@ -34,6 +34,7 @@ import {
   type StagedAgent,
   withChips,
 } from "./model";
+import { inlineEdit } from "../inline-edit";
 import { openPicker } from "./picker";
 import { renderMarkdown } from "./markdown";
 import { createChatNotes } from "./notes";
@@ -966,7 +967,16 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
     const role = btn("chat-mi", `Change role…${m.role ? ` (${m.role})` : ""}`);
     role.onclick = (e) => {
       e.stopPropagation();
-      ask(`Role for ${m.handle} (empty for none)`, m.role ?? "", (r) => host.send({ t: "chat-role", id: chat!.id, handle: m.handle, role: r }));
+      // In place, wherever the list is drawn: ask() only works inside an open menu.
+      const slot = el("div", "chat-mi chat-mi-edit");
+      role.replaceWith(slot);
+      inlineEdit(slot, {
+        value: m.role ?? "",
+        label: `Role for ${m.handle} (empty for none)`,
+        allowEmpty: true,
+        save: (r) => host.send({ t: "chat-role", id: chat!.id, handle: m.handle, role: r }),
+        done: () => slot.replaceWith(role),
+      });
     };
     const replace = btn("chat-mi", "Replace…", "Bring in another agent under a new handle");
     replace.onclick = () => { closeMenu(); addAgents(m.handle); };
