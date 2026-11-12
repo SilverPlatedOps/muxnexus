@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE. */
 
-:root {
+/* Dark, the default. The vault (.bld) takes these values whatever the page
+   wears: it is a night scene, and everything in it stays dark. */
+:root, .bld {
   /* surfaces: chrome sits darker than the terminal, so the terminal reads as content */
   --well: #171a1f;
   --chrome: #1b1f25;
@@ -35,10 +37,91 @@
   --red: #e06c75;
   --yellow: #e5c07b;
 
+  /* buttons, the toast, account options, the Settings select */
+  --control: #262b33;
+
+  /* A chat member's name (memberColour): one lightness and chroma, hues kept
+     clear of red (needs you), yellow (hazard), blue (links and focus) and the
+     three account hues. */
+  --member-0: oklch(82% .11 155);
+  --member-1: oklch(82% .10 345);
+  --member-2: oklch(85% .11 115);
+  --member-3: oklch(80% .07 215);
+  --member-4: oklch(82% .10 280);
+  --member-5: oklch(84% .08 190);
+
   --mono: "JetBrains Mono", Menlo, monospace;
   --sidebar: 280px;
   --row: 32px;
   --row-win: 30px;
+}
+
+/* Light (theme.ts sets data-theme). One Light's neutrals, with the same
+   layering: grey chrome around the terminal, still the brightest surface, so
+   it reads as the work. The hues are One Light's darkened until each clears
+   4.5:1 as text on the darkest surface it sits on (--chip). Text tones, on
+   --well / --panel / --term: --fg-strong 11.8 / 13.2 / 14.3, --fg 9.0 / 10.0 /
+   10.9, --muted 5.8 / 6.5 / 7.1, --dim 5.2 / 5.9 / 6.4. */
+:root[data-theme="light"] {
+  --well: #e2e5ea;
+  --chrome: #e9ebef;
+  --panel: #f0f1f3;
+  --group: #f5f6f7;
+  /* The darker accent at dark's 24% would be heavy: 10%, 13% on hover. */
+  --current: color-mix(in oklab, var(--accent) 10%, var(--panel));
+  --current-hover: color-mix(in oklab, var(--accent) 13%, var(--panel));
+  --hover: #e3e7ed;
+  --sel: #d8dfea;
+  --chip: #d7dce8;
+  --term: #fafafa; /* the terminal's own One Light background */
+  --control: var(--group);
+
+  --line: #cdd2da;
+  --line-soft: #dce0e6;
+  --edge: #727c8c; /* borders that mark a control, and scrollbars: 3:1 on every surface */
+
+  --fg-strong: #24272e;
+  --fg: #383a42;
+  --muted: #515660;
+  --dim: #575d68;
+  --faint: #727986; /* separators and idle icons only, never text */
+
+  --accent: #245cbe;
+  --green: #286333;
+  --red: #a3293d;
+  --yellow: #795500;
+
+  --member-0: oklch(48% .09 155);
+  --member-1: oklch(48% .10 345);
+  --member-2: oklch(48% .09 115);
+  --member-3: oklch(48% .07 215);
+  --member-4: oklch(48% .10 280);
+  --member-5: oklch(48% .07 190);
+
+  /* Set only here: each rule that reads one falls back to its dark value. */
+  --on-accent: #fff; /* 6.3:1 on --accent */
+  --on-danger: #fff; /* 7.1:1 on --red */
+  --shadow-float: rgb(36 39 46 / 0.12);
+  --shadow-dialog: rgb(36 39 46 / 0.18);
+  --scrim: rgb(23 26 31 / 0.28);
+  --veil: transparent; /* a grey wash over a white terminal only muddies it; the pane head shows focus */
+  --warn-fill: #fff4d6;
+  --warn-line: color-mix(in oklab, var(--yellow) 30%, transparent);
+  --warn-edge: color-mix(in oklab, var(--yellow) 50%, transparent);
+  --nudge-fill: #fff1f1;
+  --nudge-pulse: #ffe4e6;
+  --hit-wash: 10%;
+  --hit-still: 8%;
+  --fence: var(--dim);
+  --claude-mark: #93452f;
+  --syn-keyword: #94228f;
+  --syn-string: #286333;
+  --syn-operator: #00678a;
+  --syn-number: #80521a;
+  --syn-type: #795500;
+  --syn-property: #a3293d;
+  --syn-definition: #245cbe;
+  --syn-comment: #575d68;
 }
 
 * { box-sizing: border-box; }
@@ -54,7 +137,7 @@ html, body {
 [hidden] { display: none !important; }
 
 button { font: inherit; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A row or tab clips what spills past it, which cut the ring to one edge; drawn
    inside, it now reads as focus, where the attached row is a fill. */
 .row .name:focus-visible, .tab .name:focus-visible, .cat-head:focus-visible { outline-offset: -2px; border-radius: 6px; }
@@ -73,17 +156,17 @@ body.has-nudge { display: flex; flex-direction: column; }
 body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .nudge-banner {
   flex: none; display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 6px 16px;
-  background: color-mix(in oklab, var(--red) 22%, var(--chrome)); border-bottom: 1px solid color-mix(in oklab, var(--red) 55%, transparent);
+  background: var(--nudge-fill, color-mix(in oklab, var(--red) 22%, var(--chrome))); border-bottom: 1px solid color-mix(in oklab, var(--red) 55%, transparent);
   color: var(--fg-strong); flex-wrap: wrap; row-gap: 4px;
 }
 .nudge-banner.blink { animation: nudge-pulse 1.2s ease-in-out infinite; }
-@keyframes nudge-pulse { 50% { background: color-mix(in oklab, var(--red) 38%, var(--chrome)); border-bottom-color: var(--red); } }
+@keyframes nudge-pulse { 50% { background: var(--nudge-pulse, color-mix(in oklab, var(--red) 38%, var(--chrome))); border-bottom-color: var(--red); } }
 @media (prefers-reduced-motion: reduce) { .nudge-banner.blink { animation: none; } }
 .nudge-head { color: var(--red); font-weight: 600; }
 .nudge-who { color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nudge-banner .spacer { flex: 1; }
 .nudge-btn { height: 26px; padding: 0 10px; border-radius: 5px; border: 1px solid color-mix(in oklab, var(--red) 50%, transparent); background: none; color: var(--fg-strong); font: inherit; cursor: pointer; }
-.nudge-btn.solid { background: var(--red); color: var(--chrome); border-color: var(--red); font-weight: 600; }
+.nudge-btn.solid { background: var(--red); color: var(--on-danger, var(--chrome)); border-color: var(--red); font-weight: 600; }
 .nudge-btn:focus-visible { outline: 2px solid var(--fg-strong); outline-offset: 1px; }
 /* On a phone the drawer, its overlay and the notes are fixed to the viewport:
    they start under the banner, so it stays in view and its Got it within reach. */
@@ -131,7 +214,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   border-bottom: 1px solid var(--line-soft);
 }
 /* A narrow sidebar shortens the name, never the mark beside it. */
-#brand > svg { flex: none; }
+#brand > svg { flex: none; color: var(--accent); }
 #brand .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; letter-spacing: 0.04em; color: var(--fg); }
 #brand .spacer { flex: 1; }
 
@@ -265,10 +348,16 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
    the two hues in the palette that red, yellow, blue and green have not
    claimed, tinted up until they clear 4.5:1 on the attached row's fill. A
    letter in a 1px outline, no fill: a tint behind it drops it under 3:1. */
-:root {
+:root, .bld {
   --profile-0: #d6a4ea;
   --profile-1: #6cc6d1;
   --profile-2: #d19a66;
+}
+/* The same three hues darkened for light, each clearing 4.5:1 on the attached row's hover. */
+:root[data-theme="light"] {
+  --profile-0: #783d91;
+  --profile-1: #006777;
+  --profile-2: #80521a;
 }
 .pbadge {
   flex: none;
@@ -437,6 +526,8 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 /* A stale row still shows its last good numbers -- dimmed, not blanked. A
    row is `display: contents`, which opacity ignores, so its cells dim. */
 .usage-row.stale > * { opacity: 0.5; }
+/* On light, dimming by opacity drops the text under 4.5:1: the text greys instead, the bar still fades. */
+:root[data-theme="light"] .usage-row.stale > :not(.usage-meter) { opacity: 1; color: var(--dim); }
 
 #side-foot {
   padding: 10px 12px 12px;
@@ -568,7 +659,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .btn {
   height: 26px;
   padding: 0 10px;
-  background: #262b33;
+  background: var(--control);
   border: 1px solid var(--edge);
   border-radius: 5px;
   font: 500 11.5px/1 var(--mono);
@@ -576,7 +667,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   cursor: pointer;
 }
 .btn:hover { border-color: var(--accent); }
-.btn.danger { background: var(--red); border-color: var(--red); color: var(--chrome); font-weight: 600; }
+.btn.danger { background: var(--red); border-color: var(--red); color: var(--on-danger, var(--chrome)); font-weight: 600; }
 .btn.danger:hover { border-color: var(--red); }
 .btn.block {
   display: flex;
@@ -614,11 +705,11 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   gap: 12px;
   max-width: 60vw;
   padding: 9px 11px;
-  background: #262b33;
+  background: var(--control);
   border: 1px solid var(--line);
   border-left: 3px solid var(--red);
   border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 18px var(--shadow-float, rgba(0, 0, 0, 0.45));
   font-size: 11.5px;
   color: var(--fg);
 }
@@ -673,13 +764,13 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   gap: 10px;
   height: 34px;
   padding: 0 14px;
-  background: rgba(229, 192, 123, 0.12);
-  border-bottom: 1px solid rgba(229, 192, 123, 0.3);
+  background: var(--warn-fill, rgba(229, 192, 123, 0.12));
+  border-bottom: 1px solid var(--warn-line, rgba(229, 192, 123, 0.3));
   font-size: 11.5px;
   color: var(--yellow);
 }
 #status .spacer { flex: 1; }
-#status .btn { color: var(--yellow); background: none; border-color: rgba(229, 192, 123, 0.45); height: 24px; }
+#status .btn { color: var(--yellow); background: none; border-color: var(--warn-edge, rgba(229, 192, 123, 0.45)); height: 24px; }
 
 #wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 12px; overflow: hidden; }
 
@@ -832,7 +923,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(23, 26, 31, 0.38);
+  background: var(--veil, rgba(23, 26, 31, 0.38));
   pointer-events: none;
 }
 .zoom-main #pane-side, .zoom-side #pane-main, .zoom-main #divider, .zoom-side #divider { display: none; }
@@ -901,7 +992,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   border: 1px solid var(--edge);
   border-radius: 7px;
   background: var(--panel);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 18px var(--shadow-float, rgba(0, 0, 0, 0.45));
   font: 600 12.5px/1 var(--mono);
   color: var(--fg-strong);
 }
@@ -916,7 +1007,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   border: 1px solid var(--edge);
   border-radius: 7px;
   background: var(--panel);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 24px var(--shadow-float, rgba(0, 0, 0, 0.5));
   font: 600 12.5px/1 var(--mono);
   color: var(--fg-strong);
   pointer-events: none;
@@ -972,9 +1063,9 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: 7px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow-float, rgba(0, 0, 0, 0.4));
 }
-#find > svg { flex: none; }
+#find > svg { flex: none; color: var(--muted); }
 #find-input {
   width: 200px;
   min-width: 0;
@@ -1020,10 +1111,10 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
     width: 304px;
     transform: translateX(-100%);
     transition: transform 0.18s ease;
-    box-shadow: 14px 0 34px rgba(0, 0, 0, 0.5);
+    box-shadow: 14px 0 34px var(--shadow-float, rgba(0, 0, 0, 0.5));
   }
   #layout.drawer-open #sidebar { transform: none; }
-  #overlay { display: block; position: fixed; inset: 0; z-index: 15; background: rgba(15, 17, 21, 0.62); }
+  #overlay { display: block; position: fixed; inset: 0; z-index: 15; background: var(--scrim, rgba(15, 17, 21, 0.62)); }
   #hamburger { display: flex; width: 44px; height: 44px; margin-left: -10px; }
   #topbar { padding-left: 4px; }
   #brand .close, #display { display: flex; width: 44px; height: 44px; }
@@ -1089,7 +1180,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim, rgba(0, 0, 0, 0.45));
 }
 
 .move {
@@ -1099,7 +1190,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 10px 30px var(--shadow-dialog, rgba(0, 0, 0, 0.55));
 }
 
 .move-head { margin-bottom: 12px; position: relative; padding-right: 32px; }
@@ -1113,7 +1204,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .move-opt {
   flex: 1;
   padding: 7px 9px;
-  background: #262b33;
+  background: var(--control);
   border: 1px solid var(--edge);
   border-radius: 6px;
 }
@@ -1553,6 +1644,10 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .sys-seg.compressed, .sys-legend-item.compressed .sys-swatch {
   background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--accent) 70%, #000) 0 3px, color-mix(in oklab, var(--accent) 35%, #000) 3px 6px);
 }
+/* Mixed with black it reads near-black on light: the accent striped with a pale tint of it. */
+:root[data-theme="light"] :is(.sys-seg.compressed, .sys-legend-item.compressed .sys-swatch) {
+  background: repeating-linear-gradient(135deg, var(--accent) 0 3px, #9bb2d8 3px 6px);
+}
 .sys-legend-item.available .sys-swatch { border: 1px solid var(--edge); width: 6px; height: 6px; }
 .sys-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 4px 40px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .sys-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -1637,7 +1732,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .cm-md-codeblock-first.cm-md-codeblock-last::before { border-radius: 6px; }
 /* The closing fence, folded: a thin bottom edge rather than an empty line. */
 :is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-codeblock-close { font-size: 1px; line-height: 3px; }
-.cm-md-fence { color: var(--faint); }
+.cm-md-fence { color: var(--fence, var(--faint)); }
 .cm-md-codelang { color: var(--dim); font-size: 11px; }
 .cm-md-copy {
   position: absolute;
@@ -1655,14 +1750,14 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 
 /* Code tokens in the terminal's One Dark, inside code blocks only: the same
    classes land on markdown's own tokens, which must keep their look. */
-.cm-md-codeblock :is(.tok-keyword, .tok-operator.tok-keyword) { color: #c678dd; }
-.cm-md-codeblock :is(.tok-string, .tok-inserted) { color: #98c379; }
-.cm-md-codeblock :is(.tok-string2, .tok-operator, .tok-url) { color: #56b6c2; }
-.cm-md-codeblock :is(.tok-number, .tok-bool, .tok-atom, .tok-literal, .tok-variableName2) { color: #d19a66; }
-.cm-md-codeblock :is(.tok-typeName, .tok-className, .tok-namespace, .tok-macroName) { color: #e5c07b; }
-.cm-md-codeblock :is(.tok-propertyName, .tok-deleted) { color: #e06c75; }
-.cm-md-codeblock .tok-definition { color: #61afef; }
-.cm-md-codeblock :is(.tok-comment, .tok-meta) { color: #7f848e; font-style: italic; }
+.cm-md-codeblock :is(.tok-keyword, .tok-operator.tok-keyword) { color: var(--syn-keyword, #c678dd); }
+.cm-md-codeblock :is(.tok-string, .tok-inserted) { color: var(--syn-string, #98c379); }
+.cm-md-codeblock :is(.tok-string2, .tok-operator, .tok-url) { color: var(--syn-operator, #56b6c2); }
+.cm-md-codeblock :is(.tok-number, .tok-bool, .tok-atom, .tok-literal, .tok-variableName2) { color: var(--syn-number, #d19a66); }
+.cm-md-codeblock :is(.tok-typeName, .tok-className, .tok-namespace, .tok-macroName) { color: var(--syn-type, #e5c07b); }
+.cm-md-codeblock :is(.tok-propertyName, .tok-deleted) { color: var(--syn-property, #e06c75); }
+.cm-md-codeblock .tok-definition { color: var(--syn-definition, #61afef); }
+.cm-md-codeblock :is(.tok-comment, .tok-meta) { color: var(--syn-comment, #7f848e); font-style: italic; }
 .cm-md-codeblock .tok-invalid { color: var(--red); }
 
 /* A table the caret is not in: a grid. Wide ones scroll inside their box. */
@@ -1797,7 +1892,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   #view { padding: 10px; }
   .dbg { grid-template-columns: 1fr; }
 }
-.display-select { background: #262b33; color: var(--fg); border: 1px solid var(--edge); border-radius: 4px; font: inherit; padding: 2px 6px; }
+.display-select { background: var(--control); color: var(--fg); border: 1px solid var(--edge); border-radius: 4px; font: inherit; padding: 2px 6px; }
 
 /* ---------- group chats ---------- */
 
@@ -1885,20 +1980,20 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-chip-x:hover { color: var(--fg); }
 .chat-thumb { position: relative; display: inline-flex; align-items: flex-start; background: var(--chip); border-radius: 4px; padding: 2px; }
 .chat-thumb img { display: block; max-height: 56px; max-width: 96px; border-radius: 3px; }
-.chat-thumb .chat-chip-x { position: absolute; top: 0; right: 0; background: var(--bg); border-radius: 0 3px 0 3px; }
+.chat-thumb .chat-chip-x { position: absolute; top: 0; right: 0; background: var(--panel); border-radius: 0 3px 0 3px; }
 .chat-thumb-wait { font-size: 12px; color: var(--muted); line-height: 20px; }
 .chat-image { display: block; max-width: min(360px, 100%); max-height: 280px; border-radius: 4px; margin: 4px 0; }
 .chat-input { flex: 1 1 200px; min-width: 120px; resize: none; border: 0; outline: 0; background: none; color: var(--fg-strong); font: 12.5px/1.5 var(--mono); padding: 2px 0; max-height: 160px; }
 .chat-helper { flex: 0 0 100%; color: var(--muted); font-size: 11px; }
 .chat-helper:empty { display: none; }
-.chat-suggest { position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 5; padding: 4px; background: var(--group); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+.chat-suggest { position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 5; padding: 4px; background: var(--group); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow-float, rgba(0, 0, 0, 0.45)); }
 .chat-suggest-row { display: grid; grid-template-columns: 14px auto minmax(0, 1fr); align-items: center; column-gap: 8px; width: 100%; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--fg); font: 12.5px var(--mono); text-align: left; cursor: pointer; }
 .chat-suggest-row.on, .chat-suggest-row:hover { background: var(--sel); color: var(--fg-strong); }
 .chat-suggest-row .meta { color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-suggest-foot { padding: 4px 8px 2px; color: var(--muted); font-size: 11px; }
 
 /* Menus and dialogs: fixed to the page, the panel's own tones. */
-.chat-menu { position: fixed; z-index: 40; min-width: 220px; max-width: 420px; padding: 4px; background: var(--group); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); font: 12.5px var(--mono); color: var(--fg); }
+.chat-menu { position: fixed; z-index: 40; min-width: 220px; max-width: 420px; padding: 4px; background: var(--group); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow-float, rgba(0, 0, 0, 0.45)); font: 12.5px var(--mono); color: var(--fg); }
 .chat-menu-title { padding: 6px 8px 4px; color: var(--muted); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 .chat-mi { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--fg); font: 12.5px var(--mono); text-align: left; cursor: pointer; }
 .chat-mi:hover { background: var(--sel); color: var(--fg-strong); }
@@ -1923,8 +2018,8 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-ask .chat-menu-title { flex: 0 0 100%; text-transform: none; letter-spacing: 0; }
 .chat-ask-input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; background: var(--well); border: 1px solid var(--edge); border-radius: 6px; color: var(--fg-strong); font: 12.5px var(--mono); }
 
-.chat-modal-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; background: rgba(10, 12, 15, 0.55); }
-.chat-modal { width: min(560px, 100%); max-height: 84vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); font: 12.5px var(--mono); color: var(--fg); overflow: hidden; }
+.chat-modal-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; background: var(--scrim, rgba(10, 12, 15, 0.55)); }
+.chat-modal { width: min(560px, 100%); max-height: 84vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; box-shadow: 0 16px 48px var(--shadow-dialog, rgba(0, 0, 0, 0.5)); font: 12.5px var(--mono); color: var(--fg); overflow: hidden; }
 .chat-modal-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 14px; background: var(--chrome); border-bottom: 1px solid var(--line); color: var(--fg-strong); font-weight: 700; }
 .chat-modal-head .sp { flex: 1; }
 .chat-modal-search { margin: 12px 12px 4px; height: 34px; padding: 0 10px; background: var(--well); border: 1px solid var(--edge); border-radius: 8px; color: var(--fg-strong); font: 12.5px var(--mono); }
@@ -1934,7 +2029,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-agent { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px; row-gap: 2px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--fg); font: 12.5px var(--mono); text-align: left; cursor: pointer; }
 .chat-agent:hover { background: var(--hover); }
 .chat-agent.on { background: var(--sel); }
-.chat-agent .ck { grid-row: span 2; align-self: center; width: 12px; height: 12px; border: 1.5px solid var(--edge); border-radius: 3px; font-size: 9px; line-height: 12px; text-align: center; color: var(--well); }
+.chat-agent .ck { grid-row: span 2; align-self: center; width: 12px; height: 12px; border: 1.5px solid var(--edge); border-radius: 3px; font-size: 9px; line-height: 12px; text-align: center; color: var(--on-accent, var(--well)); }
 .chat-agent.on .ck { background: var(--accent); border-color: var(--accent); }
 .chat-agent .t { color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-agent .hd { margin-left: 8px; color: var(--accent); font-size: 11.5px; }
@@ -1949,10 +2044,10 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 .chat-modal-spawn { display: flex; align-items: center; gap: 8px; margin: 0 12px; padding: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .chat-btn { height: 26px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 6px; background: var(--group); color: var(--fg); font: 500 12px var(--mono); cursor: pointer; }
 .chat-btn:hover { border-color: var(--accent); }
-.chat-btn.pri { background: var(--accent); border-color: var(--accent); color: #10141a; font-weight: 700; }
+.chat-btn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #10141a); font-weight: 700; }
 .chat-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .chat-btn.danger { border-color: var(--red); color: var(--red); }
-.chat-btn.danger:hover { background: var(--red); color: #10141a; }
+.chat-btn.danger:hover { background: var(--red); color: var(--on-danger, #10141a); }
 .chat-delete { max-width: 380px; }
 .chat-delete-note { flex: 0 0 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .chat-delete-shut { flex: 0 0 100%; display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; color: var(--fg); font-size: 12.5px; line-height: 1.45; cursor: pointer; }
@@ -2036,8 +2131,8 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 :is(.chat-agent-switch,.chat-code-copy):active:not(:disabled) { background: var(--sel); }
 @media (prefers-reduced-motion: reduce) { .chat-agent-switch { transition: none; } }
 /* Cross-workspace search keeps the existing scoped searches and their shortcuts. */
-.global-search { box-sizing: border-box; width: min(720px, calc(100vw - 32px)); max-height: min(720px, 85vh); margin: 8vh auto 0; padding: 16px; color: var(--fg); background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 16px 48px #0008; font: 13px var(--mono); }
-.global-search::backdrop { background: #0a0c0f99; }
+.global-search { box-sizing: border-box; width: min(720px, calc(100vw - 32px)); max-height: min(720px, 85vh); margin: 8vh auto 0; padding: 16px; color: var(--fg); background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 16px 48px var(--shadow-dialog, #0008); font: 13px var(--mono); }
+.global-search::backdrop { background: var(--scrim, #0a0c0f99); }
 .global-search-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .global-search-head h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--fg-strong); }
 .global-search-input { box-sizing: border-box; width: 100%; padding: 12px; color: var(--fg); background: var(--well); border: 1px solid var(--edge); border-radius: 4px; font: inherit; }
@@ -2063,8 +2158,8 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-brief-preview[open] > .chat-markdown { margin: 12px 0; max-height: 240px; overflow: auto; }
 .chat-handoff-action { display: block; margin: 4px 0 0; padding: 2px 6px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--muted); font: 11px var(--mono); cursor: pointer; }
 .chat-handoff-action:hover { background: var(--hover); color: var(--accent); border-color: var(--edge); }
-.chat-task-dialog { width: min(640px, calc(100vw - 48px)); max-height: 84vh; padding: 0; color: var(--fg); background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 16px 48px #0008; font: 12px var(--mono); }
-.chat-task-dialog::backdrop { background: #0a0c0f99; }
+.chat-task-dialog { width: min(640px, calc(100vw - 48px)); max-height: 84vh; padding: 0; color: var(--fg); background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 16px 48px var(--shadow-dialog, #0008); font: 12px var(--mono); }
+.chat-task-dialog::backdrop { background: var(--scrim, #0a0c0f99); }
 .chat-task-form { display: flex; flex-direction: column; max-height: 84vh; }
 .chat-task-form h2 { flex: none; margin: 0; padding: 16px; background: var(--chrome); border-bottom: 1px solid var(--line); font-size: 16px; color: var(--fg-strong); }
 .chat-task-body { display: flex; flex-direction: column; gap: 16px; padding: 16px; overflow: auto; }
@@ -2135,7 +2230,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 /* Agent family marks: Claude's logo in its brand orange, Codex in the text colour. */
 .agent-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; }
 .agent-mark svg { width: 100%; height: 100%; display: block; }
-.agent-mark.claude { color: #d97757; }
+.agent-mark.claude { color: var(--claude-mark, #d97757); }
 .agent-mark.codex { color: var(--fg-strong); }
 .chat-line > .agent-mark { align-self: start; margin-top: 3px; }
 .chat-chip .agent-mark { width: 12px; height: 12px; margin-right: 3px; }
@@ -2205,9 +2300,10 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .chat-find:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chat-message.chat-hit { border-radius: 6px; animation: chat-hit 2.6s ease-out; }
 .chat-message.chat-hit:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
-@keyframes chat-hit { from { background: color-mix(in oklab, var(--accent) 28%, transparent); } to { background: transparent; } }
-@media (prefers-reduced-motion: reduce) { .chat-message.chat-hit { animation: none; background: color-mix(in oklab, var(--accent) 16%, transparent); } }
+@keyframes chat-hit { from { background: color-mix(in oklab, var(--accent) var(--hit-wash, 28%), transparent); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .chat-message.chat-hit { animation: none; background: color-mix(in oklab, var(--accent) var(--hit-still, 16%), transparent); } }
 .chat-tab.similar > summary { opacity: .6; }
+:root[data-theme="light"] .chat-tab.similar > summary { opacity: 1; color: var(--dim); }
 /* Every working agent's switch is in view and says so: the row stays for screen readers only. */
 .chat-activity.quiet { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .chat-agent-state.working { display: inline-flex; align-items: center; gap: 5px; }
@@ -2304,7 +2400,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 .pop-menu {
   position: fixed; z-index: 60; min-width: 230px; max-width: 320px; max-height: calc(100vh - 16px); overflow-y: auto;
   padding: 6px; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45); font: 12px/1.3 var(--mono); color: var(--fg);
+  box-shadow: 0 14px 36px var(--shadow-float, rgba(0, 0, 0, 0.45)); font: 12px/1.3 var(--mono); color: var(--fg);
 }
 .pop-head { padding: 6px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .pop-title { color: var(--fg-strong); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2330,7 +2426,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
   height: 26px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 5px; background: transparent;
   color: var(--fg); font: 500 12px/1 var(--mono); cursor: pointer;
 }
-.pop-btn.danger { background: var(--red); border-color: var(--red); color: var(--chrome); font-weight: 700; }
+.pop-btn.danger { background: var(--red); border-color: var(--red); color: var(--on-danger, var(--chrome)); font-weight: 700; }
 .pop-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* A one-tab workspace has no strip: its tab's marks sit in the title bar after
@@ -2371,7 +2467,7 @@ button.chat-name:hover { text-decoration: underline dotted var(--muted); text-un
 #notes-panel:not(.on-system) #system { display: none; }
 
 /* ---- chat: Send, and Settings' own rows (name, max agent replies, rules, archive, delete) ---- */
-.chat-send { flex: none; align-self: flex-end; height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--accent); color: var(--chrome); font: 700 12px/1 var(--mono); cursor: pointer; }
+.chat-send { flex: none; align-self: flex-end; height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--accent); color: var(--on-accent, var(--chrome)); font: 700 12px/1 var(--mono); cursor: pointer; }
 .chat-send:hover { filter: brightness(1.08); }
 .chat-settings-basics { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 4px; }
 .chat-settings-ends { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px 16px; border-top: 1px solid var(--line-soft); }
@@ -2411,7 +2507,7 @@ select.na-input:disabled { color: var(--dim); }
 /* ⌘F's older matches, under the find bar: what tmux kept from before the browser attached. */
 #find-history {
   position: absolute; top: 46px; right: 14px; z-index: 10; width: min(560px, calc(100% - 28px));
-  background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; box-shadow: 0 10px 28px var(--shadow-float, rgba(0, 0, 0, 0.4));
   font: 12px/1.45 var(--mono);
 }
 #find-history[hidden] { display: none; }

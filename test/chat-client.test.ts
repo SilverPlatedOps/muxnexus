@@ -81,7 +81,7 @@ describe("the conversation", () => {
     post(c, "claude1", "@codex1 look", T);
     const rows = messageRows(c).filter((r) => r.kind === "msg");
     expect(rows.map((r) => [r.from, r.shape, r.me])).toEqual([["user", "›", true], ["claude1", "◆", false]]);
-    expect(rows[1]!.colour).toBe("oklch(82% .11 155)");
+    expect(rows[1]!.colour).toBe("var(--member-0)");
     expect(memberColour(c.members[0]!)).toBeNull();
   });
 

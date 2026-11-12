@@ -209,17 +209,14 @@ export function capRule(cap: number): string {
 /** Handed out in order, so two agents of one kind still look different. */
 export const SHAPES = ["◆", "▲", "■", "◇", "△", "□"] as const;
 
-/**
- * One lightness and chroma, hues kept clear of red (needs you), yellow
- * (hazard), blue (links and focus) and the three account hues.
- */
+/** A member's colour, as the stylesheet's token: its values, light and dark, are in style.css. */
 export const MEMBER_COLOURS = [
-  "oklch(82% .11 155)",
-  "oklch(82% .10 345)",
-  "oklch(85% .11 115)",
-  "oklch(80% .07 215)",
-  "oklch(82% .10 280)",
-  "oklch(84% .08 190)",
+  "var(--member-0)",
+  "var(--member-1)",
+  "var(--member-2)",
+  "var(--member-3)",
+  "var(--member-4)",
+  "var(--member-5)",
 ] as const;
 
 /** `@name` not glued to a word, an address or a path before it. */
