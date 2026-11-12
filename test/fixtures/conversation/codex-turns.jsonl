@@ -1,0 +1,8 @@
+{"timestamp":"2026-01-01T10:00:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/work</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-01-01T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"run the tests"}]}}
+{"timestamp":"2026-01-01T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"On it."}]}}
+{"timestamp":"2026-01-01T10:00:03.000Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"call_1","name":"exec","input":"text(await tools.exec_command({cmd:\"bun test\",workdir:\"/work\"}));\n"}}
+{"timestamp":"2026-01-01T10:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":"all passed"}]}}
+{"timestamp":"2026-01-01T10:00:05.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call_2","arguments":"{\"command\":[\"ls\",\"-la\"]}"}}
+{"timestamp":"2026-01-01T10:00:06.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_2","output":"aborted by user after 8.7s"}}
+{"timestamp":"2026-01-01T10:00:07.000Z","type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}

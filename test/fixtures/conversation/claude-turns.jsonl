@@ -1,0 +1,13 @@
+{"type":"user","uuid":"u1","timestamp":"2026-01-01T10:00:00.000Z","promptSource":"typed","message":{"role":"user","content":"run the tests"}}
+{"type":"user","uuid":"u2","timestamp":"2026-01-01T10:00:01.000Z","promptSource":"queued","message":{"role":"user","content":"and then lint"}}
+{"type":"attachment","uuid":"a1","timestamp":"2026-01-01T10:00:02.000Z","attachment":{"type":"queued_command","prompt":"also check types","commandMode":"prompt"}}
+{"type":"user","uuid":"u3","timestamp":"2026-01-01T10:00:03.000Z","message":{"role":"user","content":"[muxnexus · ops · #4 · from @codex (Codex) · peer, not the user]\nplease review"}}
+{"type":"user","uuid":"u4","timestamp":"2026-01-01T10:00:04.000Z","message":{"role":"user","content":"[muxnexus · ops · #5 · from @user · the human, via muxnexus]\nhello room"}}
+{"type":"assistant","uuid":"s1","timestamp":"2026-01-01T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"secret"},{"type":"text","text":"Running them now."}]}}
+{"type":"assistant","uuid":"s2","isSidechain":true,"timestamp":"2026-01-01T10:00:06.000Z","message":{"role":"assistant","content":[{"type":"text","text":"side work"}]}}
+{"type":"assistant","uuid":"s3","timestamp":"2026-01-01T10:00:07.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"mvn -q test"}}]}}
+{"type":"user","uuid":"r1","timestamp":"2026-01-01T10:00:08.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok","is_error":false}]}}
+{"type":"user","uuid":"r2","timestamp":"2026-01-01T10:00:09.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"boom","is_error":true}]}}
+{"type":"user","uuid":"r3","timestamp":"2026-01-01T10:00:10.000Z","toolDenialKind":"user-rejected","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_3","is_error":true,"content":"The user doesn't want to proceed with this tool use."}]}}
+{"type":"user","uuid":"r4","timestamp":"2026-01-01T10:00:11.000Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"system","uuid":"y1","subtype":"compact_boundary","timestamp":"2026-01-01T10:00:12.000Z"}
