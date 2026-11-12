@@ -61,6 +61,10 @@ const NEAR_TOP = 240;
 const TICK_MS = 15_000;
 /** After a page that didn't join what is shown (a failed read), wait this long before asking again. */
 const RETRY_MS = 3000;
+/** The longest message the server takes (server.ts `isText`): one longer is refused with no `conv-result`. */
+const MAX_TEXT = 100_000;
+/** A send with no answer by then is given up, so Send comes back whatever happened to it. */
+const SEND_GIVE_UP_MS = 15_000;
 
 const DOTS = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="8" r="1.2"></circle><circle cx="8" cy="8" r="1.2"></circle><circle cx="12" cy="8" r="1.2"></circle></svg>';
 const PLAY = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 3v10l8-5z"></path></svg>';
@@ -124,8 +128,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let card: Card | null = null;
   let screen = false;
   let working = false;
-  /** A send waiting for its `conv-result`: Send stays off, so a double tap pastes once. */
-  let pending: { req: string; windowId: string; text: string } | null = null;
+  /** A send waiting for its `conv-result`, in the tab shown: Send stays off, so a double tap pastes once. */
+  let pending: { req: string; text: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** A stop waiting for its `conv-result`. */
   let stopping: string | null = null;
   /** What was typed in each tab and not sent: switching tabs keeps it. */
@@ -412,10 +416,25 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     input.style.height = `${Math.min(input.scrollHeight + 2, 180)}px`;
   }
 
+  /** Forget the send in flight: answered, given up, or for a tab no longer shown. */
+  function dropPending() {
+    if (pending) clearTimeout(pending.timer);
+    pending = null;
+  }
+
   function send(text: string, replace = false) {
     if (!windowId || !conversation || pending || text.trim() === "") return;
+    if (text.length > MAX_TEXT) {
+      deps.toast(`Too long to send: ${text.length} characters, ${MAX_TEXT} at most`);
+      return;
+    }
     const req = `send-${++seq}`;
-    pending = { req, windowId, text };
+    const timer = setTimeout(() => {
+      if (pending?.req !== req) return;
+      pending = null;
+      paintSlot();
+    }, SEND_GIVE_UP_MS);
+    pending = { req, text, timer };
     draftEl.hidden = true;
     deps.send({ t: "conv-send", req, windowId, conversation, text, ...(replace ? { replace: true } : {}) });
     paintSlot();
@@ -509,18 +528,15 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   function result(m: Extract<ServerMessage, { t: "conv-result" }>) {
     if (pending && m.req === pending.req) {
       const sent = pending;
-      pending = null;
-      const here = sent.windowId === windowId;
+      dropPending();
       if (m.ok) {
-        if (typed.get(sent.windowId) === sent.text) typed.delete(sent.windowId);
-        if (here && input.value === sent.text) {
+        if (windowId && typed.get(windowId) === sent.text) typed.delete(windowId);
+        if (input.value === sent.text) {
           input.value = "";
           grow();
         }
-      } else if (m.draft !== undefined) {
-        if (here) showDraft(m.draft, sent.text);
-        else deps.toast("Not sent: the desk's prompt already holds text");
-      } else if (m.error) deps.toast(CONV_ERROR[m.error]);
+      } else if (m.draft !== undefined) showDraft(m.draft, sent.text);
+      else if (m.error) deps.toast(CONV_ERROR[m.error]);
       // Neither: the action threw, and an `error` message says why.
       paintSlot();
     } else if (stopping !== null && m.req === stopping) {
@@ -582,6 +598,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       screen = false;
       working = false;
       stopping = null;
+      dropPending();
       drawn.clear();
       list.replaceChildren();
       draftEl.hidden = true;
@@ -605,7 +622,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       conversation = null;
       items = [];
       orphans = [];
-      pending = null;
+      dropPending();
       stopping = null;
       drawn.clear();
       list.replaceChildren();
