@@ -46,5 +46,8 @@ test("unreadable or unwritable storage still folds, for this page", () => {
   const folded = createFolded(broken);
   folded.set("work", true);
   expect(folded.has("work")).toBe(true);
-  expect(createFolded(memoryStore({ "muxnexus.collapsed": "{nope" })).keys().size).toBe(0);
+  // A corrupt stored value counts as nothing folded: the next save holds only what was folded since.
+  const store = memoryStore({ "muxnexus.collapsed": "{nope" });
+  createFolded(store).set("work", true);
+  expect(JSON.parse(store.data.get("muxnexus.collapsed")!)).toEqual(["work"]);
 });

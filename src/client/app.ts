@@ -18,7 +18,7 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { marksShown, memoryShown, openDisplay } from "./display";
+import { memoryShown, openDisplay } from "./display";
 import { memoryStore } from "./memory";
 import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
@@ -26,12 +26,6 @@ import { createDockerPanel, loadTab, type OverviewTab, saveTab } from "./docker"
 import { GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, sessionGlyph } from "./agent";
 import type { SessionInfo, SwapNotice, SystemStats, UsageSource, WindowInfo } from "../shared/protocol";
 import { createFolded } from "./folded";
-import { buildWorld, nextWaiting, type World } from "./world";
-import { diffWorlds } from "./transitions";
-import { sessionName, type WorldActions } from "./world-actions";
-import { createViewHost } from "./view-host";
-import { createVaultView } from "./views/vault";
-import { createDebugView } from "./views/debug";
 import { createChatUI, type ChatUI } from "./chat/ui";
 import { createGlobalSearch } from "./global-search";
 
@@ -68,8 +62,6 @@ const findCount = document.getElementById("find-count")!;
 const findPrevBtn = document.getElementById("find-prev")!;
 const findNextBtn = document.getElementById("find-next")!;
 const findCloseBtn = document.getElementById("find-close")!;
-const viewEl = document.getElementById("view")!;
-const viewToggle = document.getElementById("view-toggle")!;
 const chatEl = document.getElementById("chat")!;
 /** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
 let chatUI: ChatUI | null = null;
@@ -97,8 +89,6 @@ let pendingTabsUntil = 0;
 const PENDING_MS = 5000;
 /** The tmux server the last state came from; a change means its ids were handed out again. */
 let tmuxServer: string | null = null;
-/** The last world views were given, so the next one can be told apart from it. */
-let world: World | null = null;
 /** Whether a session is attached and the terminal is what the main area would show. */
 let terminalOn = false;
 const folded = createFolded();
@@ -134,16 +124,13 @@ function showTerminal(on: boolean) {
   terminalOn = on;
   if (!on) closeFind();
   paintMain();
-  if (on && !views.showing() && !chatUI?.isShowing()) {
+  if (on && !chatUI?.isShowing()) {
     term.fit();
     term.focus();
   }
 }
 
-/** Whether the sidebar was folded before a full-window view folded it; null while none shows. */
-let sidebarBefore: boolean | null = null;
-
-/** What the main area shows: a chat while one is open, a view while one is up, else the terminal or the empty prompt. */
+/** What the main area shows: a chat while one is open, else the terminal or the empty prompt. */
 /** Whether a chat showed at the last paint, and whether a workspace note was open as it came up. */
 let wasChatting = false;
 let notesBeforeChat = false;
@@ -166,37 +153,10 @@ function paintMain() {
       notesBeforeChat = false;
     }
   }
-  const viewing = !chatting && views.showing();
-  const full = viewing && views.fullWindow();
   chatEl.hidden = !chatting;
-  wrapEl.hidden = chatting || viewing || !terminalOn;
-  emptyEl.hidden = chatting || viewing || terminalOn;
-  topbar.hidden = chatting || full || !(viewing || terminalOn);
-  // A full-window view brings its own top bar and folds the sidebar away; ⌘B still opens it.
-  if (full && sidebarBefore === null) {
-    sidebarBefore = layout.classList.contains("collapsed");
-    layout.classList.add("collapsed");
-  } else if (!full && sidebarBefore !== null) {
-    // Put it back only if it is still folded: a ⌘B while the view was up was the user's say.
-    if (layout.classList.contains("collapsed")) layout.classList.toggle("collapsed", sidebarBefore);
-    sidebarBefore = null;
-  }
-  viewToggle.hidden = views.chosen() === "terminal";
-  viewToggle.setAttribute("aria-pressed", String(viewing));
-  // Nothing typed may reach tmux while a view is up: xterm takes keys only while focused.
-  const active = document.activeElement;
-  if (viewing && active instanceof HTMLElement && wrapEl.contains(active)) active.blur();
-}
-
-/** The view came or went: back on the terminal, it gets the room and the keys again. */
-function viewChanged() {
-  paintMain();
-  updateAttention(); // ⌘J goes to a window in a view, a session out of one
-  if (views.showing() || !terminalOn) return;
-  term.fit();
-  // Not from behind a modal: the Display modal is one way a view goes away,
-  // and the Esc that closes it would reach the agent and interrupt its turn.
-  if (!document.querySelector(".modal-back")) term.focus();
+  wrapEl.hidden = chatting || !terminalOn;
+  emptyEl.hidden = chatting || terminalOn;
+  topbar.hidden = chatting || !terminalOn;
 }
 
 /** The attached session, as one chip. Its windows are the tab strip. */
@@ -233,10 +193,10 @@ function updateAttention() {
     n > 0 ? `Show workspaces (${n} waiting for you)` : "Show workspaces",
   );
   // Live whenever ⌘J would go somewhere, counted only when someone elsewhere
-  // is blocked: the one on screen says so on its own chip. A view is on no
+  // is blocked: the one on screen says so on its own chip. A chat is on no
   // one session, so there every one counts.
   const chatting = chatUI?.isShowing() ?? false;
-  const elsewhere = needsYouCount(views.showing() || chatting ? live : live.filter((s) => s.name !== current)) + (chatUI?.asking().length ?? 0);
+  const elsewhere = needsYouCount(chatting ? live : live.filter((s) => s.name !== current)) + (chatUI?.asking().length ?? 0);
   nextBtn.disabled = !nextJump();
   nextCount.hidden = elsewhere === 0;
   nextCount.textContent = String(elsewhere);
@@ -244,19 +204,13 @@ function updateAttention() {
 
 /**
  * Where ⌘J and "Next waiting" go: the next session that wants you, in the order
- * the sidebar draws, so it walks down the list you can see -- or, while a view
- * is up, the window there. Null when nothing wants you, so neither moves you
- * somewhere arbitrary.
+ * the sidebar draws, so it walks down the list you can see. Null when nothing
+ * wants you, so neither moves you somewhere arbitrary.
  */
 function nextJump(): (() => void) | null {
   const chatting = chatUI?.isShowing() ?? false;
-  if (views.showing() && !chatting) {
-    const ref = nextWaiting(liveSessions(), current);
-    if (ref) return () => views.reveal(ref);
-  } else {
-    const next = nextAttention(visualOrder(liveSessions(), sessionLabel), chatting ? null : current);
-    if (next) return () => attach(next);
-  }
+  const next = nextAttention(visualOrder(liveSessions(), sessionLabel), chatting ? null : current);
+  if (next) return () => attach(next);
   // Then a chat with a question for you.
   const ask = chatUI?.asking()[0];
   return ask ? () => { chatUI?.setTab("chats"); chatUI?.open(ask.id); } : null;
@@ -302,7 +256,6 @@ function paintAll() {
   notes.sync();
   updateChip();
   updateAttention();
-  rebuildWorld();
 }
 
 // ---- find in scrollback ----
@@ -798,82 +751,6 @@ function openWindow(session: string, id: string) {
   else if (onPhone()) setDrawer(false);
 }
 
-/** A session's tmux name now, from the id a world ref carries. */
-const nameOf = (id: string) => sessionName(sessions, id);
-
-const worldActions: WorldActions = {
-  openWindow(ref) {
-    const name = nameOf(ref.session);
-    if (!name) return;
-    views.show(false);
-    openWindow(name, ref.window);
-  },
-  openNote(ref) {
-    const name = nameOf(ref.session);
-    if (!name) return;
-    views.show(false);
-    openWindow(name, ref.window);
-    notes.show("window");
-  },
-  openBeside(ref) {
-    const name = nameOf(ref.session);
-    if (!name) return;
-    if (onPhone()) return sidebar.toast("Split needs a wider screen");
-    if (name !== current) return sidebar.toast("A split shows two windows of the open session");
-    views.show(false);
-    split.open(name, ref.window, split.state?.side ?? "right");
-  },
-  nextWaiting: () => nextWaiting(liveSessions(), current),
-  setFolded: (key, on) => folded.set(key, on),
-  newSession: (name) => conn.send({ t: "new-session", name }),
-  renameSession(ref, name) {
-    const s = nameOf(ref.session);
-    if (s) conn.send({ t: "rename-session", session: s, name });
-  },
-  killSession(ref) {
-    const s = nameOf(ref.session);
-    if (s) conn.send({ t: "kill-session", session: s });
-  },
-  newWindow(ref, agent) {
-    const s = nameOf(ref.session);
-    if (s) conn.send({ t: "new-window", session: s, ...(agent ? { agent } : {}) });
-  },
-  renameWindow(ref, name) {
-    const s = nameOf(ref.session);
-    if (s) conn.send({ t: "rename-window", session: s, id: ref.window, name });
-  },
-  killWindow(ref) {
-    const s = nameOf(ref.session);
-    if (s) conn.send({ t: "kill-window", session: s, id: ref.window });
-  },
-  moveWindowTo(ref, profile) {
-    const s = nameOf(ref.session);
-    if (s) conn.send({ t: "move-window-to", session: s, id: ref.window, profile });
-  },
-};
-
-const views = createViewHost({
-  slot: viewEl,
-  actions: worldActions,
-  views: { vault: createVaultView, debug: createDebugView },
-  changed: viewChanged,
-});
-
-/**
- * The world every view draws from, rebuilt whenever something in it changes --
- * never on a timer: durations are timestamps, counted by each view's own clock.
- */
-function rebuildWorld() {
-  const next = buildWorld({
-    sessions, tmuxServer, usage: usageSources, folded: folded.keys(), current, marksShown: marksShown(),
-  });
-  const events = diffWorlds(world, next, Date.now());
-  world = next;
-  views.update(next, events);
-}
-// A group folded in the sidebar folds in the view too.
-folded.subscribe(rebuildWorld);
-
 const conn = new Connection(wsUrl, {
   onOpen() {
     hideReconnect();
@@ -897,9 +774,6 @@ const conn = new Connection(wsUrl, {
     // the reconnect's onOpen re-sends `attach` instead of treating it as a
     // same-session no-op (attach()'s current === session guard).
     current = null;
-    // The reconnect's first state starts afresh: whatever changed while the
-    // socket was down is not a transition anyone watched happen.
-    world = null;
   },
   onMessage(m) {
     switch (m.t) {
@@ -933,12 +807,9 @@ const conn = new Connection(wsUrl, {
         // conversation can be moved to. Codex's tabs still wear its badge.
         profileLabels = m.sources.filter((s) => s.provider === "claude").map((s) => s.label);
         tabs.setProfiles(badgedLabels(m.sources));
-        rebuildWorld();
         break;
       case "focus":
-        // The desk board asked to show this agent (POST /api/focus): what a click in the
-        // sidebar does, the terminal brought back from any other view first.
-        views.show(false);
+        // The desk board asked to show this agent (POST /api/focus): what a click in the sidebar does.
         openWindow(m.session, m.windowId);
         break;
       case "attached":
@@ -1052,8 +923,7 @@ displayBtn.onclick = () => openDisplay(document.body, () => {
   paintAll();
   renderUsage(usageEl, usageSources);
   syncSystem();
-}, { chosen: views.chosen(), choose: (name) => views.choose(name) });
-viewToggle.onclick = () => views.show(!views.showing());
+});
 overlay.onclick = () => setDrawer(false);
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);
@@ -1125,9 +995,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// The chosen view is what this browser wants to see first.
-if (views.chosen() !== "terminal") views.show(true);
-
 chatUI = createChatUI({
   tabsBar: document.getElementById("side-tabs")!,
   tabChats: document.getElementById("side-tab-chats") as HTMLButtonElement,
@@ -1145,7 +1012,7 @@ chatUI = createChatUI({
   profiles: () => profileLabels,
   currentSession: () => current,
   openWorkspace: (session, windowId) => openWindow(session, windowId),
-  changed: () => { paintMain(); updateAttention(); if (terminalOn && !chatUI?.isShowing() && !views.showing()) term.fit(); },
+  changed: () => { paintMain(); updateAttention(); if (terminalOn && !chatUI?.isShowing()) term.fit(); },
   toast: (message) => sidebar.toast(message),
   onPhone,
   find: () => globalSearch?.open(true),
@@ -1169,11 +1036,9 @@ globalSearch = createGlobalSearch({
   open(hit) {
     if (hit.kind === "note") { notes.openNote(hit.noteId); return; }
     if (hit.kind === "chat" || hit.kind === "chat-message" || hit.kind === "chat-note") {
-      views.show(false);
       chatUI?.reveal({ chatId: hit.chatId, ...(hit.messageId !== undefined ? { messageId: hit.messageId } : {}), ...(hit.kind === "chat-note" ? { notes: true } : {}) });
       return;
     }
-    views.show(false);
     if (hit.kind === "workspace") attach(hit.session);
     else {
       chatUI?.leaveForWorkspace();
