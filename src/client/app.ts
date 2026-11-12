@@ -819,6 +819,8 @@ makeSplit({
 /** Show a window: its session attached, the window selected in the main pane. */
 function openWindow(session: string, id: string) {
   if (convMode) {
+    // As attach does on the desk: a workspace's tab picked while a chat is open leaves the chat.
+    chatUI?.leaveForWorkspace();
     if (onPhone()) setDrawer(false);
     return showConversation(session, id);
   }
