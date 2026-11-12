@@ -117,8 +117,9 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       const read = await tmux.capturePane(info.paneId).then((ansi) => adapterFor(info.kind).readPane(ansi)).catch(() => null);
       card = read?.dialog ?? null;
       working ||= read?.working ?? false;
-      // A waiting stamp over a pane showing no dialog may be stale: Screen, never a guess.
-      screen = !read || read.unrecognised || !!read.field || !card;
+      // A waiting stamp over a pane showing no dialog may be stale: Screen, never a guess. One over an agent plainly at
+      // work (a dialog replaces the prompt box, which then reads unrecognised) was just answered: no Screen, Stop instead.
+      screen = !read || read.unrecognised || !!read.field || (!card && !read.working);
       // The pane shows one question at a time: a multi-select one later in the call would be met half-answered (Decision 4).
       if (card?.kind === "question" && !screen) screen = await multiSelect(sub, info, card);
       if (screen) card = null;

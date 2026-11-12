@@ -102,9 +102,27 @@ describe("the conversation hub", () => {
       await shows("claude-bash-no-field", "screen");
       await shows("claude-plan", "plan");
       await shows("claude-idle-empty", "screen");
-      // Waiting, by the stamp, over an agent at work: still Screen, never a card, and Stop is offered.
-      expect(await shows("claude-working", "screen")).toMatchObject({ card: null, screen: true, working: true });
+      // Waiting, by the stamp, over an agent at work (an answer the hook hasn't caught up with): no Screen, Stop instead.
+      expect(await shows("claude-working", "none")).toMatchObject({ card: null, screen: false, working: true });
       await shows("codex-approval", "screen"); // a Codex dialog on a Claude tab is nothing Claude's reader knows
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("a Codex tab stamped waiting over its working composer shows no Screen; over an idle one it does", async () => {
+    const { state, tmux } = fakeTmux({ kind: "codex", state: "input", thread: { id: "thread-1", path: transcript("codex-turns.jsonl") } }, pane("codex-working"));
+    const hub = createConversationHub({ tmux, pollMs: 30 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      expect(ws.last("conv-card")).toEqual({ t: "conv-card", windowId: "@1", card: null, screen: false, working: true });
+      state.screen = pane("codex-idle-empty");
+      await waitFor(() => ws.all("conv-card").length === 2, 1000, "the idle composer");
+      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: true, working: false });
+      state.screen = pane("codex-approval");
+      await waitFor(() => ws.all("conv-card").length === 3, 1000, "the approval");
+      expect(ws.last("conv-card")!.card?.kind).toBe("approval");
     } finally {
       hub.stop();
     }
