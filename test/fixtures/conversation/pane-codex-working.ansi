@@ -1,0 +1,40 @@
+[2m│ [0mSee full release notes:[2m                                                                                          │[0m
+[2m│ [0;4m[38;2;99;168;248m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest[0;2m]8;;\                                                                  │[0m
+[2m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[0m
+
+
+  [38;2;99;168;248m>_ [1m[39mOpenAI Codex[0;2m (v0.167.1)[0m
+     [2m/private/tmp/claude-501/cvt3[0m
+
+[2m  To get started, describe a task or try one of these commands:[0m
+
+  /init[2m - create an AGENTS.md file with instructions for Codex[0m
+  /status[2m - show current session configuration[0m
+  /permissions[2m - choose what Codex is allowed to do[0m
+  /model[2m - choose what model and reasoning effort to use[0m
+  /review[2m - review any changes and find issues[0m
+
+[48;5;8m
+[1;2m› [0m[48;5;8mRun exactly this one shell command, requesting sandbox_permissions "require_escalated" with the justification "Create
+  a probe file": touch probe2.txt && sleep 20
+
+
+[2m[49m• [0mI’ll run the exact command with the requested escalation justification.
+
+[38;5;2m✔ [39mYou [1mapproved[0m codex to run [2mtouch probe2.txt && sleep 20[0;1m this time[0m
+
+[1m[38;2;128;128;128m•[0m [1mRunning[0m [38;2;137;180;250mtouch[38;2;205;214;244m probe2.txt [38;2;148;226;213m&&[38;2;205;214;244m [38;2;137;180;250msleep[38;2;205;214;244m 20[39m
+
+[1m[38;2;128;128;128m•[0m [2mWorking[0m [2m(7s • [0;1mesc[0;2m to interrupt)[0m
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  [38;2;246;226;183mGPT-6.1-Sol low[39m · [38;2;171;223;167m/private/tmp/claude-501/cvt3[39m · [38;2;245;224;220mCreate probe file[39m · [1m←[0m for agents
+
+
+
+
+
+
+

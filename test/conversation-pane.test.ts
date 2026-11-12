@@ -1,0 +1,273 @@
+import { createHash } from "node:crypto";
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { adapterFor } from "../src/server/conversation/adapter";
+import { fingerprint, paneLines } from "../src/server/conversation/pane";
+
+// Captured with `capture-pane -p -e` from real agents on a scratch tmux (Claude Code 2.1.322, Codex 0.167.1).
+const raw = (name: string) => readFileSync(new URL(`./fixtures/conversation/pane-${name}.ansi`, import.meta.url), "utf8");
+const claude = (name: string) => adapterFor("claude").readPane(raw(`claude-${name}`));
+const codex = (name: string) => adapterFor("codex").readPane(raw(`codex-${name}`));
+const anyPrint = expect.stringMatching(/^[0-9a-f]{40}$/);
+
+test("escapes are stripped; a colour argument of 2 is not dim, SGR 2 is until 22 or a reset", () => {
+  const [line] = paneLines("\x1b[38;2;2;2;2mA\x1b[2mB\x1b[22mC\x1b[1;2mD\x1b[0mE\x1b]8;id=x;file:///tmp/f\x1b\\F\x1b]8;;\x1b\\");
+  expect(line!.text).toBe("ABCDEF");
+  expect(line!.dim).toEqual([false, true, false, true, false, false]);
+});
+
+test("dim and highlight carry from one row to the next, as tmux writes them", () => {
+  const lines = paneLines("\x1b[2ma\nb\x1b[0m\n\x1b[48;2;1;2;3mc\x1b[49md");
+  expect(lines.map((l) => l.text)).toEqual(["a", "b", "cd"]);
+  expect(lines[1]!.dim).toEqual([true]);
+  expect(lines[2]!.highlight).toEqual([true, false]);
+});
+
+test("a Bash prompt is a permission card with the command and the pane's own options", () => {
+  expect(claude("bash-permission")).toEqual({
+    dialog: {
+      kind: "permission",
+      title: "Bash command",
+      detail: "touch probe.txt && sleep 20",
+      options: [
+        { index: 1, label: "Yes" },
+        { index: 2, label: "Yes, and always allow access to /private/tmp/claude-501/cvt3 from this project", secondary: true },
+        { index: 3, label: "Yes, and switch to auto mode · auto mode handles these prompts for you", secondary: true },
+        { index: 4, label: "No", takesText: true },
+      ],
+      fingerprint: anyPrint,
+    },
+    unrecognised: false,
+    draft: "unknown",
+    working: false,
+  });
+});
+
+test("a Write prompt names the file; an Edit prompt adds the diff", () => {
+  const write = claude("write-permission").dialog;
+  expect(write).toEqual({
+    kind: "permission",
+    title: "Create file",
+    detail: "notes.txt",
+    options: [
+      { index: 1, label: "Yes" },
+      { index: 2, label: "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)", secondary: true },
+      { index: 3, label: "No", takesText: true },
+    ],
+    fingerprint: anyPrint,
+  });
+  const edit = claude("edit-permission").dialog;
+  expect(edit).toMatchObject({ kind: "permission", title: "Edit file", detail: "notes.txt\n1  alpha\n2 -beta\n2 +gamma" });
+  expect(edit!.options.map((o) => o.index)).toEqual([1, 2, 3]);
+  expect(edit!.options[2]).toEqual({ index: 3, label: "No", takesText: true });
+});
+
+test("a plan approval carries the plan; its last row takes the user's words", () => {
+  const r = claude("plan");
+  expect(r.unrecognised).toBe(false);
+  expect(r.dialog).toEqual({
+    kind: "plan",
+    title: "Ready to code?",
+    detail: [
+      'Plan: create hello.txt containing "hi"', "", "Context", "",
+      "The user wants a file named hello.txt whose content is hi. No exploration is needed.", "", "Steps", "",
+      "1. Choose the location: /private/tmp/claude-501/cvt3/hello.txt (the working directory).",
+      "2. Create the file with the Write tool, with content hi followed by a newline.",
+      "3. Verify the file exists and contains exactly hi (e.g. read it back).", "", "Verification", "",
+      "Reading hello.txt returns the single line hi.",
+    ].join("\n"),
+    options: [
+      { index: 1, label: "Yes, and use auto mode", secondary: true },
+      { index: 2, label: "Yes, manually approve edits" },
+      { index: 3, label: "Tell Claude what to change", takesText: true },
+    ],
+    fingerprint: anyPrint,
+  });
+});
+
+test("single-select questions are cards, numbered by the highlighted tab", () => {
+  expect(claude("question")).toEqual({
+    dialog: {
+      kind: "question",
+      title: "Pick a colour",
+      options: [
+        { index: 1, label: "red" },
+        { index: 2, label: "green" },
+        { index: 3, label: "blue" },
+        { index: 4, label: "Type something.", takesText: true },
+        { index: 5, label: "Chat about this", secondary: true },
+      ],
+      fingerprint: anyPrint,
+      question: { at: 1, of: 2 },
+    },
+    unrecognised: false,
+    draft: "unknown",
+    working: false,
+  });
+  expect(claude("question-2").dialog).toMatchObject({ title: "Pick a size", question: { at: 2, of: 2 } });
+  expect(claude("question-2").dialog!.options.map((o) => o.label)).toEqual(["small", "large", "Type something.", "Chat about this"]);
+});
+
+test("the review step is a card of its own, with the answers as detail", () => {
+  expect(claude("question-review").dialog).toEqual({
+    kind: "question",
+    title: "Review your answers",
+    detail: "● Pick a colour\n  → green\n● Pick a size\n  → medium",
+    options: [{ index: 1, label: "Submit answers" }, { index: 2, label: "Cancel" }],
+    fingerprint: anyPrint,
+  });
+});
+
+/** The capture with its last row replaced. */
+const withFooter = (ansi: string, footer: string) => {
+  const rows = ansi.split("\n");
+  let i = rows.length - 1;
+  while (i > 0 && rows[i]!.replace(/\x1b\[[0-9;]*m/g, "").trim() === "") i--;
+  rows[i] = footer;
+  return rows.join("\n");
+};
+const QUESTION_FOOTER = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
+
+test("a multi-select question is not a card", () => {
+  expect(claude("question-multi")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+  // Not even under the single-select footer: its rows carry checkboxes.
+  expect(adapterFor("claude").readPane(withFooter(raw("claude-question-multi"), QUESTION_FOOTER))).toMatchObject({ dialog: null, unrecognised: true });
+});
+
+test("a dialog whose text box has focus is not a card: a digit would be typed, not chosen", () => {
+  expect(claude("question-typing")).toMatchObject({ dialog: null, unrecognised: true });
+  expect(adapterFor("claude").readPane(withFooter(raw("claude-question-typing"), QUESTION_FOOTER))).toMatchObject({ dialog: null, unrecognised: true });
+  expect(adapterFor("claude").readPane(withFooter(raw("claude-question-2"), QUESTION_FOOTER)).dialog).not.toBeNull();
+  // The plan's feedback row keeps the same footer: only the selection shows the field has focus.
+  expect(claude("plan-feedback")).toMatchObject({ dialog: null, unrecognised: true });
+});
+
+test("a Codex approval is a card with the command; its decline row takes the user's words", () => {
+  expect(codex("approval")).toEqual({
+    dialog: {
+      kind: "approval",
+      title: "Would you like to run the following command?",
+      detail: "$ touch probe2.txt && sleep 20",
+      options: [
+        { index: 1, label: "Yes, proceed" },
+        { index: 2, label: "Yes, and don't ask again for commands that start with `touch probe2.txt`", secondary: true },
+        { index: 3, label: "No, and tell Codex what to do differently", takesText: true },
+      ],
+      fingerprint: anyPrint,
+    },
+    unrecognised: false,
+    draft: "unknown",
+    working: false,
+  });
+});
+
+test("a stamp that says waiting proves nothing: an idle pane has no card", () => {
+  for (const name of ["idle-empty", "idle-draft", "idle-multiline-draft", "idle-pasted", "idle-suggestion", "idle-list", "working", "queued"]) {
+    expect({ name, ...claude(name) }).toMatchObject({ name, dialog: null, unrecognised: false });
+  }
+  for (const name of ["idle-empty", "idle-draft", "idle-multiline-draft", "working"]) {
+    expect({ name, ...codex(name) }).toMatchObject({ name, dialog: null, unrecognised: false });
+  }
+});
+
+test("only the prompt's own glyph marks Claude's box: `❯` and a no-break space", () => {
+  const rule = "─".repeat(40);
+  expect(adapterFor("claude").readPane(`${rule}\n❯\u00a0hi\n${rule}\n`)).toMatchObject({ unrecognised: false, draft: "text", draftText: "hi" });
+  // A submitted prompt or a dialog's selected row has a plain space.
+  expect(adapterFor("claude").readPane(`${rule}\n❯ hi\n${rule}\n`)).toMatchObject({ dialog: null, unrecognised: true, draft: "unknown" });
+});
+
+test("an unknown Codex dialog is never read as the composer", () => {
+  // A hotkey the reader hasn't seen, and no row selected: the last `›` left is a submitted prompt's.
+  const pane = raw("codex-approval").replace("(\x1b[1mesc\x1b[0m)", "(\x1b[1mn\x1b[0m)").replace("\x1b[1;7m› 1.", "  1.");
+  expect(pane).not.toBe(raw("codex-approval"));
+  expect(adapterFor("codex").readPane(pane)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+});
+
+test("a wrapped dialog fails closed", () => {
+  expect(claude("bash-permission-60col")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+});
+
+test("dialogs no adapter knows, and panes that aren't an agent's, fail closed", () => {
+  expect(claude("trust")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+  expect(codex("update")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+  for (const kind of ["claude", "codex"] as const) {
+    expect(adapterFor(kind).readPane("")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+    expect(adapterFor(kind).readPane("$ ls\nfile.txt\n$ ")).toMatchObject({ dialog: null, unrecognised: true });
+  }
+});
+
+test("Claude's prompt: dim text is a placeholder, anything else is the user's draft", () => {
+  expect(claude("idle-empty")).toMatchObject({ draft: "empty" });
+  expect(claude("idle-empty")).not.toHaveProperty("draftText");
+  expect(claude("idle-suggestion")).toMatchObject({ draft: "empty" });
+  expect(claude("working")).toMatchObject({ draft: "empty" });
+  expect(claude("idle-draft")).toMatchObject({ draft: "text", draftText: "hello draft" });
+  expect(claude("idle-multiline-draft")).toMatchObject({ draft: "text", draftText: "draft one\ndraft two" });
+  expect(claude("idle-pasted")).toMatchObject({ draft: "text", draftText: "[Pasted text #1 +39 lines]" });
+  // Dim, but it stands for messages waiting to be sent: never treated as an empty prompt.
+  expect(claude("queued")).toMatchObject({ draft: "text", draftText: "Press up to edit queued messages" });
+  expect(claude("bash-permission")).toMatchObject({ draft: "unknown" });
+  expect(claude("trust")).toMatchObject({ draft: "unknown" });
+});
+
+test("Codex's composer: the dim placeholder is empty, typed or pasted text is a draft", () => {
+  expect(codex("idle-empty")).toMatchObject({ draft: "empty" });
+  expect(codex("working")).toMatchObject({ draft: "empty" });
+  expect(codex("idle-draft")).toMatchObject({ draft: "text", draftText: "hello draft" });
+  expect(codex("idle-multiline-draft")).toMatchObject({ draft: "text", draftText: "line one\nline two" });
+  expect(codex("approval")).toMatchObject({ draft: "unknown" });
+});
+
+test("working: Claude's spinner and Codex's Working line; idle panes are not working", () => {
+  expect(claude("working").working).toBe(true);
+  expect(claude("queued").working).toBe(true);
+  expect(codex("working").working).toBe(true);
+  for (const name of ["idle-empty", "idle-draft", "idle-list"]) expect(claude(name).working).toBe(false);
+  for (const name of ["idle-empty", "idle-draft"]) expect(codex(name).working).toBe(false);
+});
+
+test("the fingerprint is sha1 of its parts joined by newlines", () => {
+  expect(fingerprint(["Bash command", "ls"])).toBe(createHash("sha1").update("Bash command\nls").digest("hex"));
+});
+
+test("the fingerprint changes when the command changes and only then", () => {
+  const pane = raw("claude-bash-permission");
+  const print = (ansi: string) => adapterFor("claude").readPane(ansi).dialog?.fingerprint;
+  const base = print(pane);
+  expect(base).toEqual(anyPrint);
+
+  // The desk moved the selection to "No": a digit still means the same option.
+  const moved = pane
+    .replace("\x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m1.", "  \x1b[38;2;153;153;153m1.")
+    .replace("   \x1b[38;2;153;153;153m4.", " \x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m4.");
+  expect(moved).not.toBe(pane);
+  expect(adapterFor("claude").readPane(moved).dialog!.options.map((o) => o.label)).toEqual(["Yes", expect.any(String), expect.any(String), "No"]);
+  expect(print(moved)).toBe(base);
+
+  // The tip comes and goes; the conversation above the dialog scrolls.
+  const tip = pane.replace(/\n \x1b\[1mTip: [^\n]*/, "");
+  expect(tip).not.toBe(pane);
+  expect(print(tip)).toBe(base);
+  const above = pane.replace("Use the Bash tool once", "Use the shell once");
+  expect(above).not.toBe(pane);
+  expect(print(above)).toBe(base);
+
+  // A different command is a different prompt.
+  const other = pane.replace("m touch probe.txt && sleep 20\n", "m touch probe.txt && sleep 30\n");
+  expect(other).not.toBe(pane);
+  expect(adapterFor("claude").readPane(other).dialog!.detail).toBe("touch probe.txt && sleep 30");
+  expect(print(other)).not.toBe(base);
+});
+
+test("Codex's fingerprint follows the command, not the highlighted row", () => {
+  const pane = raw("codex-approval");
+  const print = (ansi: string) => adapterFor("codex").readPane(ansi).dialog?.fingerprint;
+  const base = print(pane);
+  const moved = pane.replace("\x1b[1;7m› 1. Yes, proceed (y)\n\x1b[0m  2.", "  1. Yes, proceed (y)\n\x1b[1;7m› 2.");
+  expect(moved).not.toBe(pane);
+  expect(print(moved)).toBe(base);
+  const other = pane.replace(/\$ (\x1b\[[0-9;]*m)touch/, "$ $1rm");
+  expect(other).not.toBe(pane);
+  expect(print(other)).not.toBe(base);
+});

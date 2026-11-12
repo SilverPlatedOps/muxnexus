@@ -1,0 +1,40 @@
+[38;2;215;119;87m ▐[48;2;0;0;0m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;2;153;153;153mv2.1.322[39m
+[38;2;215;119;87m▝▜[48;2;0;0;0m█████[49m█▀[39m  [38;2;153;153;153mHaiku[39m [38;2;153;153;153m5.5[39m [38;2;153;153;153m·[39m [38;2;153;153;153mClaude[39m [38;2;153;153;153mMax[39m
+[38;2;215;119;87m ▝▝[39m   [38;2;215;119;87m▝▝[39m   [38;2;153;153;153m/private/tmp/claude-501/cvt3[39m
+
+
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mUse the Bash tool once to run exactly this command, with no other tools: touch probe.txt && sleep 20[39m
+
+[38;2;51;153;255m[49m⏺[39m [1mBash[0m(touch probe.txt && sleep 20)
+[38;2;153;153;153m  ⎿  (No output)[39m
+
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mthen say done[39m
+
+[38;2;255;255;255m[49m⏺[39m Done.
+
+[38;2;153;153;153m✻[39m [38;2;153;153;153mBaked for 24s · done 1:45 AM[39m
+
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mUse the Write tool once to create notes.txt containing exactly two lines: alpha and beta. No other tools.[39m
+
+[38;2;51;153;255m[49m⏺[39m [1mWrite[0m(]8;id=1b04xo9;file:///private/tmp/claude-501/cvt3/notes.txt\notes.txt]8;;\)
+[38;2;153;153;153m  ⎿  [39mWrote [1m2[0m lines to [1m]8;id=1b04xo9;file:///private/tmp/claude-501/cvt3/notes.txt\notes.txt[0m]8;;\
+     [2m[38;2;248;248;242m 1 [0m[38;2;248;248;242malpha[39m
+     [2m[38;2;248;248;242m 2 [0m[38;2;248;248;242mbeta[39m
+
+[38;2;255;255;255m⏺[39m I created [38;2;153;204;255m/private/tmp/claude-501/cvt3/notes.txt[39m with two lines, [38;2;153;204;255malpha[39m and [38;2;153;204;255mbeta[39m, using the Write tool.
+
+[38;2;153;153;153m✻[39m [38;2;153;153;153mCogitated for 3s · done 1:46 AM[39m
+
+[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m❯ [2mshow me notes.txt[0m
+[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;2;153;153;153m⏸ manual mode on · ? for shortcuts · ← 2 agents[39m                                                   [38;2;153;153;153m◐ medium · /effort[39m
+
+
+
+
+
+
+
+
+
