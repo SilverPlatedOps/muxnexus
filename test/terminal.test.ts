@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { debounce, linkTarget, wheelLines } from "../src/client/terminal";
+import { debounce, linkTarget, pastedImage, wheelLines } from "../src/client/terminal";
 
 test("debounce collapses rapid calls into the last one", async () => {
   const calls: number[] = [];
@@ -35,4 +35,15 @@ test("a link opens on the web as itself, a local file through the server, anythi
   expect(linkTarget("vscode://file/tmp/x")).toBeNull();
   expect(linkTarget("not a url")).toBeNull();
   expect(linkTarget("file:///tmp/100%zz.png")).toBeNull();
+});
+
+test("a paste goes to the server only when it is a picture with no text", () => {
+  const png = new File([new Uint8Array([1])], "shot.png", { type: "image/png" });
+  const clip = (text: string, files: File[]) => ({ getData: (t: string) => (t === "text/plain" ? text : ""), files });
+  expect(pastedImage(clip("", [png]))).toBe(png);
+  // A spreadsheet's cells come as text and a picture of them: the text is what was meant.
+  expect(pastedImage(clip("a\tb", [png]))).toBeNull();
+  expect(pastedImage(clip("", [new File(["%PDF"], "a.pdf", { type: "application/pdf" })]))).toBeNull();
+  expect(pastedImage(clip("hello", []))).toBeNull();
+  expect(pastedImage(null)).toBeNull();
 });

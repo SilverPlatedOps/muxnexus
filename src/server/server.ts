@@ -17,6 +17,7 @@ import { claudeAdapter, codexAdapter } from "./chat/adapters";
 import { isThisMachine, parseFocusRequest } from "./focus";
 import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
 import { createImageStore } from "./chat/images";
+import { createPasteStore } from "./pastes";
 import { createChatStore, isChatId } from "./chat/store";
 import type { DockerReader } from "./docker";
 import type { MemoryReader, MemoryReading } from "./memory";
@@ -99,6 +100,8 @@ export interface ServerOptions {
    * or deliver anything of the user's.
    */
   chatsDir?: string;
+  /** Where images pasted into a terminal are saved. Absent, there is no paste route. */
+  pastesDir?: string;
 }
 
 export interface RunningServer {
@@ -580,6 +583,29 @@ export function createServer(opts: ServerOptions): RunningServer {
       return got ? new Response(got.bytes as unknown as BodyInit, { headers: { "content-type": got.type, "x-content-type-options": "nosniff", "cache-control": "private, max-age=31536000, immutable" } }) : new Response("Not found", { status: 404 });
     }
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  const pastes = opts.pastesDir ? createPasteStore(opts.pastesDir) : null;
+
+  /**
+   * An image pasted into a terminal: POST /api/paste-image with the bytes, and
+   * the answer is the path it was saved at, on this machine. A page of this
+   * server only, as for chat images.
+   */
+  async function pasteImage(req: Request): Promise<Response> {
+    if (!pastes) return new Response("Not found", { status: 404 });
+    if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    if (!hostAllowed(req.headers.get("host"), allowedHosts)) return new Response("Forbidden: unrecognised Host", { status: 403 });
+    const site = req.headers.get("sec-fetch-site");
+    if (site !== null && site !== "same-origin" && site !== "none") return new Response("Forbidden: cross-site", { status: 403 });
+    const origin = req.headers.get("origin");
+    if (origin !== null) {
+      try { if (new URL(origin).host !== req.headers.get("host")) return new Response("Forbidden: cross-origin", { status: 403 }); } catch { return new Response("Forbidden", { status: 403 }); }
+    }
+    const length = Number(req.headers.get("content-length") ?? 0);
+    if (length > 11 * 1024 * 1024) return Response.json({ ok: false, error: "That image is too large." }, { status: 413 });
+    const saved = await pastes.save(new Uint8Array(await req.arrayBuffer()));
+    return saved.ok ? Response.json({ ok: true, path: saved.path }) : Response.json({ ok: false, error: saved.error }, { status: saved.status });
   }
 
   let polling: Promise<void> | null = null;
@@ -1259,6 +1285,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       if (url.pathname === "/api/chat/hook") return chatHook(req, srv.requestIP(req));
       if (url.pathname === "/api/focus") return focusPane(req, srv.requestIP(req));
       if (url.pathname.startsWith("/api/chat/image/")) return chatImage(req, url);
+      if (url.pathname === "/api/paste-image") return pasteImage(req);
       if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
         // policy, so any page open in the user's browser could otherwise

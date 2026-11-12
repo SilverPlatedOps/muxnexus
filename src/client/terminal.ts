@@ -29,6 +29,26 @@ export interface TerminalHandlers {
   onSearch?(s: SearchState): void;
   /** A link was clicked, a web page or a `/file` address: true when it was shown here rather than in a new tab. */
   onLink?(target: string): boolean;
+  /** Something to tell the user, such as a pasted image the server would not take. */
+  toast?(message: string): void;
+}
+
+/**
+ * The image a paste carries, when that is all it carries. A screenshot comes as
+ * a picture alone; a spreadsheet's cells come as text and a picture of them, and
+ * there the text is what was meant.
+ */
+export function pastedImage(clip: { getData(type: string): string; files: ArrayLike<File> } | null): File | null {
+  if (!clip || clip.getData("text/plain")) return null;
+  return Array.from(clip.files).find((f) => f.type.startsWith("image/")) ?? null;
+}
+
+/** Saves a pasted image on the server's machine; the path it was saved at there. */
+async function uploadPaste(image: File): Promise<string> {
+  const res = await fetch("/api/paste-image", { method: "POST", headers: { "content-type": image.type }, body: image });
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; path?: string; error?: string } | null;
+  if (!res.ok || !body?.ok || !body.path) throw new Error(body?.error ?? `Couldn't upload the image (${res.status})`);
+  return body.path;
 }
 
 /**
@@ -155,6 +175,9 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     lineHeight: 1.1,
     cursorBlink: true,
     macOptionIsMeta: true,
+    // A program holding the mouse (Claude Code) takes every drag; Option+drag
+    // still selects here, for Cmd+C.
+    macOptionClickForcesSelection: true,
     scrollback: 1000,
     theme: p.theme,
     minimumContrastRatio: p.minimumContrastRatio,
@@ -204,13 +227,28 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
   // Everything else, including Cmd+V (native paste event -> bracketed paste), passes through.
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== "keydown" || !ev.metaKey) return true;
-    if (ev.key === "c" && term.hasSelection()) {
+    // Over plain http from another machine there is no clipboard API; the
+    // browser's own copy, which xterm fills with the selection, still works.
+    if (ev.key === "c" && term.hasSelection() && navigator.clipboard) {
       void navigator.clipboard.writeText(term.getSelection());
       return false;
     }
     if (ev.key === "b" || ev.key === "f") return false;
     return true;
   });
+
+  // A picture pasted here is saved on the server's machine and its path typed
+  // in: the program in the pane can't see this page's clipboard when the page
+  // is on another machine, and Claude Code shows a pasted image path as the
+  // image. Caught on the way down, before xterm pastes the empty text; on
+  // xterm's own element, which goes when this terminal does.
+  term.element!.addEventListener("paste", (e) => {
+    const image = pastedImage(e.clipboardData);
+    if (!image) return;
+    e.preventDefault();
+    e.stopPropagation();
+    uploadPaste(image).then((path) => { if (!disposed) term.paste(path); }, (err: Error) => h.toast?.(err.message));
+  }, true);
 
   let reported = "";
   // Search the buffer with xterm's addon: it marks every match and finds them

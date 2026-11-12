@@ -111,6 +111,7 @@ const term = createTerminal(termEl, {
   onResize: (cols, rows) => conn.send({ t: "resize", cols, rows }),
   onScroll: (lines) => conn.send({ t: "scroll", lines }),
   onSearch: (s) => { if (!findEl.hidden) paintFind(s); },
+  toast: (m) => sidebar.toast(m),
   // A plan an agent linked to is read beside it, with its note alongside.
   onLink: (target) => {
     const from = mainWindowId();

@@ -31,16 +31,23 @@ export function sniff(b: Uint8Array): keyof typeof IMAGE_TYPES | null {
 
 export type ImageResult = { ok: true; name: string; path: string } | { ok: false; status: number; error: string };
 
+/** A pasted image's file name, from what its bytes are, or why it can't be kept. */
+export function imageName(bytes: Uint8Array, now = Date.now()): { ok: true; name: string } | { ok: false; status: number; error: string } {
+  if (bytes.length === 0) return { ok: false, status: 400, error: "That image is empty." };
+  if (bytes.length > MAX_IMAGE) return { ok: false, status: 413, error: `That image is ${(bytes.length / 1048576).toFixed(1)} MB; the most is ${MAX_IMAGE / 1048576} MB.` };
+  const kind = sniff(bytes);
+  if (!kind) return { ok: false, status: 415, error: "Only png, jpeg, gif and webp images can be pasted." };
+  return { ok: true, name: `${now}-${crypto.randomUUID().slice(0, 8)}.${kind}` };
+}
+
 export function createImageStore(chatsDir: string) {
   const folder = (id: string) => join(chatsDir, id, "images");
   return {
     async save(chatId: string, bytes: Uint8Array): Promise<ImageResult> {
       if (!isChatId(chatId)) return { ok: false, status: 400, error: "No such chat." };
-      if (bytes.length === 0) return { ok: false, status: 400, error: "That image is empty." };
-      if (bytes.length > MAX_IMAGE) return { ok: false, status: 413, error: `That image is ${(bytes.length / 1048576).toFixed(1)} MB; the most is ${MAX_IMAGE / 1048576} MB.` };
-      const kind = sniff(bytes);
-      if (!kind) return { ok: false, status: 415, error: "Only png, jpeg, gif and webp images can be pasted." };
-      const name = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${kind}`;
+      const named = imageName(bytes);
+      if (!named.ok) return named;
+      const { name } = named;
       await mkdir(folder(chatId), { recursive: true });
       await writeFile(join(folder(chatId), name), bytes);
       return { ok: true, name, path: join(folder(chatId), name) };

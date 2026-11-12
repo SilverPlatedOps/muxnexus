@@ -228,6 +228,7 @@ export function createSplit(els: SplitElements, host: SplitHost): Split {
       onInput: (d) => conn?.sendInput(d),
       onResize: (cols, rows) => conn?.send({ t: "resize", cols, rows }),
       onScroll: (lines) => conn?.send({ t: "scroll", lines }),
+      toast: (m) => host.toast(m),
       // A plan linked from this pane opens in it, and the window that linked
       // it moves to the main pane: the plan stays beside its agent.
       onLink: (target) => {
