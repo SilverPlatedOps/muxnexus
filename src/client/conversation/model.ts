@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
-import type { ConvItem, StepResult } from "../../shared/conversation";
+import type { Card, CardOption, ConvError, ConvItem, StepResult } from "../../shared/conversation";
 import type { SessionInfo, WindowInfo } from "../../shared/protocol";
 import { formatElapsed } from "../agent";
 
@@ -79,4 +79,42 @@ export function workingLine(items: ConvItem[], now: number): string | null {
 /** Whether the list is scrolled to its end, give or take 40px: only then do new items scroll it. */
 export function stuckToBottom(scrollTop: number, scrollHeight: number, clientHeight: number): boolean {
   return scrollHeight - scrollTop - clientHeight <= 40;
+}
+
+/** Each refusal in a sentence the user can act on. */
+export const CONV_ERROR: Record<ConvError, string> = {
+  "another-conversation": "This tab now holds another conversation",
+  "prompt-changed": "This prompt changed: refresh",
+  waiting: "The agent is waiting on a prompt: answer it first",
+  "no-agent": "No agent in this tab",
+  working: "The agent is busy; try Replace once it's idle",
+};
+
+/**
+ * A card's options as buttons: `primary` the large ones, in the agent's order,
+ * the first of them the main button; `secondary` (a lasting rule, a mode
+ * switch) the quieter row, so a "don't ask again" is never the obvious tap.
+ */
+export function cardButtons(card: Card): { primary: CardOption[]; secondary: CardOption[] } {
+  return { primary: card.options.filter((o) => !o.secondary), secondary: card.options.filter((o) => o.secondary) };
+}
+
+/** Longer than this, a permission's first detail line is cut in the title (the detail shows it whole). */
+const TITLE_DETAIL = 80;
+
+/** What the card asks, in plain words: a permission as `Allow Bash command: ls?`, anything else as the agent words it. */
+export function cardTitle(card: Card): string {
+  if (card.kind !== "permission") return card.title;
+  const first = card.detail?.split("\n", 1)[0]?.trim() ?? "";
+  if (!first) return `Allow ${card.title}?`;
+  return `Allow ${card.title}: ${first.length > TITLE_DETAIL ? `${first.slice(0, TITLE_DETAIL - 1)}…` : first}?`;
+}
+
+/**
+ * Whether a `takesText` option of `card` may be chosen with no words: a
+ * permission's No and a Codex decline say No outright, while a question's or a
+ * plan's field is no answer without them (the server refuses it).
+ */
+export function wordsOptional(card: Card): boolean {
+  return card.kind === "permission" || card.kind === "approval";
 }

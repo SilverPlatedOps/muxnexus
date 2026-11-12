@@ -140,7 +140,7 @@ const LIGHT = {
  * scrollbar's marks sit on the page's own background: on the light one they
  * take a darker amber to show.
  */
-function palette(a: Appearance) {
+export function palette(a: Appearance) {
   const light = a === "light";
   const theme = light ? LIGHT : DARK;
   const match = light ? "#f3dea0" : "#5a4a26";

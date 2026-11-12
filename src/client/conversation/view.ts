@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { AgentKind } from "../../shared/chat";
-import type { Card, ConvError, ConvItem, StepResult } from "../../shared/conversation";
+import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { AgentInfo, ClientMessage, ServerMessage, SessionInfo, WindowInfo } from "../../shared/protocol";
 import { formatElapsed, GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, profileBadge, windowGlyph } from "../agent";
 import { workingDots } from "../chat/activity";
@@ -12,11 +12,13 @@ import { markdownPath } from "../file-links";
 import { isArchived, visualOrder } from "../groups";
 import { sessionLabel, tabLabel } from "../labels";
 import { openMenu } from "../popover";
-import { mergeItems, stuckToBottom, workingLine } from "./model";
+import { createScreen, createWaitingCard } from "./card";
+import { CONV_ERROR, mergeItems, stuckToBottom, workingLine } from "./model";
 
 /**
  * One tab's agent as a conversation, for a phone or an iPad: what it said and
- * did, newest at the bottom, and a text box that reaches its prompt. Everything
+ * did, newest at the bottom, and a text box that reaches its prompt (or, while
+ * the agent waits on a dialog, the card that answers it). Everything
  * comes from the `conv*` messages; nothing here attaches, selects a window or
  * resizes, so the desk's terminal never changes because the phone looked.
  */
@@ -43,15 +45,6 @@ export interface ConversationView {
   /** Every `state`: the header's state, badge and Next waiting count. */
   render(sessions: SessionInfo[]): void;
 }
-
-/** Each refusal in a sentence the user can act on. */
-export const CONV_ERROR: Record<ConvError, string> = {
-  "another-conversation": "This tab now holds another conversation",
-  "prompt-changed": "This prompt changed: refresh",
-  waiting: "The agent is waiting on a prompt: answer it first",
-  "no-agent": "No agent in this tab",
-  working: "The agent is busy; try Replace once it's idle",
-};
 
 /** How much of a step's input or output is shown behind the tap: the server sends them whole. */
 const CLIP = 4000;
@@ -168,15 +161,21 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   body.append(older, list, workingEl, empty);
   const newBtn = button("conv-new", "New messages ↓");
   newBtn.hidden = true;
+  /** The tab's terminal, read-only, over the list: from `⋯`, the card's offer, or in place of a tab with no agent. */
+  const screenView = createScreen({ send: (m) => deps.send(m), windowId: () => windowId });
   const main = el("div", "conv-main");
-  main.append(body, newBtn);
+  main.append(body, newBtn, screenView.el);
 
   /** Where the text box sits: the waiting card takes its place. */
   const slot = el("div", "conv-slot");
   const draftEl = el("div", "conv-draft");
   draftEl.hidden = true;
-  const locked = el("div", "conv-locked");
-  locked.hidden = true;
+  const waiting = createWaitingCard({
+    send: (m) => deps.send(m),
+    toast: (m) => deps.toast(m),
+    target: () => (windowId && conversation ? { windowId, conversation } : null),
+    openScreen: () => screenView.open(false),
+  });
   const compose = el("div", "conv-compose");
   const input = el("textarea", "conv-input");
   input.rows = 1;
@@ -187,7 +186,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   stopBtn.title = "Interrupt the agent (Esc at the desk)";
   const sendBtn = button("conv-send", "Send");
   compose.append(input, stopBtn, sendBtn);
-  slot.append(draftEl, locked, compose);
+  slot.append(draftEl, waiting.el, compose);
   host.replaceChildren(head, main, slot);
 
   // ---- the header ----
@@ -243,8 +242,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     });
   };
 
-  // Screen, Links and Search: the waiting card's and search's work (their own sheets).
-  function showScreen() { deps.toast("Screen isn't available yet"); }
+  function showScreen() {
+    // A tab with no agent already shows it: read it again.
+    screenView.open(screenView.state() === "fixed");
+  }
+  // Links and Search: search's work (their own sheets).
   function showLinks() { deps.toast("Links aren't available yet"); }
   function showSearch() { deps.toast("Search isn't available yet"); }
 
@@ -344,10 +346,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   };
 
   function paintBody() {
+    // A tab with no agent shows its Screen in place of all this.
     const none = agent === null;
     list.hidden = none;
-    empty.hidden = !(none || agent === undefined || items.length === 0);
-    empty.textContent = none ? "No agent in this tab" : agent === undefined ? "Loading…" : "Nothing said yet";
+    empty.hidden = none || !(agent === undefined || items.length === 0);
+    empty.textContent = agent === undefined ? "Loading…" : "Nothing said yet";
     older.hidden = none || agent === undefined || (start === 0 && items.length === 0);
     older.disabled = asking || start === 0;
     older.textContent = asking ? "Loading earlier messages…" : start > 0 ? "Show earlier messages" : "Start of the conversation";
@@ -399,14 +402,16 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   });
 
   // ---- the text box ----
+  /** Typed digits would pick options: while a dialog is up, the card stands in for the text box. */
+  const asked = () => !!card || screen;
+
   function paintSlot() {
-    const asked = !!card || screen;
-    locked.hidden = !asked;
-    locked.textContent = card ? "The agent is asking you something at the desk" : "The agent is waiting on something only its screen shows";
-    compose.hidden = asked || agent === null;
+    // A tab with no agent has nothing to type to: its Screen's keys are the way in.
+    slot.hidden = agent === null && !asked();
+    compose.hidden = asked() || agent === null;
     input.disabled = !conversation;
     input.placeholder = conversation || agent === undefined ? "Message" : "Nothing to send to yet";
-    stopBtn.hidden = !working || asked;
+    stopBtn.hidden = !working || asked();
     stopBtn.disabled = stopping !== null;
     sendBtn.disabled = !conversation || pending !== null || input.value.trim() === "";
   }
@@ -423,7 +428,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
 
   function send(text: string, replace = false) {
-    if (!windowId || !conversation || pending || text.trim() === "") return;
+    if (!windowId || !conversation || pending || asked() || text.trim() === "") return;
     if (text.length > MAX_TEXT) {
       deps.toast(`Too long to send: ${text.length} characters, ${MAX_TEXT} at most`);
       return;
@@ -483,6 +488,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     orphans = [];
     paintItems(mergeItems([], m.items, "append"), "all");
     keepOrphans(m.items);
+    // A tab with no agent is its screen; one that has gained an agent is its conversation again.
+    if (agent === null) screenView.open(true);
+    else if (screenView.state() === "fixed") screenView.close();
     // A draft shown was for the conversation before.
     draftEl.hidden = true;
     newBtn.hidden = true;
@@ -559,19 +567,27 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         return true;
       case "conv-card":
         if (m.windowId === windowId) {
+          // The card is taller than the text box it replaces: a reader at the end stays there.
+          const stuck = atEnd();
           card = m.card;
           screen = m.screen;
           working = m.working;
+          waiting.show(card, screen, agent);
+          // A dialog is up: the desk's draft and its Replace are for later.
+          if (asked()) draftEl.hidden = true;
           paintSlot();
           paintWorking();
+          if (stuck) toEnd();
         }
         return true;
       case "conv-result":
-        result(m);
+        if (!waiting.result(m)) result(m);
+        return true;
+      case "conv-screen-result":
+        screenView.result(m);
         return true;
       case "conv-search-result":
       case "conv-links-result":
-      case "conv-screen-result":
         return true;
       default:
         return false;
@@ -599,6 +615,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       working = false;
       stopping = null;
       dropPending();
+      waiting.reset();
+      screenView.close();
       drawn.clear();
       list.replaceChildren();
       draftEl.hidden = true;
@@ -624,6 +642,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       orphans = [];
       dropPending();
       stopping = null;
+      waiting.reset();
+      screenView.close();
       drawn.clear();
       list.replaceChildren();
     },

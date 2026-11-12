@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
-import { conversationWindow, mergeItems, stuckToBottom, withLocalActive, workingLine } from "../src/client/conversation/model";
-import type { ConvItem, StepResult } from "../src/shared/conversation";
+import { cardButtons, cardTitle, conversationWindow, mergeItems, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
+import { adapterFor } from "../src/server/conversation/adapter";
+import type { AgentKind } from "../src/shared/chat";
+import type { Card, ConvItem, StepResult } from "../src/shared/conversation";
 import type { SessionInfo, WindowInfo } from "../src/shared/protocol";
 
 const memory = (): Store => {
@@ -110,4 +113,57 @@ test("new items don't move a reader who scrolled up", () => {
   expect(stuckToBottom(0, 1000, 400)).toBe(false);
   // Less than a screenful is always at its end.
   expect(stuckToBottom(0, 300, 400)).toBe(true);
+});
+
+/** The card a real agent's pane reads as (Task 3's captures). */
+const paneCard = (kind: AgentKind, name: string): Card => {
+  const ansi = readFileSync(new URL(`./fixtures/conversation/pane-${kind}-${name}.ansi`, import.meta.url), "utf8");
+  const card = adapterFor(kind).readPane(ansi).dialog;
+  if (!card) throw new Error(`no card in pane-${kind}-${name}`);
+  return card;
+};
+const indexes = (options: { index: number }[]) => options.map((o) => o.index);
+
+test("don't-ask-again options are never the primary button", () => {
+  // Bash: 2 always allows a folder, 3 switches to auto mode.
+  const bash = cardButtons(paneCard("claude", "bash-permission"));
+  expect(bash.primary[0]).toEqual({ index: 1, label: "Yes" });
+  expect(indexes(bash.primary)).toEqual([1, 4]);
+  expect(indexes(bash.secondary)).toEqual([2, 3]);
+  // Codex: 2 stops asking for commands like this one.
+  const codex = cardButtons(paneCard("codex", "approval"));
+  expect(codex.primary[0]).toEqual({ index: 1, label: "Yes, proceed" });
+  expect(indexes(codex.primary)).toEqual([1, 3]);
+  expect(indexes(codex.secondary)).toEqual([2]);
+  // A plan's first row switches to auto mode: the main button is the first row that doesn't.
+  const plan = cardButtons(paneCard("claude", "plan"));
+  expect(plan.primary[0]).toEqual({ index: 2, label: "Yes, manually approve edits" });
+  expect(indexes(plan.secondary)).toEqual([1]);
+  for (const b of [bash, codex, plan]) {
+    expect(b.primary.some((o) => o.secondary)).toBe(false);
+    expect(b.secondary.every((o) => o.secondary)).toBe(true);
+  }
+});
+
+test("a card's title says what it asks in plain words", () => {
+  expect(cardTitle(paneCard("claude", "bash-permission"))).toBe("Allow Bash command: touch probe.txt && sleep 20?");
+  expect(cardTitle(paneCard("claude", "write-permission"))).toBe("Allow Create file: notes.txt?");
+  // An Edit's first line is the file; the diff stays in the detail.
+  expect(cardTitle(paneCard("claude", "edit-permission"))).toBe("Allow Edit file: notes.txt?");
+  expect(cardTitle(paneCard("codex", "approval"))).toBe("Would you like to run the following command?");
+  expect(cardTitle(paneCard("claude", "question"))).toBe("Pick a colour");
+  const bash = paneCard("claude", "bash-permission");
+  expect(cardTitle({ ...bash, detail: undefined })).toBe("Allow Bash command?");
+  // A long command is cut in the title; the detail holds it whole.
+  const long = cardTitle({ ...bash, detail: `echo ${"x".repeat(200)}\nls` });
+  expect(long.length).toBeLessThan(110);
+  expect(long).toEndWith("…?");
+});
+
+test("a No that takes words may go without them; a question's or plan's field may not", () => {
+  // The permission's No and Codex's decline say No outright; the others are no answer blank (the server's keysFor).
+  expect(wordsOptional(paneCard("claude", "bash-permission"))).toBe(true);
+  expect(wordsOptional(paneCard("codex", "approval"))).toBe(true);
+  expect(wordsOptional(paneCard("claude", "plan"))).toBe(false);
+  expect(wordsOptional(paneCard("claude", "question"))).toBe(false);
 });
