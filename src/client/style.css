@@ -40,6 +40,17 @@
   /* buttons, the toast, account options, the Settings select */
   --control: #262b33;
 
+  /* Set only by light (below), each read with its dark value as the fallback.
+     Unset here as well, so the vault, which takes this block, falls back to
+     dark too instead of inheriting the light values from the page. */
+  --on-accent: initial; --on-danger: initial;
+  --shadow-float: initial; --shadow-dialog: initial; --scrim: initial; --veil: initial;
+  --warn-fill: initial; --warn-line: initial; --warn-edge: initial;
+  --nudge-fill: initial; --nudge-pulse: initial; --hit-wash: initial; --hit-still: initial;
+  --fence: initial; --claude-mark: initial;
+  --syn-keyword: initial; --syn-string: initial; --syn-operator: initial; --syn-number: initial;
+  --syn-type: initial; --syn-property: initial; --syn-definition: initial; --syn-comment: initial;
+
   /* A chat member's name (memberColour): one lightness and chroma, hues kept
      clear of red (needs you), yellow (hazard), blue (links and focus) and the
      three account hues. */
@@ -98,7 +109,7 @@
   --member-4: oklch(48% .10 280);
   --member-5: oklch(48% .07 190);
 
-  /* Set only here: each rule that reads one falls back to its dark value. */
+  /* Light only: each rule that reads one falls back to its dark value (see the dark block). */
   --on-accent: #fff; /* 6.3:1 on --accent */
   --on-danger: #fff; /* 7.1:1 on --red */
   --shadow-float: rgb(36 39 46 / 0.12);

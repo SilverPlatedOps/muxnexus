@@ -27,7 +27,11 @@ export function themeChoice(): ThemeChoice {
   return pick === "light" || pick === "system" ? pick : "dark";
 }
 
+/** A choice made where storage is refused (a private window): it holds for this page only. */
+let unsaved: ThemeChoice | null = null;
+
 function readSaved(): string | null {
+  if (unsaved) return unsaved;
   try { return localStorage.getItem(THEME_KEY); } catch { return null; /* private window */ }
 }
 
@@ -60,7 +64,7 @@ function apply(): void {
 
 /** Saved and shown at once. A `?theme=` in the address would outrank it, so it is dropped. */
 export function setThemeChoice(choice: ThemeChoice): void {
-  try { localStorage.setItem(THEME_KEY, choice); } catch { /* private window: nowhere to keep it */ }
+  try { localStorage.setItem(THEME_KEY, choice); } catch { unsaved = choice; }
   const url = new URL(location.href);
   if (url.searchParams.has("theme")) {
     url.searchParams.delete("theme");
