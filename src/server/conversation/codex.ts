@@ -92,6 +92,35 @@ const HOTKEYS = ["y", "p", "esc"];
 const WORKING = /^• \S.*\(\d[^)]*esc to interrupt\)$/u;
 
 const option = (t: string) => optionRow(t, "›") !== null;
+/** Rows of the dialog's block: `  Environment: local`, `  Reason: …` (the model's own words), `  $ touch probe.txt`. */
+const KEYED = /^ {2}(Environment: |Reason: |\$ )/u;
+/** A row wrapped from the one above, indented under it. */
+const WRAPPED = /^ {3,}\S/u;
+
+/**
+ * The `$ ` row of the approval whose options start at row `options`, or -1.
+ * The block above the options runs up to the header with no gap and holds,
+ * in order, `Environment:` / `Reason:` rows, then one `$ ` row, each
+ * optionally wrapped, with blank rows between. Anything else: not this dialog.
+ */
+function commandRow(texts: string[], options: number): number {
+  let head = options - 1;
+  while (head >= 0 && (blank(texts[head]!) || KEYED.test(texts[head]!) || WRAPPED.test(texts[head]!))) head--;
+  if (head < 0 || texts[head] !== `  ${APPROVAL}`) return -1;
+  let cmd = -1;
+  for (let i = head + 1; i < options; i++) {
+    const t = texts[i]!;
+    if (blank(t)) continue;
+    if (WRAPPED.test(t)) {
+      if (i === head + 1 || blank(texts[i - 1]!)) return -1;
+      continue;
+    }
+    // Only one command, and nothing keyed after it.
+    if (cmd >= 0) return -1;
+    if (t.startsWith("  $ ")) cmd = i;
+  }
+  return cmd;
+}
 
 function approval(texts: string[]): Card | null {
   const last = lastFilled(texts);
@@ -106,9 +135,7 @@ function approval(texts: string[]): Card | null {
   if (opts.length !== HOTKEYS.length || keyed.some((m, k) => m?.[2] !== HOTKEYS[k])) return null;
   const labels = keyed.map((m) => m![1]!);
   if (!labels[0]!.startsWith("Yes") || !lasting(labels[1]!) || !labels[2]!.startsWith("No")) return null;
-  const head = findRowBack(texts, (t) => t.trim() === APPROVAL, start);
-  // The command: from the first `$ ` row to the options. "Reason:" above it is the model's own words.
-  const cmd = head < 0 ? -1 : findRow(texts, (t) => t.trimStart().startsWith("$ "), head + 1, start);
+  const cmd = commandRow(texts, start);
   if (cmd < 0) return null;
   const detail = block(texts, cmd, start, 2);
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: k === 1, takesText: k === 2 }));

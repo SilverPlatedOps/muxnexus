@@ -82,6 +82,9 @@ const PERMISSION_FOOTER = "Esc to cancel · Tab to amend";
 const QUESTION_FOOTER = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
 const PLAN_FOOTER = "ctrl+g to edit in Vim · ";
 const PLAN_FEEDBACK = "Tell Claude what to change";
+const PLAN_ASK = "Claude has written up a plan and is ready to execute. Would you like to proceed?";
+/** One sentence, its only `?` at the end: `Do you want to proceed?`, `Do you want to create notes.txt?`. */
+const PERMISSION_ASK = /^Do you want to [^?]+\?$/u;
 
 const rule = (t: string) => isRule(t, "─");
 const dashes = (t: string) => isRule(t, "╌");
@@ -135,7 +138,7 @@ function permission(texts: string[]): Card | null {
   const close = open < 0 ? -1 : findRow(texts, dashes, open + 1, last);
   if (close < 0 || findRow(texts, dashes, close + 1, last) >= 0) return null;
   const first = findRow(texts, option, close + 1, last);
-  if (first < 0 || !/^Do you want to .+\?$/u.test(askBefore(texts, close + 1, first))) return null;
+  if (first < 0 || !PERMISSION_ASK.test(askBefore(texts, close + 1, first))) return null;
   const scan = scanOptions(texts, first, "❯");
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
@@ -166,8 +169,10 @@ function plan(texts: string[]): Card | null {
   if (intro < 0 || texts[intro]!.trim() !== "Here is Claude's plan:" || !dashes(texts[intro + 1] ?? "")) return null;
   const open = intro + 1;
   const close = findRow(texts, dashes, open + 1, last);
-  const first = close < 0 ? -1 : findRow(texts, option, close + 1, last);
-  if (first < 0 || !askBefore(texts, close + 1, first).endsWith("Would you like to proceed?")) return null;
+  // Exactly two dashed rules: a third would cut the plan short and leave the rest out of the fingerprint.
+  if (close < 0 || findRow(texts, dashes, close + 1, last) >= 0) return null;
+  const first = findRow(texts, option, close + 1, last);
+  if (first < 0 || askBefore(texts, close + 1, first) !== PLAN_ASK) return null;
   const scan = scanOptions(texts, first, "❯", (t, prev) => prev.label === PLAN_FEEDBACK && t.trim() === "shift+tab to approve with this feedback");
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;

@@ -271,3 +271,82 @@ test("Codex's fingerprint follows the command, not the highlighted row", () => {
   expect(other).not.toBe(pane);
   expect(print(other)).not.toBe(base);
 });
+
+/** `ansi` with `from` replaced by `to`; the test fails if `from` isn't there. */
+const edit = (ansi: string, from: string, to: string) => {
+  expect(ansi).toContain(from);
+  return ansi.replace(from, to);
+};
+const claudeCard = (ansi: string) => adapterFor("claude").readPane(ansi).dialog;
+
+test("plan, question, review and file cards: the fingerprint changes when their text changes and only then", () => {
+  const plan = raw("claude-plan");
+  const p = claudeCard(plan)!;
+  const planMoved = edit(
+    edit(plan, "\x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m1.", "  \x1b[38;2;153;153;153m1."),
+    "   \x1b[38;2;153;153;153m2.",
+    " \x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m2.",
+  );
+  expect(claudeCard(planMoved)!.fingerprint).toBe(p.fingerprint);
+  const planReworded = claudeCard(edit(plan, "single line \x1b[38;2;153;204;255mhi", "single line \x1b[38;2;153;204;255mho"))!;
+  expect(planReworded.detail).toEndWith("returns the single line ho.");
+  expect(planReworded.fingerprint).not.toBe(p.fingerprint);
+
+  const question = raw("claude-question");
+  const q = claudeCard(question)!;
+  const questionMoved = edit(
+    edit(question, "\x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m1.", "  \x1b[38;2;153;153;153m1."),
+    "  \x1b[38;2;153;153;153m2.",
+    "\x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m2.",
+  );
+  expect(claudeCard(questionMoved)!.fingerprint).toBe(q.fingerprint);
+  const relabelled = claudeCard(edit(question, "m2.\x1b[39m green", "m2.\x1b[39m grey"))!;
+  expect(relabelled.options[1]!.label).toBe("grey");
+  expect(relabelled.fingerprint).not.toBe(q.fingerprint);
+
+  const review = raw("claude-question-review");
+  const changed = claudeCard(edit(review, "m→ medium", "m→ large"))!;
+  expect(changed.detail).toEndWith("→ large");
+  expect(changed.fingerprint).not.toBe(claudeCard(review)!.fingerprint);
+
+  // A file card shows only the path, but its fingerprint covers the content too.
+  const write = raw("claude-write-permission");
+  const rewritten = claudeCard(edit(write, "\x1b[38;2;248;248;242mbeta", "\x1b[38;2;248;248;242mbetter"))!;
+  expect(rewritten.detail).toBe("notes.txt");
+  expect(rewritten.fingerprint).not.toBe(claudeCard(write)!.fingerprint);
+  const editPane = raw("claude-edit-permission");
+  const reedited = claudeCard(edit(editPane, "\x1b[38;2;248;248;242mgamma", "\x1b[38;2;248;248;242mdelta"))!;
+  expect(reedited.detail).toEndWith("2 +delta");
+  expect(reedited.fingerprint).not.toBe(claudeCard(editPane)!.fingerprint);
+});
+
+test("rows a Claude layout doesn't expect, between its content and its options, fail closed", () => {
+  const bash = raw("claude-bash-permission");
+  const unread = { dialog: null, unrecognised: true };
+  const warned = edit(bash, " Do you want to proceed?\n", " Do you want to proceed?\n Warning: this command touches files outside the project. Continue?\n");
+  expect(adapterFor("claude").readPane(warned)).toMatchObject(unread);
+  const twice = edit(bash, " Do you want to proceed?\n", " Do you want to proceed? Do you want to proceed?\n");
+  expect(adapterFor("claude").readPane(twice)).toMatchObject(unread);
+
+  const plan = raw("claude-plan");
+  const ask = "\x1b[39m \x1b[38;2;153;153;153mClaude\x1b[39m \x1b[38;2;153;153;153mhas";
+  const extra = edit(plan, ask, "\x1b[39m Anything at all here, no question.\n \x1b[38;2;153;153;153mClaude\x1b[39m \x1b[38;2;153;153;153mhas");
+  expect(adapterFor("claude").readPane(extra)).toMatchObject(unread);
+  // A third dashed rule: the plan would be cut short there, and what follows left out of the fingerprint.
+  const cut = edit(plan, " \x1b[1mVerification", `${"╌".repeat(40)}\n \x1b[1mVerification`);
+  expect(adapterFor("claude").readPane(cut)).toMatchObject(unread);
+});
+
+test("a Codex approval is read from its own block only", () => {
+  const pane = raw("codex-approval");
+  const unread = { dialog: null, unrecognised: true };
+  // Another kind of dialog, with the approval's header text further up in the history.
+  const header = edit(pane, "\x1b[1mWould you like to run the following command?", "\x1b[1mWould you like to make the following edits?");
+  expect(adapterFor("codex").readPane(`  Would you like to run the following command?\n${header}`)).toMatchObject(unread);
+  // A second `$ ` row above the real command.
+  const shown = edit(pane, "\n  $ \x1b[38;2;137;180;250mtouch", "\n  $ echo shown-instead\n  $ \x1b[38;2;137;180;250mtouch");
+  expect(adapterFor("codex").readPane(shown)).toMatchObject(unread);
+  // A row the reader doesn't know, between the command and the options.
+  const unknown = edit(pane, "\x1b[1;7m› 1.", "  Something else\n\x1b[1;7m› 1.");
+  expect(adapterFor("codex").readPane(unknown)).toMatchObject(unread);
+});
