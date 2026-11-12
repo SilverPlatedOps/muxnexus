@@ -137,7 +137,7 @@ html, body {
 [hidden] { display: none !important; }
 
 button { font: inherit; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A row or tab clips what spills past it, which cut the ring to one edge; drawn
    inside, it now reads as focus, where the attached row is a fill. */
 .row .name:focus-visible, .tab .name:focus-visible, .cat-head:focus-visible { outline-offset: -2px; border-radius: 6px; }
