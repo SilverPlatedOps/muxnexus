@@ -20,6 +20,8 @@ import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
 import { deviceView, memoryShown, openDisplay } from "./display";
 import { conversationWindow, TERMINAL_MESSAGES, withLocalActive } from "./conversation/model";
+import { createConversationView } from "./conversation/view";
+import { createReader, type Reader } from "./reader";
 import { memoryStore } from "./memory";
 import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
@@ -75,6 +77,20 @@ const convMode = deviceView() === "conversation";
 if (convMode) document.body.classList.add("conv-mode");
 /** In conversation mode, the tab shown in `current`: this page's own pick, tmux's active window left alone. */
 let convWindow: string | null = null;
+/** The conversation screen in #conv; its deps are called only once the page is running. */
+const convView = convMode
+  ? createConversationView(convEl, {
+    send: (m) => { conn.send(m); },
+    toast: (m) => sidebar.toast(m),
+    openFile: (target) => openReader(target),
+    nextWaiting: () => {
+      nextJump()?.();
+      if (onPhone()) setDrawer(false);
+    },
+    openNote: (id) => tabsOpenNote(id),
+    profiles: () => badgedLabels(usageSources),
+  })
+  : null;
 /** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
 let chatUI: ChatUI | null = null;
 /**
@@ -270,6 +286,7 @@ function paintAll() {
   notes.sync();
   updateChip();
   updateAttention();
+  convView?.render(sessions);
 }
 
 // ---- find in scrollback ----
@@ -399,8 +416,7 @@ function attach(session: string, rejoin = false) {
 
 /**
  * Conversation mode's way of opening a workspace and tab: a local pick, never a
- * message to tmux. The placeholder is all the screen holds until the
- * conversation view takes its place.
+ * message to tmux. The tab's agent is shown as a conversation in its place.
  */
 function showConversation(session: string, windowId: string | null) {
   const s = sessions.find((x) => x.name === session);
@@ -408,16 +424,46 @@ function showConversation(session: string, windowId: string | null) {
   convWindow = conversationWindow(s?.windows ?? [], windowId);
   sessions = withLocalActive(sessions, current, convWindow);
   terminalOn = true;
-  const w = s?.windows.find((x) => x.id === convWindow);
-  const head = document.createElement("div");
-  head.className = "conv-placeholder-session";
-  head.textContent = s ? sessionLabel(s) : session;
-  const tab = document.createElement("div");
-  tab.className = "conv-placeholder-tab";
-  tab.textContent = w ? tabLabel(w) : "";
-  convEl.replaceChildren(head, tab);
+  if (convWindow) convView?.open(session, convWindow);
+  else convView?.close();
   paintMain();
   paintAll();
+}
+
+/** Conversation mode's reader: a Markdown file an agent linked to, over the whole page, with a way back. */
+let readerSheet: { el: HTMLElement; name: HTMLElement; reader: Reader } | null = null;
+function openReader(target: string) {
+  if (!readerSheet) {
+    const el = document.createElement("div");
+    el.className = "conv-reader";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    const head = document.createElement("header");
+    head.className = "conv-reader-head";
+    const name = document.createElement("span");
+    name.className = "conv-reader-name";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "conv-reader-close";
+    close.textContent = "Close";
+    const reader = createReader();
+    const shut = () => {
+      reader.close();
+      el.hidden = true;
+    };
+    close.onclick = shut;
+    el.addEventListener("keydown", (e) => { if (e.key === "Escape") shut(); });
+    head.append(name, close);
+    el.append(head, reader.el);
+    document.body.append(el);
+    readerSheet = { el, name, reader };
+  }
+  const path = markdownPath(target) ?? target;
+  readerSheet.name.textContent = path.slice(path.lastIndexOf("/") + 1);
+  readerSheet.name.title = path;
+  readerSheet.el.hidden = false;
+  readerSheet.reader.open(target);
+  readerSheet.reader.focus();
 }
 
 /**
@@ -429,6 +475,7 @@ function syncConversation() {
   if (current === null) return;
   const s = sessions.find((x) => x.name === current);
   if (!s) {
+    convView?.close();
     current = null;
     convWindow = null;
     desired = null;
@@ -843,7 +890,14 @@ const conn = new Connection(wsUrl, {
     syncSystem();
     syncMemory();
     // Conversation mode took its workspace from the page, not from the server: the list that follows is enough.
-    if (convMode) return;
+    // The tab it showed is asked for again: the server forgot it with the old socket.
+    if (convMode) {
+      if (current && convWindow) {
+        convView?.close();
+        convView?.open(current, convWindow);
+      }
+      return;
+    }
     if (desired) attach(desired, true);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
@@ -857,6 +911,7 @@ const conn = new Connection(wsUrl, {
     if (!convMode) current = null;
   },
   onMessage(m) {
+    if (convView?.onMessage(m)) return;
     switch (m.t) {
       case "state": {
         if (pendingOrder && (orderSatisfied(m.sessions, pendingOrder) || Date.now() > pendingUntil)) {

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
-import { conversationWindow, withLocalActive } from "../src/client/conversation/model";
+import { conversationWindow, mergeItems, stuckToBottom, withLocalActive, workingLine } from "../src/client/conversation/model";
+import type { ConvItem, StepResult } from "../src/shared/conversation";
 import type { SessionInfo, WindowInfo } from "../src/shared/protocol";
 
 const memory = (): Store => {
@@ -46,4 +47,67 @@ test("withLocalActive marks only the chosen window of the chosen session active"
   expect(out[0]!.windows.map((w) => w.active)).toEqual([false, true]);
   expect(out[1]).toBe(sessions[1]);
   expect(withLocalActive(sessions, null, null)).toBe(sessions);
+});
+
+const T0 = Date.parse("2026-11-13T10:00:00.000Z");
+const at = (s: number) => new Date(T0 + s * 1000).toISOString();
+const you = (id: string, s = 0): ConvItem => ({ id, kind: "you", at: at(s), text: id });
+const said = (id: string, s = 0): ConvItem => ({ id, kind: "agent", at: at(s), text: id });
+const step = (id: string, summary = "Ran mvn -q test", s = 0): ConvItem => ({ id, kind: "step", at: at(s), tool: "Bash", summary, input: "{}" });
+const result = (id: string, ok = true, output = "done", s = 1): StepResult => ({ id, kind: "step-result", ok, output, at: at(s) });
+const ids = (list: ConvItem[]) => list.map((i) => i.id);
+const resultOf = (list: ConvItem[], id: string) => {
+  const it = list.find((i) => i.id === id);
+  return it?.kind === "step" ? it.result : undefined;
+};
+
+test("merging appends, prepends, dedupes and applies a step's late result", () => {
+  let list = mergeItems([], [you("u1"), step("s1")], "append");
+  expect(ids(list)).toEqual(["u1", "s1"]);
+  expect(resultOf(list, "s1")).toBeUndefined();
+
+  // The result arrives with the next poll: the step shown takes it, nothing new is listed.
+  const before = list;
+  list = mergeItems(list, [result("s1", false, "1 test failed"), said("a1")], "append");
+  expect(ids(list)).toEqual(["u1", "s1", "a1"]);
+  expect(resultOf(list, "s1")).toEqual({ ok: false, output: "1 test failed", at: at(1) });
+  expect(resultOf(before, "s1")).toBeUndefined();
+
+  // An older page goes on top; what is already listed is not listed twice.
+  list = mergeItems(list, [you("u0"), you("u1")], "prepend");
+  expect(ids(list)).toEqual(["u0", "u1", "s1", "a1"]);
+  list = mergeItems(list, [said("a1"), you("u2")], "append");
+  expect(ids(list)).toEqual(["u0", "u1", "s1", "a1", "u2"]);
+
+  // A result in the same batch as its step, and one for a step the older page brings.
+  expect(resultOf(mergeItems([], [step("s2"), result("s2")], "append"), "s2")?.ok).toBe(true);
+  const older = mergeItems([said("a9")], [step("s9"), result("s9", true, "ok")], "prepend");
+  expect(ids(older)).toEqual(["s9", "a9"]);
+  expect(resultOf(older, "s9")?.output).toBe("ok");
+  // A result with no step to apply to is not an item.
+  expect(ids(mergeItems([said("a1")], [result("gone")], "append"))).toEqual(["a1"]);
+});
+
+test("the working line names the step still running", () => {
+  const items = [you("u1"), step("s0", "Ran ls"), said("a1"), step("s1", "Ran mvn -q test")];
+  const done = mergeItems([], [...items.slice(0, 2), result("s0")], "append").concat(items.slice(2));
+  expect(workingLine(done, T0 + 125_000)).toBe("Running mvn -q test · 2m");
+  // Under a minute there is no time to give.
+  expect(workingLine(done, T0 + 30_000)).toBe("Running mvn -q test");
+  expect(workingLine([step("e1", "Edited Banner.java")], T0 + 60_000)).toBe("Editing Banner.java · 1m");
+  // Once it has its result, nothing is running.
+  expect(workingLine(mergeItems(done, [result("s1")], "append"), T0 + 125_000)).toBeNull();
+  // A step that never got a result, with the agent writing after it, is not what runs now.
+  expect(workingLine([step("old"), said("a2")], T0 + 125_000)).toBeNull();
+  expect(workingLine([], T0)).toBeNull();
+});
+
+test("new items don't move a reader who scrolled up", () => {
+  // scrollTop, scrollHeight, clientHeight
+  expect(stuckToBottom(600, 1000, 400)).toBe(true);
+  expect(stuckToBottom(560, 1000, 400)).toBe(true);
+  expect(stuckToBottom(559, 1000, 400)).toBe(false);
+  expect(stuckToBottom(0, 1000, 400)).toBe(false);
+  // Less than a screenful is always at its end.
+  expect(stuckToBottom(0, 300, 400)).toBe(true);
 });

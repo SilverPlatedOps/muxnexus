@@ -1049,9 +1049,6 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 }
 /* Conversation mode never builds a terminal for the tab: #conv takes its place under the tab strip. */
 body.conv-mode #term-shell { display: none; }
-#conv { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
-.conv-placeholder-session { font-weight: 700; color: var(--fg-strong); }
-.conv-placeholder-tab { color: var(--muted); margin-top: 4px; }
 
 #empty .btn { height: 32px; padding: 0 14px; font-weight: 600; font-size: 12px; border-radius: 6px; border-color: var(--accent); color: var(--fg-strong); }
 
@@ -1473,18 +1470,18 @@ body.conv-mode #term-shell { display: none; }
 /* A note's editor (CodeMirror), and a file read beside the terminal in its
    likeness: under an id to outrank the base theme CodeMirror injects at
    runtime, light selection and all. */
-:is(#notes-panel, #pane-side) .note-editor { flex: 1; min-height: 0; background: transparent; color: var(--fg); font: 13px/1.55 var(--mono); }
-:is(#notes-panel, #pane-side) .note-editor.cm-focused { outline: none; }
-:is(#notes-panel, #pane-side) .note-editor .cm-scroller { font: inherit; line-height: inherit; overflow-y: auto; }
-:is(#notes-panel, #pane-side) .note-editor .cm-content { padding: 8px 0 14px; caret-color: var(--accent); }
-:is(#notes-panel, #pane-side) .note-editor .cm-line { padding: 0 14px; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor { flex: 1; min-height: 0; background: transparent; color: var(--fg); font: 13px/1.55 var(--mono); }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor.cm-focused { outline: none; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-scroller { font: inherit; line-height: inherit; overflow-y: auto; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-content { padding: 8px 0 14px; caret-color: var(--accent); }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line { padding: 0 14px; }
 /* Notes are read as much as typed: a little more air than a file beside the terminal. */
 #notes-panel .note-editor { line-height: 1.65; }
 /* A heading starts a section: room above it, so the sections read apart. */
-:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-h { padding-top: 12px; padding-bottom: 2px; }
-:is(#notes-panel, #pane-side) .note-editor .cm-cursor { border-left: 2px solid var(--accent); }
-:is(#notes-panel, #pane-side) .note-editor .cm-selectionBackground { background: var(--chip); }
-:is(#notes-panel, #pane-side) .note-editor .cm-placeholder { color: var(--dim); }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line.cm-md-h { padding-top: 12px; padding-bottom: 2px; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-cursor { border-left: 2px solid var(--accent); }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-selectionBackground { background: var(--chip); }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-placeholder { color: var(--dim); }
 
 /* The system overview (system.ts): the foot of the notes panel, under
    whichever tab is showing. Its figures borrow the quota panel's bars, so
@@ -1716,14 +1713,14 @@ body.conv-mode #term-shell { display: none; }
 .cm-md-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .cm-md-bullet { color: var(--muted); }
 .cm-md-task { margin: 0 4px 0 0; vertical-align: -1px; accent-color: var(--accent); cursor: pointer; }
-:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-quote {
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line.cm-md-quote {
   padding-left: 24px;
   color: var(--muted);
   background: linear-gradient(var(--edge), var(--edge)) 14px 0 / 2px 100% no-repeat;
 }
 /* A code block: a box inset from the panel's edges, drawn behind its lines
    (CodeMirror measures lines, so the box is a pseudo-element, not a margin). */
-:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-codeblock { position: relative; z-index: 0; padding: 0 24px; font-size: 12px; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line.cm-md-codeblock { position: relative; z-index: 0; padding: 0 24px; font-size: 12px; }
 .cm-md-codeblock::before {
   content: "";
   position: absolute;
@@ -1733,13 +1730,13 @@ body.conv-mode #term-shell { display: none; }
   border: solid var(--line);
   border-width: 0 1px;
 }
-:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-codeblock-first { padding-top: 5px; }
-:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-codeblock-last { padding-bottom: 5px; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line.cm-md-codeblock-first { padding-top: 5px; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line.cm-md-codeblock-last { padding-bottom: 5px; }
 .cm-md-codeblock-first::before { top: 1px; border-top-width: 1px; border-radius: 6px 6px 0 0; }
 .cm-md-codeblock-last::before { bottom: 1px; border-bottom-width: 1px; border-radius: 0 0 6px 6px; }
 .cm-md-codeblock-first.cm-md-codeblock-last::before { border-radius: 6px; }
 /* The closing fence, folded: a thin bottom edge rather than an empty line. */
-:is(#notes-panel, #pane-side) .note-editor .cm-line.cm-md-codeblock-close { font-size: 1px; line-height: 3px; }
+:is(#notes-panel, #pane-side, .conv-reader) .note-editor .cm-line.cm-md-codeblock-close { font-size: 1px; line-height: 3px; }
 .cm-md-fence { color: var(--fence, var(--faint)); }
 .cm-md-codelang { color: var(--dim); font-size: 11px; }
 .cm-md-copy {
@@ -2416,3 +2413,112 @@ select.na-input:disabled { color: var(--dim); }
 .fh-list { max-height: 260px; overflow: auto; padding: 4px 0; }
 .fh-line { padding: 2px 10px; color: var(--fg); white-space: pre-wrap; word-break: break-word; }
 .fh-line:hover { background: var(--hover); }
+
+/* ---------- conversation view ---------- */
+/* A tab's agent as a conversation (conversation/view.ts), in the terminal's
+   place under the tab strip: the same surface, edge and corners, so the tab
+   and its conversation read as one. Every control a finger uses is 44px. */
+#conv {
+  display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;
+  background: var(--term); border: 1px solid var(--line); border-radius: 8px; color: var(--fg);
+}
+#tabs:not([hidden]) + #conv { border-top-color: transparent; border-top-left-radius: 0; border-top-right-radius: 0; }
+
+.conv-head { flex: none; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 4px 4px 14px; border-bottom: 1px solid var(--line-soft); }
+.conv-state { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.conv-state-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.conv-state .pbadge { flex: none; }
+.conv-next {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px;
+  background: none; border: 0; border-radius: 6px; color: var(--fg); font: 500 12px var(--mono); cursor: pointer;
+}
+.conv-next svg { flex: none; color: var(--accent); }
+.conv-next:disabled { color: var(--dim); cursor: default; }
+.conv-next:disabled svg { color: var(--dim); }
+.conv-next-count { min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.conv-menu { flex: none; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background: none; border: 0; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.conv-menu:hover, .conv-next:hover:not(:disabled) { background: var(--hover); color: var(--fg-strong); }
+
+.conv-main { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.conv-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 14px 12px; }
+.conv-list { display: flex; flex-direction: column; gap: 10px; }
+.conv-empty { padding: 32px 0; color: var(--muted); text-align: center; }
+.conv-older {
+  display: block; width: 100%; min-height: 44px; margin-bottom: 4px; padding: 0;
+  background: none; border: 0; color: var(--accent); font: 12px var(--mono); cursor: pointer;
+}
+.conv-older:disabled { color: var(--dim); cursor: default; }
+
+.conv-item { min-width: 0; }
+.conv-meta { margin: 0 2px 3px; color: var(--muted); font-size: 11px; }
+.conv-bubble { padding: 8px 12px; border-radius: 10px; background: var(--panel); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.conv-you { align-self: flex-end; max-width: 85%; text-align: right; }
+.conv-you .conv-bubble { background: var(--current); color: var(--fg-strong); text-align: left; }
+.conv-peer { align-self: flex-start; max-width: 85%; }
+.conv-peer .conv-bubble { background: none; border: 1px dashed var(--edge); }
+.conv-agent .conv-bubble { white-space: normal; }
+.conv-notice { align-self: center; padding: 2px 10px; color: var(--muted); font-size: 11px; text-align: center; }
+
+.conv-step { border: 1px solid var(--line-soft); border-radius: 8px; }
+.conv-step-line { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; list-style: none; cursor: pointer; font-size: 12px; }
+.conv-step-line::-webkit-details-marker { display: none; }
+.conv-step-mark { flex: none; width: 12px; text-align: center; color: var(--muted); }
+.conv-step.ok .conv-step-mark { color: var(--green); }
+.conv-step.failed .conv-step-mark { color: var(--red); }
+.conv-step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-step-time { flex: none; color: var(--dim); font-size: 11px; }
+.conv-step-body { padding: 0 12px 12px; }
+.conv-step-label { margin: 6px 0 4px; color: var(--muted); font-size: 11px; }
+.conv-pre {
+  margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px; background: var(--well); border: 1px solid var(--line-soft); border-radius: 6px;
+  color: var(--fg); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+.conv-working { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-top: 10px; color: var(--muted); font-size: 11.5px; }
+.conv-working-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-new {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); height: 44px; padding: 0 18px;
+  background: var(--accent); border: 0; border-radius: 22px; color: var(--on-accent, var(--chrome)); font: 700 12px var(--mono); cursor: pointer;
+  box-shadow: 0 6px 18px var(--shadow-float, rgba(0, 0, 0, 0.45));
+}
+
+.conv-slot { flex: none; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line-soft); background: var(--chrome); }
+.conv-compose { display: flex; align-items: flex-end; gap: 8px; }
+.conv-input {
+  flex: 1; min-width: 0; min-height: 44px; max-height: 180px; resize: none; padding: 11px 12px;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; color: var(--fg-strong); font: 13px/1.45 var(--mono);
+}
+.conv-input:focus { outline: none; border-color: var(--accent); }
+.conv-input:disabled { color: var(--dim); }
+.conv-input::placeholder { color: var(--dim); }
+.conv-send, .conv-stop, .conv-draft-replace, .conv-draft-cancel { flex: none; height: 44px; padding: 0 16px; border-radius: 8px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.conv-send, .conv-draft-replace { background: var(--accent); border: 0; color: var(--on-accent, var(--chrome)); }
+.conv-send:disabled { opacity: 0.45; cursor: default; }
+.conv-stop { background: none; border: 1px solid var(--red); color: var(--red); }
+.conv-stop:disabled { opacity: 0.45; cursor: default; }
+.conv-draft-cancel { background: none; border: 1px solid var(--edge); color: var(--fg); }
+.conv-locked { display: flex; align-items: center; min-height: 44px; padding: 0 4px; color: var(--muted); }
+.conv-draft {
+  margin-bottom: 8px; padding: 10px; border-radius: 8px; color: var(--fg);
+  background: var(--warn-fill, rgba(229, 192, 123, 0.12)); border: 1px solid var(--warn-edge, rgba(229, 192, 123, 0.45));
+}
+.conv-draft-text { margin-bottom: 6px; }
+.conv-draft .conv-pre { max-height: 120px; }
+.conv-draft-buttons { display: flex; gap: 8px; margin-top: 8px; }
+
+/* A finger's menu rows, here as everywhere the conversation view opens one. */
+body.conv-mode .pop-item { height: 44px; }
+
+/* The reader, over the whole page, for a Markdown file an agent linked to. */
+.conv-reader { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--term); }
+.conv-reader-head { flex: none; display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 4px 0 14px; background: var(--chrome); border-bottom: 1px solid var(--line-soft); }
+.conv-reader-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-strong); font-weight: 700; }
+.conv-reader-close { flex: none; height: 44px; padding: 0 14px; background: none; border: 1px solid var(--edge); border-radius: 8px; color: var(--fg); font: 600 12px var(--mono); cursor: pointer; }
+.conv-reader .reader { flex: 1; min-height: 0; height: auto; }
+
+/* iOS zooms the page into a field whose text is under 16px. */
+@media (pointer: coarse) { .conv-input { font-size: 16px; } }
+@media (max-width: 720px) {
+  #conv, #tabs:not([hidden]) + #conv { border: 0; border-radius: 0; }
+  .conv-head { padding-left: 12px; }
+}

@@ -16,7 +16,9 @@ export type MenuAction =
   | "start-chat" | "change-account" | "rename" | "move-group" | "archive" | "unarchive" | "kill"
   | "kill-workspace" | "new-agent-in-group" | "rename-group" | "fold" | "unfold"
   | "chat-open" | "chat-notes" | "chat-settings" | "chat-rename" | "chat-archive" | "chat-reopen" | "chat-delete"
-  | "member-note" | "member-terminal" | "change-role" | "replace" | "remove" | "reconnect";
+  | "member-note" | "member-terminal" | "change-role" | "replace" | "remove" | "reconnect"
+  // The conversation view's menu (conversation/view.ts).
+  | "screen" | "links" | "search";
 
 export interface MenuItem {
   action: MenuAction;
