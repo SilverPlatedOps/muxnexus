@@ -1047,6 +1047,12 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
   gap: 16px;
   color: var(--muted);
 }
+/* Conversation mode never builds a terminal for the tab: #conv takes its place under the tab strip. */
+body.conv-mode #term-shell { display: none; }
+#conv { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.conv-placeholder-session { font-weight: 700; color: var(--fg-strong); }
+.conv-placeholder-tab { color: var(--muted); margin-top: 4px; }
+
 #empty .btn { height: 32px; padding: 0 14px; font-weight: 600; font-size: 12px; border-radius: 6px; border-color: var(--accent); color: var(--fg-strong); }
 
 #overlay { display: none; }

@@ -16,6 +16,7 @@ const BADGES_KEY = "muxnexus.badges";
 const MARKS_KEY = "muxnexus.checkout-marks";
 const SYSTEM_KEY = "muxnexus.system";
 const MEMORY_KEY = "muxnexus.tab-memory";
+const DEVICE_VIEW_KEY = "muxnexus.device-view";
 
 /** What the preference is kept in: `localStorage`, or a stand-in under test. */
 export interface Store {
@@ -63,6 +64,32 @@ export const setSystemShown = (on: boolean, store?: Store) => setShown(SYSTEM_KE
 /** Whether each tab shows its memory, and each session row its total. Off by default: the ranked list is the everyday view. */
 export const memoryShown = (store?: Store) => shownIfChosen(MEMORY_KEY, store);
 export const setMemoryShown = (on: boolean, store?: Store) => setShown(MEMORY_KEY, on, store);
+
+/**
+ * What this browser shows of a workspace: each agent as a conversation, or the
+ * desk's terminal. A touch device defaults to the conversation, because
+ * attaching a terminal from a phone resizes the agent's screen at the desk.
+ * Read once when the page loads; a change takes effect on reload.
+ */
+export type DeviceView = "conversation" | "terminal";
+
+export function deviceView(store?: Store, touch: number = navigator.maxTouchPoints): DeviceView {
+  try {
+    const v = (store ?? localStorage).getItem(DEVICE_VIEW_KEY);
+    if (v === "conversation" || v === "terminal") return v;
+  } catch {
+    /* unreadable: the default */
+  }
+  return touch > 0 ? "conversation" : "terminal";
+}
+
+export function setDeviceView(v: DeviceView, store?: Store): void {
+  try {
+    (store ?? localStorage).setItem(DEVICE_VIEW_KEY, v);
+  } catch {
+    /* not remembered; the page keeps what it loaded with */
+  }
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -136,6 +163,23 @@ export function openDisplay(host: HTMLElement, onChange: () => void): void {
     select.onchange = () => setThemeChoice(select.value as ThemeChoice);
     const text = el("span", "display-text");
     text.append(el("span", "move-opt-name", "Appearance"), el("span", "move-opt-note", "The page and its terminals; Match system follows this device's light or dark setting"));
+    row.append(text, select);
+    box.append(row);
+  }
+
+  {
+    // Read once at load: the page is built for one or the other, so this takes a reload.
+    const row = el("label", "display-row");
+    const select = el("select", "display-select");
+    for (const [value, title] of [["conversation", "Conversation"], ["terminal", "Terminal"]] as const) {
+      const o = el("option", undefined, title);
+      o.value = value;
+      o.selected = value === deviceView();
+      select.append(o);
+    }
+    select.onchange = () => setDeviceView(select.value as DeviceView);
+    const text = el("span", "display-text");
+    text.append(el("span", "move-opt-name", "On this device"), el("span", "move-opt-note", "Conversation shows each agent as a chat; Terminal is the desk's view. Takes effect when the page reloads."));
     row.append(text, select);
     box.append(row);
   }

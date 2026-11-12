@@ -18,7 +18,8 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { memoryShown, openDisplay } from "./display";
+import { deviceView, memoryShown, openDisplay } from "./display";
+import { conversationWindow, TERMINAL_MESSAGES, withLocalActive } from "./conversation/model";
 import { memoryStore } from "./memory";
 import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
@@ -63,6 +64,17 @@ const findPrevBtn = document.getElementById("find-prev")!;
 const findNextBtn = document.getElementById("find-next")!;
 const findCloseBtn = document.getElementById("find-close")!;
 const chatEl = document.getElementById("chat")!;
+const convEl = document.getElementById("conv")!;
+/**
+ * Whether this browser shows conversations instead of terminals, read once at
+ * load. In it the page never attaches a terminal: attaching from a phone or an
+ * iPad resizes the agent's screen at the desk. The workspace and tab it shows
+ * are chosen here, not in tmux (`current`, `convWindow`).
+ */
+const convMode = deviceView() === "conversation";
+if (convMode) document.body.classList.add("conv-mode");
+/** In conversation mode, the tab shown in `current`: this page's own pick, tmux's active window left alone. */
+let convWindow: string | null = null;
 /** Made last, once the connection and the panes it uses exist; everything before it asks with `?.`. */
 let chatUI: ChatUI | null = null;
 /**
@@ -98,7 +110,7 @@ const mainWindowId = () => sessions.find((s) => s.name === current)?.windows.fin
 const term = createTerminal(termEl, {
   windowId: mainWindowId,
   onInput: (d) => conn.sendInput(d),
-  onResize: (cols, rows) => conn.send({ t: "resize", cols, rows }),
+  onResize: (cols, rows) => { if (!convMode) conn.send({ t: "resize", cols, rows }); },
   onScroll: (lines) => conn.send({ t: "scroll", lines }),
   onSearch: (s) => { if (!findEl.hidden) paintFind(s); },
   toast: (m) => sidebar.toast(m),
@@ -124,7 +136,7 @@ function showTerminal(on: boolean) {
   terminalOn = on;
   if (!on) closeFind();
   paintMain();
-  if (on && !chatUI?.isShowing()) {
+  if (on && !convMode && !chatUI?.isShowing()) {
     term.fit();
     term.focus();
   }
@@ -156,7 +168,9 @@ function paintMain() {
   chatEl.hidden = !chatting;
   wrapEl.hidden = chatting || !terminalOn;
   emptyEl.hidden = chatting || terminalOn;
-  topbar.hidden = chatting || !terminalOn;
+  // Conversation mode keeps the bar, and its ☰, with nothing selected: the drawer is the only way in.
+  topbar.hidden = chatting || (!terminalOn && !convMode);
+  convEl.hidden = !(convMode && terminalOn);
 }
 
 /** The attached session, as one chip. Its windows are the tab strip. */
@@ -372,6 +386,10 @@ function attach(session: string, rejoin = false) {
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
+  if (convMode) {
+    if (session !== current || rejoin) showConversation(session, session === current ? convWindow : null);
+    return;
+  }
   // The row of the workspace on screen: the keys go back to its terminal.
   if (session === current) { if (!rejoin) focusNotePane(); return; }
   showTerminal(true);
@@ -379,11 +397,59 @@ function attach(session: string, rejoin = false) {
   conn.send({ t: "attach", session });
 }
 
+/**
+ * Conversation mode's way of opening a workspace and tab: a local pick, never a
+ * message to tmux. The placeholder is all the screen holds until the
+ * conversation view takes its place.
+ */
+function showConversation(session: string, windowId: string | null) {
+  const s = sessions.find((x) => x.name === session);
+  current = session;
+  convWindow = conversationWindow(s?.windows ?? [], windowId);
+  sessions = withLocalActive(sessions, current, convWindow);
+  terminalOn = true;
+  const w = s?.windows.find((x) => x.id === convWindow);
+  const head = document.createElement("div");
+  head.className = "conv-placeholder-session";
+  head.textContent = s ? sessionLabel(s) : session;
+  const tab = document.createElement("div");
+  tab.className = "conv-placeholder-tab";
+  tab.textContent = w ? tabLabel(w) : "";
+  convEl.replaceChildren(head, tab);
+  paintMain();
+  paintAll();
+}
+
+/**
+ * Conversation mode, after each `state`: take up the remembered workspace once
+ * the list has it, follow the tab if it vanished, drop the workspace if it did.
+ */
+function syncConversation() {
+  if (current === null && desired && sessions.some((s) => s.name === desired)) return attach(desired, true);
+  if (current === null) return;
+  const s = sessions.find((x) => x.name === current);
+  if (!s) {
+    current = null;
+    convWindow = null;
+    desired = null;
+    localStorage.removeItem(SESSION_KEY);
+    terminalOn = false;
+    return paintMain();
+  }
+  const w = conversationWindow(s.windows, convWindow);
+  if (w !== convWindow) showConversation(current, w);
+  else sessions = withLocalActive(sessions, current, convWindow);
+}
+
 const sidebar = createSidebar(sessionsEl, layout, {
   attach,
   newSession: (name) => conn.send({ t: "new-session", name }),
   killSession: (session) => conn.send({ t: "kill-session", session }),
-  renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
+  renameSession: (session, name) => {
+    // No `renamed` comes back to a page that never attached: follow the name here.
+    if (convMode && session === current) { current = name; if (desired === session) { desired = name; localStorage.setItem(SESSION_KEY, name); } }
+    conn.send({ t: "rename-session", session, name });
+  },
   reorderSessions,
   openWindow,
   openMenu: (session, at) => menus.session(session, at),
@@ -402,6 +468,7 @@ const tabs = createTabs(tabsEl, {
   // than pulling its window into the main pane as well.
   selectWindow: (id) => {
     if (split.state?.windowId === id) return split.focusSide();
+    if (convMode) { if (current) showConversation(current, id); return; }
     if (current) conn.send({ t: "select-window", session: current, id });
   },
   newWindow: (agent) => { if (current) conn.send({ t: "new-window", session: current, ...(agent ? { agent } : {}) }); },
@@ -427,7 +494,8 @@ function tabsOpenNote(id: string) {
     notePane = "side";
   } else {
     notePane = "main";
-    if (!currentWindows().find((w) => w.id === id)?.active) conn.send({ t: "select-window", session: current, id });
+    if (convMode) showConversation(current, id);
+    else if (!currentWindows().find((w) => w.id === id)?.active) conn.send({ t: "select-window", session: current, id });
   }
   notes.show("window");
 }
@@ -435,6 +503,7 @@ function tabsOpenNote(id: string) {
 /** A tab beside the one on screen: of this workspace, or of another (it stays as you move about). */
 function openBeside(id: string) {
   if (!current) return;
+  if (convMode) return sidebar.toast("Split is part of the Terminal view");
   if (onPhone()) return sidebar.toast("Split needs a wider screen");
   const owner = sessions.find((s) => s.windows.some((w) => w.id === id))?.name ?? current;
   if (chatUI?.isShowing()) attach(current);
@@ -470,14 +539,18 @@ function newAgent(group: string | null = null) {
 const menus = createMenuActions({
   sessions: () => sessions,
   current: () => current,
-  send: (m) => { conn.send(m); },
+  // "Open" on a tab attaches its workspace and then selects it: here, one local pick.
+  send: (m) => { if (convMode && m.t === "select-window") openWindow(m.session, m.id); else conn.send(m); },
   attach,
   openBeside,
   openNote: (session, id) => {
     if (session === current) return tabsOpenNote(id);
     // Another workspace: go there, show the tab, and the note follows it.
-    attach(session);
-    conn.send({ t: "select-window", session, id });
+    if (convMode) openWindow(session, id);
+    else {
+      attach(session);
+      conn.send({ t: "select-window", session, id });
+    }
     notePane = "main";
     notes.show("window");
   },
@@ -507,7 +580,7 @@ const split = createSplit({
   divider: document.getElementById("divider")!,
 }, {
   wsUrl,
-  enabled: () => !onPhone(),
+  enabled: () => !onPhone() && !convMode,
   selectMain: (id) => { if (current) conn.send({ t: "select-window", session: current, id }); },
   focusMain: () => term.focus(),
   toast: (m) => sidebar.toast(m),
@@ -745,6 +818,10 @@ makeSplit({
 
 /** Show a window: its session attached, the window selected in the main pane. */
 function openWindow(session: string, id: string) {
+  if (convMode) {
+    if (onPhone()) setDrawer(false);
+    return showConversation(session, id);
+  }
   conn.send({ t: "select-window", session, id });
   notePane = "main";
   if (session !== current) attach(session);
@@ -763,6 +840,8 @@ const conn = new Connection(wsUrl, {
     memorySent = false;
     syncSystem();
     syncMemory();
+    // Conversation mode took its workspace from the page, not from the server: the list that follows is enough.
+    if (convMode) return;
     if (desired) attach(desired, true);
     else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
@@ -773,7 +852,7 @@ const conn = new Connection(wsUrl, {
     // The server-side attachment is gone with the socket; clear `current` so
     // the reconnect's onOpen re-sends `attach` instead of treating it as a
     // same-session no-op (attach()'s current === session guard).
-    current = null;
+    if (!convMode) current = null;
   },
   onMessage(m) {
     switch (m.t) {
@@ -792,6 +871,7 @@ const conn = new Connection(wsUrl, {
         if ((m.tmuxServer ?? null) !== tmuxServer) memoryStore.clear();
         tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
+        if (convMode) syncConversation();
         paintAll();
         globalSearch?.refresh();
         // The nudge names tabs by session and tab, which may just have changed.
@@ -989,7 +1069,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     sidebar.toggle();
     term.fit();
-  } else if (e.key === "f" && !wrapEl.hidden) {
+  } else if (e.key === "f" && !wrapEl.hidden && !convMode) {
     e.preventDefault();
     openFind();
   }
@@ -1064,5 +1144,16 @@ document.addEventListener("keydown", (e) => {
   e.stopImmediatePropagation();
   globalSearch?.open(true);
 }, true);
+
+if (convMode) {
+  // The last line of defence for "the desk's terminal never changes size because the phone looked":
+  // whatever path asks, nothing that attaches, sizes or types into a terminal leaves this page.
+  const send = conn.send.bind(conn);
+  conn.send = (m) => (TERMINAL_MESSAGES.has(m.t) ? false : send(m));
+  conn.sendInput = () => {};
+}
+
+// The bar (and its ☰) is there from the start, before any workspace is chosen.
+if (convMode) paintMain();
 
 conn.connect();
