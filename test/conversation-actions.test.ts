@@ -35,9 +35,9 @@ const SINGLE = transcript("single", [q("Pick a colour", false), q("Pick a size",
 const MULTI_LATER = transcript("multi-later", [q("Pick a colour", false), q("Pick fruits", true)]);
 
 const claudeAgent = (over: Partial<WindowAgentInfo> = {}): WindowAgentInfo => ({
-  paneId: "%1", kind: "claude", state: "input", conversation: { sessionId: "sess-1", transcriptPath: SINGLE }, ...over,
+  paneId: "%1", kind: "claude", state: "done", conversation: { sessionId: "sess-1", transcriptPath: SINGLE }, ...over,
 });
-const codexAgent = (over: Partial<WindowAgentInfo> = {}): WindowAgentInfo => ({ paneId: "%2", kind: "codex", state: "input", thread: { id: "thread-1" }, ...over });
+const codexAgent = (over: Partial<WindowAgentInfo> = {}): WindowAgentInfo => ({ paneId: "%2", kind: "codex", state: "done", thread: { id: "thread-1" }, ...over });
 
 /** A tmux that records every call in order. Each capture returns the next pane given; the last one repeats. */
 function fakeTmux(agent: WindowAgentInfo | null, panes: string[]) {
@@ -101,14 +101,17 @@ describe("send", () => {
     expect(adapterFor("codex").clearDraft).toEqual(["C-c"]);
   });
 
-  test("a draft is not replaced while the agent works: the clear would interrupt it", async () => {
+  test("a draft is not replaced unless the turn is done: the clear would interrupt it", async () => {
     // The pane shows the turn running (queued messages wait on it).
     const busy = fakeTmux(claudeAgent(), [raw("claude-queued")]);
     expect(await sendText(busy, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
     // Text streaming under a draft shows no sign of work on the pane: the stamp says so.
     const stamped = fakeTmux(claudeAgent({ state: "running" }), [raw("claude-idle-draft")]);
     expect(await sendText(stamped, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
-    expect([...busy.writes(), ...stamped.writes()]).toEqual([]);
+    // After "No, and tell Claude…" no tool runs, so the stamp stays `input` while the reply streams.
+    const steered = fakeTmux(claudeAgent({ state: "input" }), [raw("claude-idle-draft")]);
+    expect(await sendText(steered, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
+    expect([...busy.writes(), ...stamped.writes(), ...steered.writes()]).toEqual([]);
   });
 
   test("a clear that doesn't take sends nothing more, and a second C-c never follows", async () => {

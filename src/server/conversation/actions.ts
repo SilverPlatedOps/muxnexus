@@ -80,8 +80,10 @@ export async function sendText(
   if (r.dialog || r.unrecognised || r.draft === "unknown") return refuse("waiting");
   if (r.draft === "text") {
     if (!replace) return { ok: false, draft: r.draftText ?? "" };
-    // Claude's C-c interrupts a running turn instead, and text streaming under a draft shows no sign of work: ask the stamp too.
-    if (r.working || info.state === "running") return refuse("working");
+    // Claude's C-c interrupts a running turn instead, and text streaming under a draft shows no sign of work: the
+    // stamp must say the turn is done. `input` with the prompt on screen is stale, or a turn going on after a
+    // "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
+    if (r.working || info.state !== "done") return refuse("working");
     if (Date.now() - (lastClear.get(windowId) ?? 0) < CLEAR_AGAIN_MS) return refuse("prompt-changed");
     lastClear.set(windowId, Date.now());
     await tmux.sendKeys(windowId, adapter.clearDraft);
