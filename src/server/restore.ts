@@ -84,7 +84,9 @@ export function parsePanes(out: string): SnapWindow[] {
   const seen = new Set<string>();
   const windows: SnapWindow[] = [];
   for (const line of out.split("\n").filter(Boolean)) {
-    const parts = line.split(SEP);
+    // tmux 3.4 (Ubuntu 24.04) prints the separator as the four characters \037;
+    // later versions print the byte itself.
+    const parts = line.replaceAll("\\037", SEP).split(SEP);
     const r = Object.fromEntries(PANE_FIELDS.map((f, i) => [f, parts[i] ?? ""])) as Record<string, string>;
     if (r["@muxnexus_view"] === "1" || seen.has(r.window_id)) continue;
     seen.add(r.window_id);

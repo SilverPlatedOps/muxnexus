@@ -83,6 +83,13 @@ describe("Codex windows", () => {
 });
 
 describe("parsePanes", () => {
+  test("splits rows from tmux 3.4, which prints the separator as the text \\037", () => {
+    const values = { session_name: "JKB", window_id: "@0", window_index: "0", pane_index: "0", pane_current_path: "/home/me" };
+    const escaped = row(values).replaceAll("\x1f", "\\037");
+    expect(parsePanes(escaped)).toEqual(parsePanes(row(values)));
+    expect(parsePanes(escaped)[0]!.session).toBe("JKB");
+  });
+
   test("records a window's session, directory, name and conversation", () => {
     const out = row({
       session_name: "work",

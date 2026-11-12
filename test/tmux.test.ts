@@ -168,6 +168,20 @@ describe("Tmux mutators", () => {
     await waitFor(async () => (await tmux.run(["capture-pane", "-p", "-t", id])).includes("agent-42 ran"), 3000, "command output");
   });
 
+  test("newSession with a command and no tmux server yet runs it in $SHELL, not /bin/sh", async () => {
+    // beforeEach killed the server, so this call is the one that starts it, as the
+    // first new agent after a boot does. There is no default-shell to ask for yet.
+    const saved = process.env.SHELL;
+    process.env.SHELL = "/bin/bash";
+    try {
+      await tmux.newSession("first", tmpdir(), {}, "true");
+      const start = (await tmux.run(["display-message", "-p", "-t", "=first:", "#{pane_start_command}"])).trim();
+      expect(start).toStartWith("/bin/bash -lic");
+    } finally {
+      process.env.SHELL = saved;
+    }
+  });
+
   test("pasteText puts text in the window without pressing Enter", async () => {
     await tmux.newSession("p");
     const [id] = await windowIds("p");

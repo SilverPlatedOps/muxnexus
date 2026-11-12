@@ -783,7 +783,10 @@ export class Tmux {
       return;
     }
     // As a new tab runs one: in the login shell, which stays when the agent quits.
-    const shell = (await this.run(["show-options", "-gv", "default-shell"]).catch(() => "")).trim() || "/bin/sh";
+    // With no tmux server yet there is no default-shell to ask for; tmux itself
+    // would start the server on $SHELL, so this does too.
+    const shell = (await this.run(["show-options", "-gv", "default-shell"]).catch(() => "")).trim()
+      || process.env.SHELL || "/bin/sh";
     await this.run([...base, "--", shell, "-lic", `${command}; exec ${shellQuote(shell)} -l`]);
   }
 
