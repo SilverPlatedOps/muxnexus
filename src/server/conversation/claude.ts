@@ -6,7 +6,7 @@ import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
   allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, isRule, lastFilled, lasting, nextFilled,
-  optionRow, paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
+  optionRow, paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -73,15 +73,21 @@ function rowItems(row: any): Out {
 // The prompt is the box between the last two `───` rules. A dialog replaces
 // it, and each dialog is matched whole, anchored at the bottom of the screen:
 // any row out of place (a wrapped label, a focused text field, a changed
-// footer) and it's unrecognised.
+// footer) and it's unrecognised. A dialog whose row for the user's words has
+// focus is read on its own (`field`), as the same dialog, so an answer can
+// check its words go into that field and nowhere else.
 
 const QUEUED = "Press up to edit queued messages";
 /** `✽ Frosting… (9s · ↓ 82 tokens)`; the glyph cycles. Idle reads `✻ Baked for 24s · done …`. */
 const SPINNER = /^\S \S.*… \(\d/u;
 const PERMISSION_FOOTER = "Esc to cancel · Tab to amend";
+const PERMISSION_FIELD_FOOTER = "Esc to cancel";
 const QUESTION_FOOTER = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
+const QUESTION_FIELD_FOOTER = "Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in Vim · Esc to cancel";
+const QUESTION_OTHER = "Type something.";
 const PLAN_FOOTER = "ctrl+g to edit in Vim · ";
 const PLAN_FEEDBACK = "Tell Claude what to change";
+const PLAN_HINT = "shift+tab to approve with this feedback";
 const PLAN_ASK = "Claude has written up a plan and is ready to execute. Would you like to proceed?";
 /** One sentence, its only `?` at the end: `Do you want to proceed?`, `Do you want to create notes.txt?`. */
 const PERMISSION_ASK = /^Do you want to [^?]+\?$/u;
@@ -89,6 +95,9 @@ const PERMISSION_ASK = /^Do you want to [^?]+\?$/u;
 const rule = (t: string) => isRule(t, "─");
 const dashes = (t: string) => isRule(t, "╌");
 const option = (t: string) => optionRow(t, "❯") !== null;
+const indent = (t: string) => t.length - t.trimStart().length;
+/** Under a focused field, the user's words wrapped or on more lines, indented to its label. */
+const fieldRow = (t: string, prev: PaneOption) => prev.selected && !blank(t) && indent(t) >= prev.labelAt;
 
 interface Box { top: number; bottom: number }
 
@@ -126,9 +135,10 @@ function askBefore(texts: string[], from: number, to: number): string {
   return texts.slice(from, to).filter((t) => !blank(t) && !rule(t)).map((t) => t.trim()).join(" ");
 }
 
-function permission(texts: string[]): Card | null {
+/** With `field`, the dialog after Tab on its No row: the card as it read before, for its fingerprint. */
+function permission(texts: string[], field = false): Card | null {
   const last = lastFilled(texts);
-  if (last < 0 || texts[last]!.trim() !== PERMISSION_FOOTER) return null;
+  if (last < 0 || texts[last]!.trim() !== (field ? PERMISSION_FIELD_FOOTER : PERMISSION_FOOTER)) return null;
   const top = findRowBack(texts, rule, last);
   const head = top < 0 ? -1 : nextFilled(texts, top + 1, last);
   if (head < 0) return null;
@@ -139,11 +149,14 @@ function permission(texts: string[]): Card | null {
   if (close < 0 || findRow(texts, dashes, close + 1, last) >= 0) return null;
   const first = findRow(texts, option, close + 1, last);
   if (first < 0 || !PERMISSION_ASK.test(askBefore(texts, close + 1, first))) return null;
-  const scan = scanOptions(texts, first, "❯");
+  const scan = scanOptions(texts, first, "❯", field ? fieldRow : undefined);
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const no = opts[opts.length - 1]!;
-  if (opts.length < 2 || opts[0]!.label !== "Yes" || no.label !== "No" || !opts.slice(1, -1).every((o) => lasting(o.label))) return null;
+  // Focused, the No row reads `No, ` and the user's words (its placeholder until there are some).
+  if (field && !(no.selected && no.label.startsWith("No, "))) return null;
+  const labels = opts.map((o) => (field && o === no ? "No" : o.label));
+  if (opts.length < 2 || labels[0] !== "Yes" || labels[labels.length - 1] !== "No" || !labels.slice(1, -1).every((l) => lasting(l))) return null;
   const body = block(texts, open + 1, close, 1);
   const parts = [title];
   let detail = body;
@@ -155,11 +168,12 @@ function permission(texts: string[]): Card | null {
     detail = title === "Edit file" ? `${path}\n${body}` : path;
     parts.push(path);
   }
-  const options = opts.map((o) => cardOption(o, { secondary: lasting(o.label), takesText: o === no }));
+  const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: lasting(labels[k]!), takesText: o === no }));
   return { kind: "permission", title, detail, options, fingerprint: fingerprint([...parts, body, ...options.map((o) => o.label)]), ...highlighted(opts) };
 }
 
-function plan(texts: string[]): Card | null {
+/** With `field`, the dialog with its change request focused: the card as it read before, for its fingerprint. */
+function plan(texts: string[], field = false): Card | null {
   const last = lastFilled(texts);
   if (last < 0 || !texts[last]!.trim().startsWith(PLAN_FOOTER)) return null;
   const title = "Ready to code?";
@@ -173,15 +187,19 @@ function plan(texts: string[]): Card | null {
   if (close < 0 || findRow(texts, dashes, close + 1, last) >= 0) return null;
   const first = findRow(texts, option, close + 1, last);
   if (first < 0 || askBefore(texts, close + 1, first) !== PLAN_ASK) return null;
-  const scan = scanOptions(texts, first, "❯", (t, prev) => prev.label === PLAN_FEEDBACK && t.trim() === "shift+tab to approve with this feedback");
+  const between = field ? fieldRow : (t: string, prev: PaneOption) => prev.label === PLAN_FEEDBACK && t.trim() === PLAN_HINT;
+  const scan = scanOptions(texts, first, "❯", between);
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const feedback = opts[opts.length - 1]!;
-  if (opts.length < 2 || feedback.label !== PLAN_FEEDBACK || !opts.slice(0, -1).every((o) => o.label.startsWith("Yes"))) return null;
   // With that row selected its text field has focus: a digit would be typed, not chosen.
-  if (feedback.selected) return null;
+  if (feedback.selected !== field) return null;
+  // Focused, the row shows the user's words (its placeholder until there are some), the hint still under them.
+  if (field && texts[scan.end - 1]!.trim() !== PLAN_HINT) return null;
+  const labels = opts.map((o) => (field && o === feedback ? PLAN_FEEDBACK : o.label));
+  if (opts.length < 2 || labels[labels.length - 1] !== PLAN_FEEDBACK || !labels.slice(0, -1).every((l) => l.startsWith("Yes"))) return null;
   const detail = block(texts, open + 1, close, 1);
-  const options = opts.map((o) => cardOption(o, { secondary: lasting(o.label), takesText: o === feedback }));
+  const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: lasting(labels[k]!), takesText: o === feedback }));
   return { kind: "plan", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]), ...highlighted(opts) };
 }
 
@@ -200,9 +218,10 @@ function tabBar(line: PaneLine): Tab[] | null {
   return tabs.filter((x) => x.lit).length === 1 ? tabs : null;
 }
 
-function question(lines: PaneLine[], texts: string[]): Card | null {
+/** With `field`, the question with "Type something." focused: the card as it read before, for its fingerprint. */
+function question(lines: PaneLine[], texts: string[], field = false): Card | null {
   const last = lastFilled(texts);
-  if (last < 0 || texts[last]!.trim() !== QUESTION_FOOTER) return null;
+  if (last < 0 || texts[last]!.trim() !== (field ? QUESTION_FIELD_FOOTER : QUESTION_FOOTER)) return null;
   const bar = findRowBack(texts, isTabBar, last);
   const tabs = bar < 0 ? null : tabBar(lines[bar]!);
   if (!tabs) return null;
@@ -217,15 +236,18 @@ function question(lines: PaneLine[], texts: string[]): Card | null {
   const opts = scan.options;
   const chat = opts[opts.length - 1]!;
   const other = opts[opts.length - 2];
-  if (!other || opts.length < 3 || chat.label !== "Chat about this" || other.label !== "Type something.") return null;
+  if (!other || opts.length < 3 || chat.label !== "Chat about this") return null;
+  // With "Type something." selected its text field has focus: a digit would be typed, not chosen.
+  // Focused, it shows the user's words (its placeholder until there are some).
+  if (other.selected !== field) return null;
+  const labels = opts.map((o) => (field && o === other ? QUESTION_OTHER : o.label));
+  if (labels[labels.length - 2] !== QUESTION_OTHER) return null;
   const rules = texts.slice(first, scan.end).flatMap((t, k) => (rule(t) ? [first + k] : []));
   if (rules.length !== 1 || rules[0] !== chat.row - 1) return null;
   // Multi-select rows carry a checkbox: not a card in this version (Decision 4).
-  if (opts.some((o) => /^\[.\] /u.test(o.label))) return null;
-  // With "Type something." selected its text field has focus: a digit would be typed, not chosen.
-  if (other.selected) return null;
+  if (labels.some((l) => /^\[.\] /u.test(l))) return null;
   const of = questions.length;
-  const options = opts.map((o) => cardOption(o, { secondary: o === chat, takesText: o === other }));
+  const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: o === chat, takesText: o === other }));
   return {
     kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...options.map((o) => o.label)]), question: { at, of },
     ...highlighted(opts),
@@ -257,7 +279,9 @@ function readPane(ansi: string): PaneRead {
     const box = inputBox(texts);
     if (box) return { dialog: null, unrecognised: false, ...draftIn(lines, texts, box), working: workingAround(texts, box) };
     const dialog = permission(texts) ?? plan(texts) ?? question(lines, texts) ?? review(lines, texts);
-    return dialog ? { dialog, unrecognised: false, draft: "unknown", working: false } : { ...UNREADABLE };
+    if (dialog) return { dialog, unrecognised: false, draft: "unknown", working: false };
+    const field = permission(texts, true) ?? plan(texts, true) ?? question(lines, texts, true);
+    return field ? { ...UNREADABLE, field: { fingerprint: field.fingerprint } } : { ...UNREADABLE };
   } catch {
     return { ...UNREADABLE };
   }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { checkoutOf, orderSessions, swapPlan, Tmux, TmuxError, windowLabel } from "../src/server/tmux";
 import { waitFor } from "./helpers";
 
@@ -668,38 +668,63 @@ describe("Tmux.resumeIn", () => {
   });
 });
 
-describe("Tmux.capturePane, pasteInto and sendKeys", () => {
-  /** A window running `cat` under a line drawn dim, and its id. */
-  async function catWindow(): Promise<string> {
+describe("Tmux.capturePane, pasteInto, sendKeys and activePane", () => {
+  /** A pane running `cat` under a line drawn dim, and its id. */
+  async function catPane(): Promise<string> {
     await tmux.run(["new-session", "-d", "-s", "conv", "-x", "80", "-y", "24", "sh -c 'printf \"\\033[2mghost\\033[0m plain\\n\"; exec cat'"]);
-    const id = (await tmux.run(["display-message", "-p", "-t", "=conv:", "#{window_id}"])).trim();
+    const id = (await tmux.run(["display-message", "-p", "-t", "=conv:", "#{pane_id}"])).trim();
     await waitFor(async () => (await tmux.capturePane(id)).includes("plain"), 3000, "printf");
     return id;
   }
+  /** `cat` echoes a line as typed, then prints it: the line twice. */
+  const twice = (line: string) => new RegExp(`^${line.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}\n${line.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}$`, "m");
 
   test("capturePane keeps the escapes: a reader tells dim text from plain", async () => {
-    const id = await catWindow();
+    const id = await catPane();
     const screen = await tmux.capturePane(id);
     expect(screen).toContain("\x1b[2mghost");
     expect(screen).toMatch(/ghost\x1b\[0m plain/);
-    await expect(tmux.capturePane("conv:0")).rejects.toThrow(/window id/);
+    await expect(tmux.capturePane("@0")).rejects.toThrow(/pane id/);
   });
 
   test("keys and pastes reach the program, leaving the history first if the pane is in it", async () => {
-    const id = await catWindow();
+    const id = await catPane();
     const mode = async () => (await tmux.run(["display-message", "-p", "-t", id, "#{pane_in_mode}"])).trim();
     await tmux.run(["copy-mode", "-t", id]);
     expect(await mode()).toBe("1");
     await tmux.sendKeys(id, ["a", "b", "Enter"]);
     expect(await mode()).toBe("0");
-    await waitFor(async () => /^ab\nab$/m.test(await tmux.capturePane(id)), 3000, "keys");
+    await waitFor(async () => twice("ab").test(await tmux.capturePane(id)), 3000, "keys");
     await tmux.run(["copy-mode", "-t", id]);
     await tmux.pasteInto(id, "pasted text");
     expect(await mode()).toBe("0");
     await tmux.sendKeys(id, ["Enter"]);
-    await waitFor(async () => /^pasted text\npasted text$/m.test(await tmux.capturePane(id)), 3000, "paste");
+    await waitFor(async () => twice("pasted text").test(await tmux.capturePane(id)), 3000, "paste");
     // Its buffer went with the paste.
     expect(await tmux.run(["list-buffers", "-F", "#{buffer_name}"])).not.toContain("muxnexus");
-    await expect(tmux.sendKeys("@x", ["a"])).rejects.toThrow(/window id/);
+    await expect(tmux.sendKeys("@0", ["a"])).rejects.toThrow(/pane id/);
+  });
+
+  test("a paste arrives as written, a trailing ; included", async () => {
+    // Raw, so the line discipline leaves every byte alone; the paste's newlines arrive as CR, as an agent gets them.
+    const out = join(mkdtempSync(join(tmpdir(), "conv-paste-")), "out");
+    await tmux.run(["new-session", "-d", "-s", "raw", "-x", "80", "-y", "24", `sh -c 'stty raw -echo; exec cat > ${out}'`]);
+    const id = (await tmux.run(["display-message", "-p", "-t", "=raw:", "#{pane_id}"])).trim();
+    await waitFor(async () => (await tmux.run(["display-message", "-p", "-t", id, "#{pane_current_command}"])).trim() === "cat", 3000, "cat");
+    // As arguments, tmux reads a last `;` as the end of a command, and `\;` as an escaped one.
+    const texts = ["echo hi;", "a\;", ";", "two;\nlines;"];
+    for (const text of texts) await tmux.pasteInto(id, text);
+    const expected = texts.join("").replaceAll("\n", "\r");
+    await waitFor(() => existsSync(out) && readFileSync(out, "utf8") === expected, 3000, "the pasted bytes");
+    rmSync(dirname(out), { recursive: true, force: true });
+  });
+
+  test("activePane names the pane a window's keys go to", async () => {
+    const id = await catPane();
+    const windowId = (await tmux.run(["display-message", "-p", "-t", "=conv:", "#{window_id}"])).trim();
+    expect(await tmux.activePane(windowId)).toBe(id);
+    const second = (await tmux.run(["split-window", "-P", "-F", "#{pane_id}", "-t", windowId, "cat"])).trim();
+    expect(await tmux.activePane(windowId)).toBe(second);
+    await expect(tmux.activePane(id)).rejects.toThrow(/window id/);
   });
 });

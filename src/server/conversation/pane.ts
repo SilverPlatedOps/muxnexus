@@ -19,6 +19,12 @@ export interface PaneRead {
   /** The prompt's text as shown, whenever `draft` is "text". */
   draftText?: string;
   working: boolean;
+  /**
+   * A dialog whose text field has focus, taking the user's words: named by the
+   * fingerprint of the card it reads as with the field unfocused. No card is
+   * offered then (`dialog` null, `unrecognised` true): a digit would be typed.
+   */
+  field?: { fingerprint: string };
 }
 
 /** Nothing on screen can be trusted. */

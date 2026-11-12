@@ -503,9 +503,10 @@ export class Tmux {
     return ["tmux", ...socketArgs(this.socketName, this.socketPath), ...args];
   }
 
-  /** Run a tmux command. Resolves stdout, rejects with TmuxError(stderr) on nonzero exit. */
-  async run(args: string[]): Promise<string> {
-    const proc = Bun.spawn(this.argv(args), { stdout: "pipe", stderr: "pipe" });
+  /** Run a tmux command, `input` on its stdin. Resolves stdout, rejects with TmuxError(stderr) on nonzero exit. */
+  async run(args: string[], input?: string): Promise<string> {
+    const stdin = input === undefined ? {} : { stdin: new TextEncoder().encode(input) };
+    const proc = Bun.spawn(this.argv(args), { stdout: "pipe", stderr: "pipe", ...stdin });
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -1056,23 +1057,36 @@ export class Tmux {
     await this.run(["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]);
   }
 
-  /** What a window's active pane shows now, escapes included (`-e`): the screen an agent's dialog is read from. */
-  async capturePane(windowId: string): Promise<string> {
-    return this.run(["capture-pane", "-p", "-e", "-t", windowIdTarget(windowId)]);
+  /**
+   * What a pane (`%5`) shows now, escapes included (`-e`): the screen an
+   * agent's dialog is read from. A pane, not a window: in a split window the
+   * active pane may be another agent's.
+   */
+  async capturePane(paneId: string): Promise<string> {
+    return this.run(["capture-pane", "-p", "-e", "-t", paneIdTarget(paneId)]);
   }
 
-  /** `pasteText` by window id: a bracketed paste, sending nothing. */
-  async pasteInto(windowId: string, text: string): Promise<void> {
-    const target = windowIdTarget(windowId);
+  /**
+   * A bracketed paste into a pane, sending nothing. The text goes in on stdin:
+   * as an argument, tmux would read a trailing `;` as the end of a command.
+   */
+  async pasteInto(paneId: string, text: string): Promise<void> {
+    const target = paneIdTarget(paneId);
     const buffer = `muxnexus-conv-${process.pid}-${++this.pastes}`;
-    await this.run(["set-buffer", "-b", buffer, "--", text]);
+    await this.run(["load-buffer", "-b", buffer, "-"], text);
     await this.run(leavingHistory(target, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]));
   }
 
-  /** tmux key names (`Enter`, `C-c`, `1`), each pressed in turn. */
-  async sendKeys(windowId: string, keys: string[]): Promise<void> {
-    const target = windowIdTarget(windowId);
+  /** tmux key names (`Enter`, `C-c`, `1`) pressed in a pane, in turn. */
+  async sendKeys(paneId: string, keys: string[]): Promise<void> {
+    const target = paneIdTarget(paneId);
     if (keys.length > 0) await this.run(leavingHistory(target, ["send-keys", "-t", target, "--", ...keys]));
+  }
+
+  /** A window's active pane: where a key reaches a tab that runs no agent. */
+  async activePane(windowId: string): Promise<string> {
+    if (!WINDOW_ID.test(windowId)) throw new TmuxError(`not a window id: ${windowId}`);
+    return (await this.run(["display-message", "-p", "-t", windowId, "#{pane_id}"])).trim();
   }
 
   /** A window's whole history as tmux keeps it, wrapped lines joined (`-J`). */
@@ -1233,10 +1247,10 @@ function idTarget(id: number): string {
   return `$${id}`;
 }
 
-/** A bare window id (`@3`) as a target: the window's active pane. */
-function windowIdTarget(windowId: string): string {
-  if (!WINDOW_ID.test(windowId)) throw new TmuxError(`not a window id: ${windowId}`);
-  return windowId;
+/** A pane id (`%5`) as a target. */
+function paneIdTarget(paneId: string): string {
+  if (!/^%\d+$/.test(paneId)) throw new TmuxError(`not a pane id: ${paneId}`);
+  return paneId;
 }
 
 /**

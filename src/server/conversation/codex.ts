@@ -88,8 +88,8 @@ function rowItems(row: any): Out {
 const APPROVAL = "Would you like to run the following command?";
 const APPROVAL_FOOTER = "Press enter to confirm or esc to cancel";
 const HOTKEYS = ["y", "p", "esc"];
-/** `• Working (7s • esc to interrupt)`. */
-const WORKING = /^• \S.*\(\d[^)]*esc to interrupt\)$/u;
+/** `• Working (7s • esc to interrupt)`, maybe followed by ` · 1 background terminal running · /ps to view …`. */
+const WORKING = /^• \S.*\(\d[^)]*esc to interrupt\)(?: · .*)?$/u;
 
 const option = (t: string) => optionRow(t, "›") !== null;
 /** Rows of the dialog's block: `  Environment: local`, `  Reason: …` (the model's own words), `  $ touch probe.txt`. */

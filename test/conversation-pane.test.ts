@@ -147,6 +147,33 @@ test("a dialog whose text box has focus is not a card: a digit would be typed, n
   expect(claude("plan-feedback")).toMatchObject({ dialog: null, unrecognised: true });
 });
 
+test("a focused field is read as the dialog it belongs to, before and after the user's words go in", () => {
+  const card = (name: string) => claude(name).dialog!.fingerprint;
+  // Each set was captured from one dialog: its card, the field focused, the field holding words that wrap and run over two lines.
+  for (const [cardName, fields] of [
+    ["bash-no-card", ["bash-no-field", "bash-no-text"]],
+    ["plan-change-card", ["plan-change-field", "plan-change-text"]],
+    ["question", ["question-other-field", "question-other-text"]],
+    ["question-2", ["question-typing"]],
+    ["plan", ["plan-feedback"]],
+  ] as const) {
+    for (const name of fields) expect(claude(name)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false, field: { fingerprint: card(cardName) } });
+  }
+  // A card is not a field, and a screen that isn't a dialog has none.
+  for (const name of ["bash-no-card", "plan", "question", "question-review", "trust", "question-multi", "idle-empty"]) expect(claude(name)).not.toHaveProperty("field");
+
+  // Tab on another row amends that row: not the No field.
+  const yes = raw("claude-bash-no-field")
+    .replace(/ \x1b\[[0-9;]*m❯\x1b\[[0-9;]*m (\x1b\[[0-9;]*m)?4\./, "   $14.")
+    .replace(/   (\x1b\[[0-9;]*m)?1\./, " ❯ $11.");
+  expect(yes).not.toBe(raw("claude-bash-no-field"));
+  expect(adapterFor("claude").readPane(yes)).not.toHaveProperty("field");
+  // The dialog changed under the field: its fingerprint is another one.
+  const other = raw("claude-bash-no-text").replace("m touch probe.txt && sleep 20\n", "m touch probe.txt && sleep 30\n");
+  expect(other).not.toBe(raw("claude-bash-no-text"));
+  expect(adapterFor("claude").readPane(other).field!.fingerprint).not.toBe(card("bash-no-card"));
+});
+
 test("a Codex approval is a card with the command; its decline row takes the user's words", () => {
   expect(codex("approval")).toEqual({
     dialog: {
@@ -231,6 +258,10 @@ test("working: Claude's spinner and Codex's Working line; idle panes are not wor
   expect(codex("working").working).toBe(true);
   for (const name of ["idle-empty", "idle-draft", "idle-list"]) expect(claude(name).working).toBe(false);
   for (const name of ["idle-empty", "idle-draft"]) expect(codex(name).working).toBe(false);
+  // A command left running in the background adds to the line.
+  const background = raw("codex-working").replace("to interrupt)\x1b[0m", "to interrupt)\x1b[0m · 1 background terminal running · /ps to view · /stop to close");
+  expect(background).not.toBe(raw("codex-working"));
+  expect(adapterFor("codex").readPane(background).working).toBe(true);
 });
 
 test("the fingerprint is sha1 of its parts joined by newlines", () => {

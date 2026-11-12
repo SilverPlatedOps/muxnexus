@@ -1,0 +1,40 @@
+env -u TMUX -u TMUX_PANE claude --model haiku --permission-mode default --setting-sources project,local
+[1m[32m➜  [36mcvt5[0m env -u TMUX -u TMUX_PANE claude --model haiku --permission-mode default --setting-sources project,local
+[38;2;215;119;87m ▐[48;2;0;0;0m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;2;153;153;153mv2.1.322[39m
+[38;2;215;119;87m▝▜[48;2;0;0;0m█████[49m█▀[39m  [38;2;153;153;153mHaiku[39m [38;2;153;153;153m5.5[39m [38;2;153;153;153m·[39m [38;2;153;153;153mClaude[39m [38;2;153;153;153mMax[39m
+[38;2;215;119;87m ▝▝[39m   [38;2;215;119;87m▝▝[39m   [38;2;153;153;153m/private/tmp/claude-501/cvt5[39m
+
+
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mRun this exact shell command with the Bash tool, nothing else: touch probe.txt && sleep 20[39m
+
+[38;2;255;102;102m[49m⏺[39m [1mBash[0m(touch probe.txt && sleep 20)
+[38;2;153;153;153m  ⎿  Interrupted · What should Claude do instead?[39m
+
+[38;2;153;153;153m✻[39m [38;2;153;153;153mCrunched for 1s · done 3:22 AM[39m
+
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mCall the AskUserQuestion tool once with two single-select questions: "Pick a colour" (header Colour; options red, [39m
+  [38;2;255;255;255mgreen, blue) and "Pick a size" (header Size; options small, large). No other tools.[39m
+[38;2;153;153;153m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+← [38;2;0;0;0m[48;2;153;204;255m ☐ Colour [39m[49m ☐ Size  ✔ Submit  →
+
+[1m[38;2;255;255;255mPick a colour[0m
+
+  [38;2;153;153;153m1.[39m red
+     [38;2;153;153;153mRed[39m
+  [38;2;153;153;153m2.[39m green
+     [38;2;153;153;153mGreen[39m
+  [38;2;153;153;153m3.[39m blue
+     [38;2;153;153;153mBlue[39m
+[38;2;153;204;255m❯[39m [38;2;153;153;153m4.[39m [2mType something.[0m
+[38;2;153;153;153m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;2;153;153;153mEnter[39m [38;2;153;153;153mto[39m [38;2;153;153;153mselect[39m [38;2;153;153;153m·[39m [38;2;153;153;153mTab/Arrow[39m [38;2;153;153;153mkeys[39m [38;2;153;153;153mto[39m [38;2;153;153;153mnavigate[39m [38;2;153;153;153m·[39m [38;2;153;153;153mctrl+g[39m [38;2;153;153;153mto edit in Vim · Esc to cancel[39m
+
+
+
+
+
+
+
+
