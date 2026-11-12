@@ -18,6 +18,8 @@ import { isThisMachine, parseFocusRequest } from "./focus";
 import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
 import { createImageStore } from "./chat/images";
 import { createPasteStore } from "./pastes";
+import { GENERIC_KEYS } from "./conversation/actions";
+import { createConversationHub } from "./conversation/hub";
 import { createChatStore, isChatId } from "./chat/store";
 import type { DockerReader } from "./docker";
 import type { MemoryReader, MemoryReading } from "./memory";
@@ -36,6 +38,17 @@ import type { VitalsSampler } from "./vitals";
 // A new Claude tab takes its account from the session's environment, which a
 // `[Work]`-style tag set when the session was made (categoryProfile).
 const AGENTS: Record<NewWindowAgent, string> = { codex: `command codex --no-daemon -c 'tui.alternate_screen="never"'`, claude: "claude" };
+
+/** A tab as the conversation view names it: tmux's window id (`@12`), never a position or a name. */
+const isWindowId = (x: unknown): x is string => typeof x === "string" && /^@\d+$/.test(x);
+/** A request id the client picks, echoed in its answer. */
+const isReq = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 64;
+/** A byte offset into a conversation file. */
+const isOffset = (x: unknown): x is number => Number.isSafeInteger(x) && (x as number) >= 0;
+/** A message's words: as much as a note may paste. */
+const isText = (x: unknown): x is string => typeof x === "string" && x.length <= 100_000;
+/** A conversation id or a dialog's fingerprint: short tokens the server sent. */
+const isToken = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 256;
 
 /** What a Codex started from a chat is told first: enough to start its thread, nothing to do. */
 const CODEX_OPENING = "You've been added to a muxnexus group chat. Nothing to do yet: reply only with the word ready. Chat messages will arrive here, each headed [muxnexus · …].";
@@ -587,6 +600,9 @@ export function createServer(opts: ServerOptions): RunningServer {
 
   const pastes = opts.pastesDir ? createPasteStore(opts.pastesDir) : null;
 
+  /** The conversation view's subscriptions: its timer runs only while some socket has one open. */
+  const conv = createConversationHub({ tmux });
+
   /**
    * An image pasted into a terminal: POST /api/paste-image with the bytes, and
    * the answer is the path it was saved at, on this machine. A page of this
@@ -1055,6 +1071,39 @@ export function createServer(opts: ServerOptions): RunningServer {
           for (const c of clients) if (c.readyState === WebSocket.OPEN) c.sendText(json);
           break;
         }
+        // The conversation view. Each case returns: none changes tmux's sessions, so none needs the session poll.
+        case "conv-open":
+          if (!isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-open" });
+          return await conv.open(ws, m.windowId);
+        case "conv-close":
+          return conv.close(ws);
+        case "conv-more":
+          if (!isWindowId(m.windowId) || !isOffset(m.before)) return send(ws, { t: "error", message: "invalid conv-more" });
+          return await conv.more(ws, m.windowId, m.before);
+        case "conv-around":
+          if (!isWindowId(m.windowId) || !isOffset(m.offset)) return send(ws, { t: "error", message: "invalid conv-around" });
+          return await conv.around(ws, m.windowId, m.offset);
+        case "conv-search":
+          if (!isReq(m.req) || !isWindowId(m.windowId) || typeof m.query !== "string" || m.query.length > SEARCH_LIMITS.query || (m.cursor !== undefined && !isOffset(m.cursor))) return send(ws, { t: "error", message: "invalid conv-search" });
+          return await conv.search(ws, m.req, m.windowId, m.query, m.cursor);
+        case "conv-links":
+          if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-links" });
+          return await conv.links(ws, m.req, m.windowId);
+        case "conv-send":
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isText(m.text) || (m.replace !== undefined && typeof m.replace !== "boolean")) return send(ws, { t: "error", message: "invalid conv-send" });
+          return await conv.send(ws, m.req, m.windowId, m.conversation, m.text, m.replace === true);
+        case "conv-answer":
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isToken(m.fingerprint) || !Number.isInteger(m.option) || m.option < 0 || m.option > 99 || (m.text !== undefined && !isText(m.text))) return send(ws, { t: "error", message: "invalid conv-answer" });
+          return await conv.answer(ws, m.req, m.windowId, m.conversation, m.fingerprint, m.option, m.text);
+        case "conv-stop":
+          if (!isWindowId(m.windowId) || (m.req !== undefined && !isReq(m.req))) return send(ws, { t: "error", message: "invalid conv-stop" });
+          return await conv.interrupt(ws, m.req ?? "", m.windowId);
+        case "conv-screen":
+          if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-screen" });
+          return await conv.screen(ws, m.req, m.windowId);
+        case "conv-key":
+          if (!isWindowId(m.windowId) || !GENERIC_KEYS.includes(m.key)) return send(ws, { t: "error", message: "invalid conv-key" });
+          return await conv.key(ws, m.windowId, m.key);
         default:
           return send(ws, { t: "error", message: `unknown message type: ${String((m as { t?: unknown }).t)}` });
       }
@@ -1350,6 +1399,7 @@ export function createServer(opts: ServerOptions): RunningServer {
         clients.delete(ws);
         ws.data.attachSeq++; // invalidate any in-flight attach for this socket
         detach(ws);
+        conv.close(ws);
         syncFast();
       },
     },
@@ -1376,6 +1426,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       opts.vitals?.stop();
       clearInterval(dockerTimer);
       clearInterval(chatTimer);
+      conv.stop();
       for (const ws of clients) {
         ws.data.attachSeq++; // invalidate any in-flight attach
         detach(ws);

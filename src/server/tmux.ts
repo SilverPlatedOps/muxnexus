@@ -1066,6 +1066,12 @@ export class Tmux {
     return this.run(["capture-pane", "-p", "-e", "-t", paneIdTarget(paneId)]);
   }
 
+  /** A pane's size in cells: what its capture is drawn at. */
+  async paneSize(paneId: string): Promise<{ cols: number; rows: number }> {
+    const [cols, rows] = (await this.run(["display-message", "-p", "-t", paneIdTarget(paneId), "#{pane_width} #{pane_height}"])).trim().split(" ").map(Number);
+    return { cols: cols || 0, rows: rows || 0 };
+  }
+
   /**
    * A bracketed paste into a pane, sending nothing. The text goes in on stdin:
    * as an argument, tmux would read a trailing `;` as the end of a command.

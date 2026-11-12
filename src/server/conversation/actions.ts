@@ -33,7 +33,7 @@ const lastClear = new Map<string, number>();
 const STOP_AGAIN_MS = 2000;
 const lastStop = new Map<string, number>();
 
-const GENERIC_KEYS: readonly string[] = ["1", "2", "3", "4", "5", "Enter", "Escape", "Up", "Down", "Tab"] satisfies GenericKey[];
+export const GENERIC_KEYS: readonly string[] =["1", "2", "3", "4", "5", "Enter", "Escape", "Up", "Down", "Tab"] satisfies GenericKey[];
 
 /** The conversation a tab holds: Claude's session id, Codex's thread id. */
 export function conversationOf(info: WindowAgentInfo): string | null {

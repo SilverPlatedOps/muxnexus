@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { AgentKind, Chat, ChatMode, ChatNotes, ChatSearchHit, ChatSummary } from "./chat";
+import type { Card, ConvError, ConvItem, GenericKey, StepResult } from "./conversation";
 
 export interface WindowInfo {
   /**
@@ -244,6 +245,41 @@ export type ClientMessage =
   | { t: "chat-round"; id: string; action: "start" | "end"; topic?: string }
   /** Point a member whose tab closed at the tab its conversation was resumed in. */
   | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }
+  // The conversation view (a phone, an iPad). Every message names a tab by its
+  // window id and nothing else; none attaches, selects a window or resizes, so
+  // the desk's terminal never changes because the phone looked.
+  /**
+   * Show this tab's conversation on this socket, in place of any other: answered
+   * with `conv` and `conv-card`, then `conv-items` and `conv-card` as they change.
+   * Sent again for the same tab, it starts afresh (the card included).
+   */
+  | { t: "conv-open"; windowId: string }
+  | { t: "conv-close" }
+  /** Older items, before byte `before` (the `start` of what the socket holds): answered with `conv-page`. */
+  | { t: "conv-more"; windowId: string; before: number }
+  /** The items around byte `offset` (a search hit's): answered with `conv-page`. */
+  | { t: "conv-around"; windowId: string; offset: number }
+  /** Newest first, from `cursor` (a previous result's `next`): answered with `conv-search-result`. */
+  | { t: "conv-search"; req: string; windowId: string; query: string; cursor?: number }
+  | { t: "conv-links"; req: string; windowId: string }
+  /**
+   * `text` as the user's next message to `conversation` (the `conv`'s): answered
+   * with `conv-result`. One with `draft` means the desk's prompt holds that text;
+   * sent again with `replace`, it is cleared first.
+   */
+  | { t: "conv-send"; req: string; windowId: string; conversation: string; text: string; replace?: boolean }
+  /**
+   * Choose option `option` (a `CardOption.index`) of the card read as
+   * `fingerprint`, in `conversation` (the `conv`'s); `text` for an option that
+   * takes words. Answered with `conv-result`.
+   */
+  | { t: "conv-answer"; req: string; windowId: string; conversation: string; fingerprint: string; option: number; text?: string }
+  /** Interrupt the agent. Always answered with `conv-result` for `req` ("" when absent): refused with `waiting` while a dialog is up. */
+  | { t: "conv-stop"; windowId: string; req?: string }
+  /** What the tab's terminal shows now: answered with `conv-screen-result`. */
+  | { t: "conv-screen"; req: string; windowId: string }
+  /** One of Screen's keys, pressed in the tab. */
+  | { t: "conv-key"; windowId: string; key: GenericKey }
   | { t: "ping" };
 
 /** An agent already running in a tab, joining a chat. */
@@ -517,4 +553,31 @@ export type ServerMessage =
   | { t: "chat"; chat: Chat; agents: Record<string, ChatMemberLive> }
   /** Sent to the browser that created a chat, so it can open it. */
   | { t: "chat-created"; id: string }
+  /**
+   * A tab's conversation, its newest page: the answer to `conv-open`, and again,
+   * replacing everything shown, whenever the tab comes to hold another one.
+   * `agent` null: no agent in the tab (show Screen). `conversation` null: none to
+   * read yet, so nothing can be sent. `start` and `end` are byte offsets.
+   */
+  | { t: "conv"; windowId: string; agent: AgentKind | null; conversation: string | null; items: (ConvItem | StepResult)[]; start: number; end: number }
+  /** What the agent wrote since, to append; a `step-result` completes a step already shown. */
+  | { t: "conv-items"; windowId: string; items: (ConvItem | StepResult)[] }
+  /**
+   * The answer to `conv-more` or `conv-around`: the rows from byte `start` to
+   * byte `end`. An around page's `end` says whether it meets what the socket holds.
+   */
+  | { t: "conv-page"; windowId: string; items: (ConvItem | StepResult)[]; start: number; end: number }
+  /**
+   * The dialog the agent waits on, or none: sent on open and whenever it changes.
+   * `screen`: it waits on something no card can answer, so offer Screen.
+   * `working`: the agent is busy (offer Stop).
+   */
+  | { t: "conv-card"; windowId: string; card: Card | null; screen: boolean; working: boolean }
+  | { t: "conv-search-result"; req: string; hits: { id: string; offset: number; snippet: string }[]; next?: number }
+  /** Every URL in the conversation once, pull requests first. */
+  | { t: "conv-links-result"; req: string; links: { url: string; pr: boolean }[] }
+  /** How a send, an answer or a stop went. A failure with neither `error` nor `draft` threw: an `error` message says why. */
+  | { t: "conv-result"; req: string; ok: boolean; error?: ConvError; draft?: string }
+  /** A capture of the tab's pane with its colours, and the pane's size; empty and 0 × 0 when it couldn't be read. */
+  | { t: "conv-screen-result"; req: string; ansi: string; cols: number; rows: number }
   | { t: "error"; message: string };
