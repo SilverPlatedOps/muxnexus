@@ -1056,6 +1056,25 @@ export class Tmux {
     await this.run(["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]);
   }
 
+  /** What a window's active pane shows now, escapes included (`-e`): the screen an agent's dialog is read from. */
+  async capturePane(windowId: string): Promise<string> {
+    return this.run(["capture-pane", "-p", "-e", "-t", windowIdTarget(windowId)]);
+  }
+
+  /** `pasteText` by window id: a bracketed paste, sending nothing. */
+  async pasteInto(windowId: string, text: string): Promise<void> {
+    const target = windowIdTarget(windowId);
+    const buffer = `muxnexus-conv-${process.pid}-${++this.pastes}`;
+    await this.run(["set-buffer", "-b", buffer, "--", text]);
+    await this.run(leavingHistory(target, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", target]));
+  }
+
+  /** tmux key names (`Enter`, `C-c`, `1`), each pressed in turn. */
+  async sendKeys(windowId: string, keys: string[]): Promise<void> {
+    const target = windowIdTarget(windowId);
+    if (keys.length > 0) await this.run(leavingHistory(target, ["send-keys", "-t", target, "--", ...keys]));
+  }
+
   /** A window's whole history as tmux keeps it, wrapped lines joined (`-J`). */
   async history(session: string, id: string, lines = 50_000): Promise<string> {
     return this.run(["capture-pane", "-p", "-J", "-S", `-${lines}`, "-t", await this.windowTarget(session, id)]);
@@ -1212,6 +1231,22 @@ export class Tmux {
 /** A session id as a tmux target. */
 function idTarget(id: number): string {
   return `$${id}`;
+}
+
+/** A bare window id (`@3`) as a target: the window's active pane. */
+function windowIdTarget(windowId: string): string {
+  if (!WINDOW_ID.test(windowId)) throw new TmuxError(`not a window id: ${windowId}`);
+  return windowId;
+}
+
+/**
+ * `command`, run after leaving the history `scroll` opened, in one tmux call.
+ * In the history, keys go to copy mode while a paste goes past it to the
+ * program, and a capture shows the program's screen either way: an answer
+ * would be read off one and typed into the other.
+ */
+function leavingHistory(target: string, command: string[]): string[] {
+  return ["if-shell", "-F", "-t", target, "#{pane_in_mode}", `send-keys -X -t ${target} cancel`, ";", ...command];
 }
 
 /** tmux socket selection flags: `-S path` wins over `-L name`; neither means tmux's default. */

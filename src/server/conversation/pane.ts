@@ -186,6 +186,12 @@ export function scanOptions(
   return { options, end: i };
 }
 
+/** A card's `selected`: the highlighted option, when one is. */
+export function highlighted(opts: PaneOption[]): { selected?: number } {
+  const o = opts.find((x) => x.selected);
+  return o ? { selected: o.index } : {};
+}
+
 /** "Yes, and …" choices make a lasting change (a rule, a mode switch). */
 export const lasting = (label: string): boolean => label.startsWith("Yes, and ");
 

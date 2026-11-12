@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { Card, ConvItem, StepResult } from "../../shared/conversation";
-import type { ConvAdapter } from "./adapter";
+import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
-  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, isRule, lastFilled, lasting, nextFilled, optionRow,
-  paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
+  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, isRule, lastFilled, lasting, nextFilled,
+  optionRow, paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -156,7 +156,7 @@ function permission(texts: string[]): Card | null {
     parts.push(path);
   }
   const options = opts.map((o) => cardOption(o, { secondary: lasting(o.label), takesText: o === no }));
-  return { kind: "permission", title, detail, options, fingerprint: fingerprint([...parts, body, ...options.map((o) => o.label)]) };
+  return { kind: "permission", title, detail, options, fingerprint: fingerprint([...parts, body, ...options.map((o) => o.label)]), ...highlighted(opts) };
 }
 
 function plan(texts: string[]): Card | null {
@@ -182,7 +182,7 @@ function plan(texts: string[]): Card | null {
   if (feedback.selected) return null;
   const detail = block(texts, open + 1, close, 1);
   const options = opts.map((o) => cardOption(o, { secondary: lasting(o.label), takesText: o === feedback }));
-  return { kind: "plan", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]) };
+  return { kind: "plan", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]), ...highlighted(opts) };
 }
 
 interface Tab { glyph: string; header: string; lit: boolean }
@@ -226,7 +226,10 @@ function question(lines: PaneLine[], texts: string[]): Card | null {
   if (other.selected) return null;
   const of = questions.length;
   const options = opts.map((o) => cardOption(o, { secondary: o === chat, takesText: o === other }));
-  return { kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...options.map((o) => o.label)]), question: { at, of } };
+  return {
+    kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...options.map((o) => o.label)]), question: { at, of },
+    ...highlighted(opts),
+  };
 }
 
 /** The step after the last question: the answers, then Submit or Cancel. It has no footer. */
@@ -244,7 +247,7 @@ function review(lines: PaneLine[], texts: string[]): Card | null {
   if (!scan || scan.end !== last + 1 || scan.options.map((o) => o.label).join("\n") !== "Submit answers\nCancel") return null;
   const detail = block(texts, head + 1, ready, 1);
   const options = scan.options.map((o) => cardOption(o));
-  return { kind: "question", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]) };
+  return { kind: "question", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]), ...highlighted(scan.options) };
 }
 
 function readPane(ansi: string): PaneRead {
@@ -260,4 +263,42 @@ function readPane(ansi: string): PaneRead {
   }
 }
 
-export const claudeAdapter: ConvAdapter = { kind: "claude", rowItems, readPane };
+// --- Answering (the Claude checks doc, "Key mapping per dialog") ---
+//
+// A digit chooses its row at once, wherever the highlight is. A row that
+// takes the user's words becomes a text field: the plan's change request once
+// the highlight is on it, the permission's No after Tab on it, a question's
+// "Type something." once its digit is pressed. The lists wrap (Down on the last
+// row goes to the first), so moves count from the highlight the pane shows.
+
+/** Down from the highlighted row to row `to`. */
+function downTo(card: Card, to: number): string[] | null {
+  if (card.selected === undefined || card.selected > to) return null;
+  return Array<string>(to - card.selected).fill("Down");
+}
+
+function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
+  const o = card.options.find((x) => x.index === option);
+  // One key per choice: a two-digit option would be two choices.
+  if (!o || option > 9) return null;
+  if (!hasText) {
+    // A field is no choice without its words; the permission's No is (its digit says No outright).
+    return o.takesText && card.kind !== "permission" ? null : { keys: [String(option)] };
+  }
+  if (!o.takesText) return null;
+  if (card.kind === "question") return { keys: [String(option)], text: "paste-then-enter" };
+  const moves = downTo(card, option);
+  if (!moves) return null;
+  return { keys: card.kind === "permission" ? [...moves, "Tab"] : moves, text: "paste-then-enter" };
+}
+
+export const claudeAdapter: ConvAdapter = {
+  kind: "claude",
+  rowItems,
+  readPane,
+  keysFor,
+  // C-u clears one line of a multi-line draft only. C-c clears the lot, but
+  // arms "Press Ctrl-C again to exit", and while a turn runs it interrupts the
+  // turn instead (the draft stays): so it is sent once, and only when idle.
+  clearDraft: ["C-c"],
+};

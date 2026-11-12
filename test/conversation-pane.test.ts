@@ -36,6 +36,7 @@ test("a Bash prompt is a permission card with the command and the pane's own opt
         { index: 4, label: "No", takesText: true },
       ],
       fingerprint: anyPrint,
+      selected: 1,
     },
     unrecognised: false,
     draft: "unknown",
@@ -55,6 +56,7 @@ test("a Write prompt names the file; an Edit prompt adds the diff", () => {
       { index: 3, label: "No", takesText: true },
     ],
     fingerprint: anyPrint,
+    selected: 1,
   });
   const edit = claude("edit-permission").dialog;
   expect(edit).toMatchObject({ kind: "permission", title: "Edit file", detail: "notes.txt\n1  alpha\n2 -beta\n2 +gamma" });
@@ -82,6 +84,7 @@ test("a plan approval carries the plan; its last row takes the user's words", ()
       { index: 3, label: "Tell Claude what to change", takesText: true },
     ],
     fingerprint: anyPrint,
+    selected: 1,
   });
 });
 
@@ -98,6 +101,7 @@ test("single-select questions are cards, numbered by the highlighted tab", () =>
         { index: 5, label: "Chat about this", secondary: true },
       ],
       fingerprint: anyPrint,
+      selected: 1,
       question: { at: 1, of: 2 },
     },
     unrecognised: false,
@@ -115,6 +119,7 @@ test("the review step is a card of its own, with the answers as detail", () => {
     detail: "● Pick a colour\n  → green\n● Pick a size\n  → medium",
     options: [{ index: 1, label: "Submit answers" }, { index: 2, label: "Cancel" }],
     fingerprint: anyPrint,
+    selected: 1,
   });
 });
 
@@ -154,6 +159,7 @@ test("a Codex approval is a card with the command; its decline row takes the use
         { index: 3, label: "No, and tell Codex what to do differently", takesText: true },
       ],
       fingerprint: anyPrint,
+      selected: 1,
     },
     unrecognised: false,
     draft: "unknown",
@@ -243,6 +249,7 @@ test("the fingerprint changes when the command changes and only then", () => {
     .replace("   \x1b[38;2;153;153;153m4.", " \x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m4.");
   expect(moved).not.toBe(pane);
   expect(adapterFor("claude").readPane(moved).dialog!.options.map((o) => o.label)).toEqual(["Yes", expect.any(String), expect.any(String), "No"]);
+  expect(adapterFor("claude").readPane(moved).dialog!.selected).toBe(4);
   expect(print(moved)).toBe(base);
 
   // The tip comes and goes; the conversation above the dialog scrolls.

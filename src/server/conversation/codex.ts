@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { Card, ConvItem, StepResult } from "../../shared/conversation";
-import type { ConvAdapter } from "./adapter";
+import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, hashId, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
-  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, lastFilled, lasting, nextFilled, optionRow, paneLines,
-  scanOptions, UNREADABLE, type PaneLine, type PaneRead,
+  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, lastFilled, lasting, nextFilled, optionRow,
+  paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -139,7 +139,10 @@ function approval(texts: string[]): Card | null {
   if (cmd < 0) return null;
   const detail = block(texts, cmd, start, 2);
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: k === 1, takesText: k === 2 }));
-  return { kind: "approval", title: APPROVAL, detail, options, fingerprint: fingerprint([APPROVAL, detail, ...options.map((o) => o.label)]) };
+  return {
+    kind: "approval", title: APPROVAL, detail, options, fingerprint: fingerprint([APPROVAL, detail, ...options.map((o) => o.label)]),
+    ...highlighted(opts),
+  };
 }
 
 /**
@@ -178,4 +181,17 @@ function readPane(ansi: string): PaneRead {
   }
 }
 
-export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane };
+// --- Answering (the Codex checks doc, "Key map for the approval dialog") ---
+
+/** The approval's own hotkeys, which act at once wherever the highlight is. */
+const APPROVAL_KEYS = ["y", "p", "Escape"];
+
+function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
+  const o = card.options.find((x) => x.index === option);
+  if (card.kind !== "approval" || !o || (hasText && !o.takesText)) return null;
+  // The dialog has no field for the words: declining ends the turn, and they go as the next message.
+  return hasText ? { keys: ["Escape"], followUp: true } : { keys: [APPROVAL_KEYS[option - 1]!] };
+}
+
+// C-c empties the composer, and a running turn carries on (unlike Claude's).
+export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"] };

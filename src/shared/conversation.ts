@@ -42,7 +42,10 @@ export interface Card {
   fingerprint: string;
   /** Which of several questions is on screen. */
   question?: { at: number; of: number };
+  /** The option the agent's screen highlights, where a move to another row starts. Not part of the fingerprint. */
+  selected?: number;
 }
 
-export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent";
+/** `working`: the desk's draft can't be cleared while the agent works (the key that clears it would interrupt). */
+export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent" | "working";
 export type GenericKey = "1" | "2" | "3" | "4" | "5" | "Enter" | "Escape" | "Up" | "Down" | "Tab";

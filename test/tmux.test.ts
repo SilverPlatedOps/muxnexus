@@ -667,3 +667,39 @@ describe("Tmux.resumeIn", () => {
     expect(screen).not.toContain("--resume");
   });
 });
+
+describe("Tmux.capturePane, pasteInto and sendKeys", () => {
+  /** A window running `cat` under a line drawn dim, and its id. */
+  async function catWindow(): Promise<string> {
+    await tmux.run(["new-session", "-d", "-s", "conv", "-x", "80", "-y", "24", "sh -c 'printf \"\\033[2mghost\\033[0m plain\\n\"; exec cat'"]);
+    const id = (await tmux.run(["display-message", "-p", "-t", "=conv:", "#{window_id}"])).trim();
+    await waitFor(async () => (await tmux.capturePane(id)).includes("plain"), 3000, "printf");
+    return id;
+  }
+
+  test("capturePane keeps the escapes: a reader tells dim text from plain", async () => {
+    const id = await catWindow();
+    const screen = await tmux.capturePane(id);
+    expect(screen).toContain("\x1b[2mghost");
+    expect(screen).toMatch(/ghost\x1b\[0m plain/);
+    await expect(tmux.capturePane("conv:0")).rejects.toThrow(/window id/);
+  });
+
+  test("keys and pastes reach the program, leaving the history first if the pane is in it", async () => {
+    const id = await catWindow();
+    const mode = async () => (await tmux.run(["display-message", "-p", "-t", id, "#{pane_in_mode}"])).trim();
+    await tmux.run(["copy-mode", "-t", id]);
+    expect(await mode()).toBe("1");
+    await tmux.sendKeys(id, ["a", "b", "Enter"]);
+    expect(await mode()).toBe("0");
+    await waitFor(async () => /^ab\nab$/m.test(await tmux.capturePane(id)), 3000, "keys");
+    await tmux.run(["copy-mode", "-t", id]);
+    await tmux.pasteInto(id, "pasted text");
+    expect(await mode()).toBe("0");
+    await tmux.sendKeys(id, ["Enter"]);
+    await waitFor(async () => /^pasted text\npasted text$/m.test(await tmux.capturePane(id)), 3000, "paste");
+    // Its buffer went with the paste.
+    expect(await tmux.run(["list-buffers", "-F", "#{buffer_name}"])).not.toContain("muxnexus");
+    await expect(tmux.sendKeys("@x", ["a"])).rejects.toThrow(/window id/);
+  });
+});

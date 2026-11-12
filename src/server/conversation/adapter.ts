@@ -2,10 +2,13 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { AgentKind } from "../../shared/chat";
-import type { ConvItem, StepResult } from "../../shared/conversation";
+import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import { claudeAdapter } from "./claude";
 import { codexAdapter } from "./codex";
 import type { PaneRead } from "./pane";
+
+/** What answering takes: keys, optionally the user's text pasted then Enter, optionally a follow-up message once the pane is idle again. */
+export interface KeyPlan { keys: string[]; text?: "paste-then-enter"; followUp?: boolean }
 
 export interface ConvAdapter {
   kind: AgentKind;
@@ -13,6 +16,10 @@ export interface ConvAdapter {
   rowItems(row: unknown): (ConvItem | StepResult)[];
   /** A `capture-pane -p -e` of the agent's window: its dialog, draft and working state. Fails closed. */
   readPane(ansi: string): PaneRead;
+  /** The keys that choose `option` on `card`, a card just read from the pane; null when the card offers no such choice. */
+  keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null;
+  /** The keys that empty the prompt. Sent only to an idle prompt that holds text. */
+  clearDraft: string[];
 }
 
 const ADAPTERS: Record<AgentKind, ConvAdapter> = { claude: claudeAdapter, codex: codexAdapter };
