@@ -2,8 +2,9 @@
 /* Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE. */
 
 /* Dark, the default. The vault (.bld) takes these values whatever the page
-   wears: it is a night scene, and everything in it stays dark. */
-:root, .bld {
+   wears: it is a night scene, and everything in it stays dark -- the sidebar's
+   way back (#expand) too, while it floats over the vault's top bar. */
+:root, .bld, #layout:has(#view:not([hidden]) > .bld) #expand {
   /* surfaces: chrome sits darker than the terminal, so the terminal reads as content */
   --well: #171a1f;
   --chrome: #1b1f25;
@@ -895,6 +896,9 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 
 #terminal, #terminal-side { height: 100%; min-height: 0; }
 #terminal .xterm, #terminal-side .xterm { height: 100%; }
+/* Under the last whole row xterm's viewport shows, in its stylesheet's black:
+   on the light palette that is a black bar, so it takes the terminal's own. */
+:root[data-theme="light"] .xterm .xterm-viewport { background-color: var(--term); }
 
 /* ---------- split: two tabs side by side ---------- */
 
