@@ -9,6 +9,16 @@
   <title>muxnexus</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <!-- Light or dark before the first paint, by theme.ts's resolveAppearance rule
+       (?theme=, else the saved choice, "system" following the OS, else dark). -->
+  <script>
+    (function () {
+      var asked = new URLSearchParams(location.search).get("theme"), saved = null;
+      try { saved = localStorage.getItem("muxnexus.termTheme"); } catch (e) {}
+      var pick = asked === "light" || asked === "dark" ? asked : saved;
+      document.documentElement.dataset.theme = pick === "light" || (pick === "system" && !matchMedia("(prefers-color-scheme: dark)").matches) ? "light" : "dark";
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Pixelify+Sans:wght@500;600&display=swap" />
   <link rel="stylesheet" href="./style.css" />
@@ -83,7 +93,7 @@
       <!-- The machine and the settings, one click each, under both lists. -->
       <div id="side-status">
         <button id="side-system" class="side-status-row" type="button" title="System: CPU, memory, the busiest apps, Docker"><span class="k">System</span><span id="side-system-text" class="v">…</span></button>
-        <button id="display" class="side-status-row" type="button" title="Settings: marks, view, terminal colours, about"><span class="k">Settings</span><span class="v dim">marks, view, colours</span></button>
+        <button id="display" class="side-status-row" type="button" title="Settings: marks, view, light or dark, about"><span class="k">Settings</span><span class="v dim">marks, view, colours</span></button>
       </div>
       <footer id="side-foot"></footer>
     </aside>

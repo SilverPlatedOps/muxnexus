@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
-import { termTheme } from "./theme";
+import { appearance, onAppearance, type Appearance } from "./theme";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
@@ -99,7 +99,7 @@ const DARK = {
   brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
 };
 
-// One Light, picked with ?theme=light; the rest of the page stays dark.
+// One Light, with the page's light appearance.
 const LIGHT = {
   background: "#fafafa",
   foreground: "#383a42",
@@ -110,31 +110,45 @@ const LIGHT = {
   brightBlack: "#696c77", brightRed: "#ca1243", brightGreen: "#3d8c3c", brightYellow: "#986801",
   brightBlue: "#2f5ee0", brightMagenta: "#8d1d8b", brightCyan: "#0997b3", brightWhite: "#ffffff",
 };
-const THEME = termTheme() === "light" ? LIGHT : DARK;
-const light = THEME === LIGHT;
+/**
+ * Everything a terminal paints in for one appearance. Search marks are in
+ * amber, the colour terminals search in; decorations take #RRGGBB only. The
+ * addon tracks the match you are on by selecting it, and the selection paints
+ * over its mark, so while a search is open the selection itself takes the
+ * active colour (`finding`): in white on the dark palette, so a dimmed line
+ * still reads; on the light one a paler amber under its own dark text. The
+ * scrollbar's marks sit on the page's own background: on the light one they
+ * take a darker amber to show.
+ */
+function palette(a: Appearance) {
+  const light = a === "light";
+  const theme = light ? LIGHT : DARK;
+  const match = light ? "#f3dea0" : "#5a4a26";
+  const active = light ? "#e5b84f" : "#9a7a32";
+  const find: ISearchOptions = {
+    decorations: {
+      matchBackground: match,
+      matchOverviewRuler: light ? "#c18401" : match,
+      activeMatchBackground: active,
+      activeMatchColorOverviewRuler: light ? "#986801" : active,
+    },
+  };
+  const finding = { ...theme, selectionBackground: active, selectionInactiveBackground: active, selectionForeground: light ? LIGHT.foreground : "#ffffff" };
+  // On the light palette, a colour too close to the background is darkened
+  // until it shows -- white and bright white, which programs print on dark.
+  // 3, not 4.5, so dim text and the palette's own greys stay dimmer than the rest.
+  return { theme, find, finding, minimumContrastRatio: light ? 3 : 1 };
+}
 
 /**
- * Search marks in amber, the colour terminals search in; decorations take
- * #RRGGBB only. The addon tracks the match you are on by selecting it, and the
- * selection paints over its mark, so while a search is open the selection
- * itself takes the active colour: in white on the dark palette, so a dimmed
- * line still reads; on the light one a paler amber under its own dark text.
+ * The addon's own refresh after the screen redraws: find again from the match
+ * selected, without scrolling to it. The third argument is not in its typings.
  */
-const MATCH = light ? "#f3dea0" : "#5a4a26";
-const ACTIVE = light ? "#e5b84f" : "#9a7a32";
-/** The scrollbar's marks sit on the page's own background: on the light one they take a darker amber to show. */
-const FIND: ISearchOptions = {
-  decorations: {
-    matchBackground: MATCH,
-    matchOverviewRuler: light ? "#c18401" : MATCH,
-    activeMatchBackground: ACTIVE,
-    activeMatchColorOverviewRuler: light ? "#986801" : ACTIVE,
-  },
-};
-const FINDING = { ...THEME, selectionBackground: ACTIVE, selectionInactiveBackground: ACTIVE, selectionForeground: light ? LIGHT.foreground : "#ffffff" };
+type Refind = (term: string, o: ISearchOptions, internal: { noScroll: boolean }) => boolean;
 
 export function createTerminal(container: HTMLElement, h: TerminalHandlers): TerminalView {
   const open = (target: string) => { if (!h.onLink?.(target)) window.open(target, "_blank", "noopener"); };
+  let p = palette(appearance());
   const term = new Terminal({
     fontFamily: '"JetBrains Mono", Menlo, monospace',
     fontSize: 13,
@@ -142,11 +156,8 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     cursorBlink: true,
     macOptionIsMeta: true,
     scrollback: 1000,
-    theme: THEME,
-    // On the light palette, a colour too close to the background is darkened
-    // until it shows -- white and bright white, which programs print on dark.
-    // 3, not 4.5, so dim text and the palette's own greys stay dimmer than the rest.
-    minimumContrastRatio: light ? 3 : 1,
+    theme: p.theme,
+    minimumContrastRatio: p.minimumContrastRatio,
     allowProposedApi: true, // the search addon's match marks are decorations, still a proposed API
     // A link a program printed with its own text (OSC 8) opens in a new tab,
     // as a bare URL does, instead of behind xterm's confirm() dialog.
@@ -214,7 +225,7 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     h.onSearch?.(found);
   });
   const step = (find: (q: string, o: ISearchOptions) => boolean): SearchState => {
-    if (query) find(query, FIND);
+    if (query) find(query, p.find);
     return found;
   };
   function scan(next: string): SearchState {
@@ -222,9 +233,21 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     found = { total: 0, index: 0 };
     search.clearDecorations();
     term.clearSelection();
-    term.options.theme = next ? FINDING : THEME;
+    term.options.theme = next ? p.finding : p.theme;
     return step((q, o) => search.findPrevious(q, o));
   }
+
+  // Repainted in place on a switch: the screen, the scroll position and an
+  // open search stay as they were. A fresh theme object, as xterm asks; the
+  // marks are drawn again in the new amber from the match you are on.
+  const unwatch = onAppearance((a) => {
+    p = palette(a);
+    term.options.minimumContrastRatio = p.minimumContrastRatio;
+    term.options.theme = { ...(query ? p.finding : p.theme) };
+    if (!query) return;
+    search.clearDecorations();
+    (search.findPrevious as Refind).call(search, query, p.find, { noScroll: true });
+  });
 
   let disposed = false;
   const fitAndReport = () => {
@@ -243,6 +266,7 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
     reset: () => term.reset(),
     dispose: () => {
       disposed = true;
+      unwatch();
       resized.disconnect();
       // The WebGL addon leaves its context to garbage collection; losing it
       // here hands its GPU memory back now. Its canvas is the screen's unclassed one.

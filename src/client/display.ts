@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import { VIEW_CHOICES, type ViewName } from "./view-host";
-import { setTermTheme, termTheme } from "./theme";
+import { setThemeChoice, themeChoice, type ThemeChoice } from "./theme";
 
 /**
  * What the tabs and rows wear besides their name, and the one modal that
@@ -149,24 +149,18 @@ export function openDisplay(
   }
 
   {
-    // The terminal palette, which only ?theme=light could pick before: saved, and taken on reload.
+    // The page and its terminals, light or dark together; switched in place, no reload.
     const row = el("label", "display-row");
     const select = el("select", "display-select");
-    for (const [value, title] of [["dark", "Dark"], ["light", "Light"]] as const) {
+    for (const [value, title] of [["dark", "Dark"], ["light", "Light"], ["system", "Match system"]] as const) {
       const o = el("option", undefined, title);
       o.value = value;
-      o.selected = value === termTheme();
+      o.selected = value === themeChoice();
       select.append(o);
     }
-    select.onchange = () => {
-      setTermTheme(select.value === "light" ? "light" : "dark");
-      // A `?theme=` in the address would win over the choice on reload: drop it.
-      const url = new URL(location.href);
-      url.searchParams.delete("theme");
-      location.replace(url);
-    };
+    select.onchange = () => setThemeChoice(select.value as ThemeChoice);
     const text = el("span", "display-text");
-    text.append(el("span", "move-opt-name", "Terminal colours"), el("span", "move-opt-note", "Reloads the page to repaint the terminals"));
+    text.append(el("span", "move-opt-name", "Appearance"), el("span", "move-opt-note", "The page and its terminals; Match system follows this device's light or dark setting"));
     row.append(text, select);
     box.append(row);
   }
