@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, composedAs, conversationWindow, linkRows, mergeItems, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -249,4 +249,15 @@ test("Send goes to the conversation the words were written for, and asks first w
   // While the tab's conversation isn't known yet (opening), the words aren't said to be for another.
   expect(writtenElsewhere(forA, null)).toBe(false);
   expect(writtenElsewhere({ text: "", for: "A" }, "B")).toBe(false);
+});
+
+test("a page, search or links answer counts only for the tab and conversation shown now", () => {
+  const shown = { windowId: "@1", conversation: "A" };
+  expect(readForShown({ windowId: "@1", conversation: "A" }, shown)).toBe(true);
+  // Read before a /clear (the tab holds B now), or for the tab shown before: dropped.
+  expect(readForShown({ windowId: "@1", conversation: "A" }, { windowId: "@1", conversation: "B" })).toBe(false);
+  expect(readForShown({ windowId: "@2", conversation: "A" }, shown)).toBe(false);
+  expect(readForShown({ windowId: "@1", conversation: null }, shown)).toBe(false);
+  // A tab with no conversation yet: an answer read for none is its own.
+  expect(readForShown({ windowId: "@1", conversation: null }, { windowId: "@1", conversation: null })).toBe(true);
 });

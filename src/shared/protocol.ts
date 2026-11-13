@@ -572,18 +572,21 @@ export type ServerMessage =
   | { t: "conv-items"; windowId: string; items: (ConvItem | StepResult)[] }
   /**
    * The answer to `conv-more` or `conv-around`: the rows from byte `start` to
-   * byte `end`. An around page's `end` says whether it meets what the socket holds.
+   * byte `end` of `conversation`'s file (the one it was read for: an answer
+   * for a conversation no longer shown is dropped). An around page's `end`
+   * says whether it meets what the socket holds.
    */
-  | { t: "conv-page"; windowId: string; items: (ConvItem | StepResult)[]; start: number; end: number }
+  | { t: "conv-page"; windowId: string; conversation: string | null; items: (ConvItem | StepResult)[]; start: number; end: number }
   /**
    * The dialog the agent waits on, or none: sent on open and whenever it changes.
    * `screen`: it waits on something no card can answer, so offer Screen.
    * `working`: the agent is busy (offer Stop).
    */
   | { t: "conv-card"; windowId: string; card: Card | null; screen: boolean; working: boolean }
-  | { t: "conv-search-result"; req: string; hits: { id: string; offset: number; snippet: string }[]; next?: number }
-  /** Every URL in the conversation once, pull requests first. */
-  | { t: "conv-links-result"; req: string; links: { url: string; pr: boolean }[] }
+  /** Search hits in `conversation`, the one searched (as for `conv-page`). */
+  | { t: "conv-search-result"; req: string; windowId: string; conversation: string | null; hits: { id: string; offset: number; snippet: string }[]; next?: number }
+  /** Every URL in `conversation` once, pull requests first. */
+  | { t: "conv-links-result"; req: string; windowId: string; conversation: string | null; links: { url: string; pr: boolean }[] }
   /** How a send, an answer or a stop went. A failure with neither `error` nor `draft` threw: an `error` message says why. */
   | { t: "conv-result"; req: string; ok: boolean; error?: ConvError; draft?: string }
   /**

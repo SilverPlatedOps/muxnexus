@@ -204,7 +204,7 @@ describe("the conversation hub", () => {
     }
   });
 
-  test("links and search are answered even when the tab can't be looked up", async () => {
+  test("pages, links and search are answered even when the tab can't be looked up", async () => {
     const { tmux } = fakeTmux(null, "");
     tmux.agentOfWindow = async () => { throw new Error("no server running"); };
     const hub = createConversationHub({ tmux, pollMs: 1000 });
@@ -212,8 +212,39 @@ describe("the conversation hub", () => {
     try {
       await hub.links(ws, "r1", "@9");
       await hub.search(ws, "r2", "@9", "x");
-      expect(ws.last("conv-links-result")).toEqual({ t: "conv-links-result", req: "r1", links: [] });
-      expect(ws.last("conv-search-result")).toEqual({ t: "conv-search-result", req: "r2", hits: [] });
+      await hub.more(ws, "@9", 100);
+      await hub.around(ws, "@9", 100);
+      expect(ws.last("conv-links-result")).toEqual({ t: "conv-links-result", req: "r1", windowId: "@9", conversation: null, links: [] });
+      expect(ws.last("conv-search-result")).toEqual({ t: "conv-search-result", req: "r2", windowId: "@9", conversation: null, hits: [] });
+      expect(ws.all("conv-page")).toEqual([0, 1].map(() => ({ t: "conv-page", windowId: "@9", conversation: null, items: [], start: 0, end: 0 })));
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("pages, links and search name the conversation they were read for", async () => {
+    const path = transcript();
+    const { state, tmux } = fakeTmux(claude(path, "done"), pane("claude-idle-empty"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      const { end } = ws.last("conv")!;
+      await hub.more(ws, "@1", end);
+      await hub.around(ws, "@1", 0);
+      await hub.search(ws, "s1", "@1", "the");
+      await hub.links(ws, "l1", "@1");
+      for (const m of [...ws.all("conv-page"), ws.last("conv-search-result")!, ws.last("conv-links-result")!]) {
+        expect(m).toMatchObject({ windowId: "@1", conversation: "sess-1" });
+      }
+      // The open conversation is what's read while it is open, whatever the tab holds by then: the client, which
+      // still shows it, keeps the answer; the next poll sends the new conversation, and the client drops what follows for the old one.
+      state.agent = claude(transcript(), "done", "sess-2");
+      await hub.search(ws, "s2", "@1", "the");
+      expect(ws.last("conv-search-result")).toMatchObject({ req: "s2", conversation: "sess-1" });
+      // Another tab, not open on this socket: read for its own conversation.
+      await hub.links(ws, "l2", "@2");
+      expect(ws.last("conv-links-result")).toMatchObject({ req: "l2", windowId: "@2", conversation: "sess-2" });
     } finally {
       hub.stop();
     }

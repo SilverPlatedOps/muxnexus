@@ -162,13 +162,18 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     }
   }
 
-  /** The conversation file behind `windowId`: the open one's while it is open, so the offsets the socket holds mean that file. */
-  async function fileOf(ws: HubSocket, windowId: string): Promise<{ kind: AgentKind; path: string } | null> {
+  /**
+   * The conversation behind `windowId` and its file: the open one's while it
+   * is open, so the offsets the socket holds mean that file. Every answer
+   * names the conversation it was read for, and the client drops one for a
+   * conversation it no longer shows. A tab that can't be looked up has none.
+   */
+  async function fileOf(ws: HubSocket, windowId: string): Promise<{ conversation: string | null; file: { kind: AgentKind; path: string } | null }> {
     const sub = subs.get(ws);
-    if (sub?.windowId === windowId && sub.kind && sub.path) return { kind: sub.kind, path: sub.path };
-    const info = await tmux.agentOfWindow(windowId);
+    if (sub?.windowId === windowId && sub.kind && sub.path) return { conversation: sub.conversation, file: { kind: sub.kind, path: sub.path } };
+    const info = await tmux.agentOfWindow(windowId).catch(() => null);
     const path = transcriptOf(info);
-    return info && path ? { kind: info.kind, path } : null;
+    return { conversation: info ? conversationOf(info) : null, file: info && path ? { kind: info.kind, path } : null };
   }
 
   /** One action at a time per tab, in the order they came: each reads the pane the one before left. */
@@ -215,29 +220,29 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       sync();
     },
 
+    // A request waits on its answer: one that can't look the tab up or read its file is still answered, with nothing found.
     async more(ws: HubSocket, windowId: string, before: number) {
-      const f = await fileOf(ws, windowId);
-      const page = f ? await readPage(f.kind, f.path, { before }).catch(() => null) : null;
-      send(ws, { t: "conv-page", windowId, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
+      const { conversation, file } = await fileOf(ws, windowId);
+      const page = file ? await readPage(file.kind, file.path, { before }).catch(() => null) : null;
+      send(ws, { t: "conv-page", windowId, conversation, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
     },
 
     async around(ws: HubSocket, windowId: string, offset: number) {
-      const f = await fileOf(ws, windowId);
-      const page = f ? await readPage(f.kind, f.path, { around: offset }).catch(() => null) : null;
-      send(ws, { t: "conv-page", windowId, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
+      const { conversation, file } = await fileOf(ws, windowId);
+      const page = file ? await readPage(file.kind, file.path, { around: offset }).catch(() => null) : null;
+      send(ws, { t: "conv-page", windowId, conversation, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
     },
 
-    // A request waits on its answer: one that can't look the tab up is still answered, with nothing found.
     async search(ws: HubSocket, req: string, windowId: string, query: string, cursor?: number) {
-      const f = await fileOf(ws, windowId).catch(() => null);
-      const r = f ? await searchFile(f.kind, f.path, query, cursor === undefined ? {} : { cursor }).catch(() => null) : null;
-      send(ws, { t: "conv-search-result", req, hits: r?.hits ?? [], ...(r?.next !== undefined ? { next: r.next } : {}) });
+      const { conversation, file } = await fileOf(ws, windowId);
+      const r = file ? await searchFile(file.kind, file.path, query, cursor === undefined ? {} : { cursor }).catch(() => null) : null;
+      send(ws, { t: "conv-search-result", req, windowId, conversation, hits: r?.hits ?? [], ...(r?.next !== undefined ? { next: r.next } : {}) });
     },
 
     async links(ws: HubSocket, req: string, windowId: string) {
-      const f = await fileOf(ws, windowId).catch(() => null);
-      const links = f ? await linksIn(f.kind, f.path).catch(() => []) : [];
-      send(ws, { t: "conv-links-result", req, links });
+      const { conversation, file } = await fileOf(ws, windowId);
+      const links = file ? await linksIn(file.kind, file.path).catch(() => []) : [];
+      send(ws, { t: "conv-links-result", req, windowId, conversation, links });
     },
 
     async send(ws: HubSocket, req: string, windowId: string, conversation: string, text: string, replace: boolean) {

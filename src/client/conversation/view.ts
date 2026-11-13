@@ -14,7 +14,9 @@ import { sessionLabel, tabLabel } from "../labels";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { SAFE_LINK } from "../live-markdown";
-import { composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere } from "./model";
+import {
+  composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
+} from "./model";
 
 /**
  * One tab's agent as a conversation, for a phone or an iPad: what it said and
@@ -744,8 +746,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   // ---- messages ----
   function loaded(m: Extract<ServerMessage, { t: "conv" }>) {
     agent = m.agent;
-    // A yes asked for under another conversation is no yes for this one.
-    if (m.conversation !== conversation) confirming = false;
+    // A yes asked for under another conversation is no yes for this one, and its search and links are not this one's.
+    if (m.conversation !== conversation) {
+      confirming = false;
+      resetSheet();
+    }
     conversation = m.conversation;
     start = m.start;
     asking = false;
@@ -853,7 +858,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         if (m.windowId === windowId && agent && !detached) appended(m.items);
         return true;
       case "conv-page":
-        if (m.windowId === windowId && agent) page(m);
+        // Read for a conversation no longer shown (a /clear meanwhile): dropped, as the `conv` for the new one resets the list.
+        if (readForShown(m, { windowId, conversation }) && agent) page(m);
         return true;
       case "conv-card":
         if (m.windowId === windowId) {
@@ -877,13 +883,13 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         screenView.result(m);
         return true;
       case "conv-search-result":
-        if (searchReq?.req === m.req) {
+        if (searchReq?.req === m.req && readForShown(m, { windowId, conversation })) {
           searchReq = null;
           drawHits(m);
         }
         return true;
       case "conv-links-result":
-        if (linksReq === m.req) {
+        if (linksReq === m.req && readForShown(m, { windowId, conversation })) {
           linksReq = null;
           drawLinks(m.links);
         }

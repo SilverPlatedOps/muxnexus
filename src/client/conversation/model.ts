@@ -123,6 +123,15 @@ export function sendAs(c: Composed, showing: string | null): { send: string } | 
   return c.for === showing ? { send: c.for } : { ask: true };
 }
 
+/**
+ * Whether an answer (a page, search hits, links) read for `read` is for what
+ * the view shows now: the same tab and the same conversation. One read before
+ * a /clear or a tab switch is dropped.
+ */
+export function readForShown(read: { windowId: string; conversation: string | null }, shown: { windowId: string | null; conversation: string | null }): boolean {
+  return read.windowId === shown.windowId && read.conversation === shown.conversation;
+}
+
 /** Each refusal in a sentence the user can act on. */
 export const CONV_ERROR: Record<ConvError, string> = {
   "another-conversation": "This tab now holds another conversation",
