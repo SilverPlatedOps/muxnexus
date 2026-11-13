@@ -69,7 +69,7 @@ const codexAgent = (over: Partial<WindowAgentInfo> = {}): WindowAgentInfo => ({ 
 
 /**
  * A tmux that records every call in order. Each capture returns the next screen given, and each lookup the next
- * agent given (one, or a list); the last one repeats.
+ * agent given (one, or a list); the last one repeats. A snapshot is a lookup and a capture.
  */
 function fakeTmux(agent: WindowAgentInfo | null | (WindowAgentInfo | null)[], panes: string[]) {
   const calls: unknown[][] = [];
@@ -82,6 +82,11 @@ function fakeTmux(agent: WindowAgentInfo | null | (WindowAgentInfo | null)[], pa
     async agentOfWindow(windowId: string) { calls.push(["agentOfWindow", windowId]); return agents[Math.min(lookups++, agents.length - 1)] ?? null; },
     async activePane(windowId: string) { calls.push(["activePane", windowId]); return "%9"; },
     async capturePane(paneId: string) { calls.push(["capturePane", paneId]); return panes[Math.min(next++, panes.length - 1)]!; },
+    /** A look-up and a capture in one: the next agent and the next screen. */
+    async snapshot(windowId: string, paneId: string) {
+      calls.push(["snapshot", windowId, paneId]);
+      return { agent: agents[Math.min(lookups++, agents.length - 1)] ?? null, active: "%9", ansi: panes[Math.min(next++, panes.length - 1)]! };
+    },
     async pasteInto(paneId: string, text: string) { calls.push(["pasteInto", paneId, text]); },
     async sendKeys(paneId: string, keys: string[]) { calls.push(["sendKeys", paneId, keys]); },
     async paneSize(paneId: string) { calls.push(["paneSize", paneId]); return { cols: 120, rows: 40 }; },
@@ -123,11 +128,11 @@ describe("send", () => {
     const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), PASTED.claude]);
     expect(await sendText(tmux, "@1", "sess-1", "line one\nline two", null)).toEqual({ ok: true });
     expect(tmux.writes()).toEqual([["pasteInto", "%1", "line one\nline two"], ["sendKeys", "%1", ["Enter"]]]);
-    // The conversation is checked before the pane is read, and the pane before anything is written; after the
-    // paste, both again, the pane last, right before Enter.
+    // The conversation is checked before anything else; each write follows a snapshot of the tab (its agent and
+    // the pane, in one tmux call) taken right before it.
     expect(tmux.calls).toEqual([
-      ["agentOfWindow", "@1"], ["capturePane", "%1"], ["pasteInto", "%1", "line one\nline two"],
-      ["agentOfWindow", "@1"], ["capturePane", "%1"], ["sendKeys", "%1", ["Enter"]],
+      ["agentOfWindow", "@1"], ["snapshot", "@1", "%1"], ["pasteInto", "%1", "line one\nline two"],
+      ["snapshot", "@1", "%1"], ["sendKeys", "%1", ["Enter"]],
     ]);
 
     const codex = fakeTmux(codexAgent(), [raw("codex-idle-empty"), PASTED.codex]);
@@ -145,9 +150,10 @@ describe("send", () => {
     const dialog = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), raw("claude-bash-permission")]);
     const codexDialog = fakeTmux(codexAgent(), [raw("codex-idle-empty"), raw("codex-approval")]);
     // /clear or a resume at the desk between the paste and Enter: another conversation, or another pane, holds the tab.
-    const other = fakeTmux([claudeAgent(), claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } })], [raw("claude-idle-empty"), PASTED.claude]);
-    const moved = fakeTmux([claudeAgent(), claudeAgent({ paneId: "%7" })], [raw("claude-idle-empty"), PASTED.claude]);
-    const gone = fakeTmux([claudeAgent(), null], [raw("claude-idle-empty"), PASTED.claude]);
+    // (The look-up, then the paste's snapshot: the third look is the one before Enter.)
+    const other = fakeTmux([claudeAgent(), claudeAgent(), claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } })], [raw("claude-idle-empty"), PASTED.claude]);
+    const moved = fakeTmux([claudeAgent(), claudeAgent(), claudeAgent({ paneId: "%7" })], [raw("claude-idle-empty"), PASTED.claude]);
+    const gone = fakeTmux([claudeAgent(), claudeAgent(), null], [raw("claude-idle-empty"), PASTED.claude]);
     // The words never showed (the prompt still empty, or only Claude's hint for queued messages): waited out, then refused.
     const never = fakeTmux(claudeAgent(), [raw("claude-idle-empty")]);
     const hint = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-working"), raw("claude-queued")]);
@@ -169,16 +175,16 @@ describe("send", () => {
     expect(await sendText(ask, "@3", "sess-1", "from the phone", null)).toEqual({ ok: false, draft: "hello draft", draftFingerprint: DRAFT.claude });
     expect(ask.writes()).toEqual([]);
 
-    // Replace: one key clears the box, the box is read again and must be empty, then the paste.
-    const replace = fakeTmux(claudeAgent(), [raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
+    // Replace: the draft read again right before one key clears the box, the box read again and empty, then the paste.
+    const replace = fakeTmux(claudeAgent(), [raw("claude-idle-draft"), raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
     expect(await sendText(replace, "@3", "sess-1", "from the phone", DRAFT.claude)).toEqual({ ok: true });
     expect(replace.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "from the phone"], ["sendKeys", "%1", ["Enter"]]]);
 
-    const lines = fakeTmux(claudeAgent(), [raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), PASTED.claude]);
+    const lines = fakeTmux(claudeAgent(), [raw("claude-idle-multiline-draft"), raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), PASTED.claude]);
     expect(await sendText(lines, "@4", "sess-1", "x", DRAFT.lines)).toEqual({ ok: true });
     expect(lines.writes()[0]).toEqual(["sendKeys", "%1", ["C-c"]]);
 
-    const codex = fakeTmux(codexAgent(), [raw("codex-idle-draft"), raw("codex-idle-empty"), PASTED.codex]);
+    const codex = fakeTmux(codexAgent(), [raw("codex-idle-draft"), raw("codex-idle-draft"), raw("codex-idle-empty"), PASTED.codex]);
     expect(await sendText(codex, "@5", "thread-1", "x", DRAFT.codex)).toEqual({ ok: true });
     expect(codex.writes()).toEqual([["sendKeys", "%2", ["C-c"]], ["pasteInto", "%2", "x"], ["sendKeys", "%2", ["Enter"]]]);
   });
@@ -225,14 +231,14 @@ describe("send", () => {
 
   test("after an interrupt the stamp still says running, but the transcript says done: the draft can be replaced", async () => {
     const claude = fakeTmux(claudeAgent({ state: "running", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
-      [raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
+      [raw("claude-idle-draft"), raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
     expect(await sendText(claude, "@20", "sess-1", "from the phone", DRAFT.claude)).toEqual({ ok: true });
     expect(claude.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "from the phone"], ["sendKeys", "%1", ["Enter"]]]);
     // Esc on a permission prompt leaves the stamp at `input`, with the same line in the transcript.
     const waiting = fakeTmux(claudeAgent({ state: "input", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
-      [raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
+      [raw("claude-idle-draft"), raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
     expect(await sendText(waiting, "@21", "sess-1", "x", DRAFT.claude)).toEqual({ ok: true });
-    const codex = fakeTmux(codexAgent({ state: "running", since: SINCE, thread: { id: "thread-1", path: ABORTED } }), [raw("codex-idle-draft"), raw("codex-idle-empty"), PASTED.codex]);
+    const codex = fakeTmux(codexAgent({ state: "running", since: SINCE, thread: { id: "thread-1", path: ABORTED } }), [raw("codex-idle-draft"), raw("codex-idle-draft"), raw("codex-idle-empty"), PASTED.codex]);
     expect(await sendText(codex, "@22", "thread-1", "x", DRAFT.codex)).toEqual({ ok: true });
     expect(codex.writes()[0]).toEqual(["sendKeys", "%2", ["C-c"]]);
     // An interrupt from before the stamp is an earlier turn's: this one runs.
@@ -274,7 +280,7 @@ describe("send", () => {
     const ask = fakeTmux(codexAgent(), [unreadable]);
     expect(await sendText(ask, "@24", "thread-1", "x", null)).toEqual({ ok: false, draft: "", draftFingerprint: "unknown" });
     expect(ask.writes()).toEqual([]);
-    const replace = fakeTmux(codexAgent(), [unreadable, raw("codex-idle-empty"), PASTED.codex]);
+    const replace = fakeTmux(codexAgent(), [unreadable, unreadable, raw("codex-idle-empty"), PASTED.codex]);
     expect(await sendText(replace, "@25", "thread-1", "x", "unknown")).toEqual({ ok: true });
     expect(replace.writes()).toEqual([["sendKeys", "%2", ["C-c"]], ["pasteInto", "%2", "x"], ["sendKeys", "%2", ["Enter"]]]);
     // Not read as empty after the clear: nothing is pasted.
@@ -360,8 +366,8 @@ describe("answer", () => {
       ["pasteInto", "%1", "instead list the directory"],
       ["sendKeys", "%1", ["Enter"]],
     ]);
-    // Read before the paste and again before Enter, the tab's agent looked up again first.
-    expect(tmux.calls.map((c) => c[0])).toEqual(["agentOfWindow", "capturePane", "sendKeys", "capturePane", "pasteInto", "agentOfWindow", "capturePane", "sendKeys"]);
+    // A snapshot of the tab (its agent and the pane) right before each write: the keys, the paste and Enter.
+    expect(tmux.calls.map((c) => c[0])).toEqual(["agentOfWindow", "snapshot", "sendKeys", "snapshot", "pasteInto", "snapshot", "sendKeys"]);
     // The list wraps (Down on the last row goes to row 1), so the moves start from the highlight the pane shows.
     for (const [at, keys] of [[3, ["Down", "Tab"]], [4, ["Tab"]]] as const) {
       const moved = fakeTmux(claudeAgent(), [noCardAt(at), raw("claude-bash-no-field"), raw("claude-bash-no-text")]);
@@ -396,7 +402,7 @@ describe("answer", () => {
       expect(tmux.writes()).toEqual([["sendKeys", "%1", ["Down", "Down", "Down", "Tab"]]]);
     }));
     // Another conversation in the tab once the words are in: no Enter.
-    const other = fakeTmux([claudeAgent(), claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } })],
+    const other = fakeTmux([claudeAgent(), claudeAgent(), claudeAgent(), claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } })],
       [raw("claude-bash-no-card"), raw("claude-bash-no-field"), raw("claude-bash-no-text")]);
     expect(await answer(other, "@1", "sess-1", fp, 4, "words")).toEqual({ ok: false, error: "unsent" });
     expect(other.writes()).toEqual([["sendKeys", "%1", ["Down", "Down", "Down", "Tab"]], ["pasteInto", "%1", "words"]]);
@@ -578,7 +584,7 @@ describe("stop and keys", () => {
     const prompt = await screenNow(shell, "@3");
     shell.calls.length = 0;
     await pressKey(shell, "@3", prompt.token, "Enter");
-    expect(shell.calls.slice(0, 4)).toEqual([["agentOfWindow", "@3"], ["activePane", "@3"], ["capturePane", "%9"], ["sendKeys", "%9", ["Enter"]]]);
+    expect(shell.calls.slice(0, 4)).toEqual([["agentOfWindow", "@3"], ["activePane", "@3"], ["snapshot", "@3", "%9"], ["sendKeys", "%9", ["Enter"]]]);
   }, 10_000);
 
   test("a Screen key is refused, with the screen as it is now, once the screen it was pressed on has gone", async () => {
@@ -651,7 +657,9 @@ describe("stop and keys", () => {
     expect(r.screen.ansi).toBe("$ ls\n");
     // A screen that never stops changing (a spinner, a clock) is sent as it is after about a second.
     const spinning = fakeTmux(null, Array.from({ length: 40 }, (_, k) => `$ ${k}\n`));
-    spinning.capturePane = (() => { let k = 0; return async () => `$ ${k++}\n`; })();
+    let k = 0;
+    spinning.capturePane = async () => `$ ${k++}\n`;
+    spinning.snapshot = async () => ({ agent: null, active: "%9", ansi: `$ ${k++}\n` });
     const first = await screenNow(spinning, "@3");
     const t0 = Date.now();
     const busy = await pressKey(spinning, "@3", first.token, "Enter");

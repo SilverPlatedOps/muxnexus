@@ -4,7 +4,7 @@
 import type { AgentKind } from "../../shared/chat";
 import type { ConvError, GenericKey } from "../../shared/conversation";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
-import { adapterFor } from "./adapter";
+import { adapterFor, type KeyPlan } from "./adapter";
 import { QUEUED } from "./claude";
 import { fingerprint, paneLines, type PaneRead } from "./pane";
 import { readPage } from "./reader";
@@ -17,13 +17,15 @@ export type { KeyPlan } from "./adapter";
  * right before it writes and refuses on any doubt.
  */
 
-type ConvTmux = Pick<Tmux, "agentOfWindow" | "capturePane" | "pasteInto" | "sendKeys">;
+type ConvTmux = Pick<Tmux, "agentOfWindow" | "snapshot" | "pasteInto" | "sendKeys">;
 type Refusal = { ok: false; error: ConvError };
 
 const refuse = (error: ConvError): Refusal => ({ ok: false, error });
 
 /** How long an agent gets to redraw after a key before the action gives up. */
 const REDRAW_MS = 2000;
+/** How often the pane is read while waiting on a redraw. */
+const REDRAW_POLL_MS = 50;
 /** Codex's decline: how long until its composer is back, polled every `FOLLOW_UP_POLL_MS`. */
 const FOLLOW_UP_MS = 5000;
 const FOLLOW_UP_POLL_MS = 250;
@@ -46,33 +48,70 @@ export function cleanText(text: string): string {
   return text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 }
 
+// --- The guard: every write from the phone goes through `guarded` ---
+//
 // Every read and write goes to the agent's own pane (`info.paneId`), never the
 // window's active one: in a split window that may be another agent's.
 
-async function readNow(tmux: Pick<Tmux, "capturePane">, kind: AgentKind, pane: string): Promise<PaneRead> {
-  return adapterFor(kind).readPane(await tmux.capturePane(pane));
-}
+/**
+ * What a write is bound to, from the look-up the action began with: the tab,
+ * the pane it writes to, whether that pane is the tab's agent's (else the
+ * window's active pane, a shell tab's), and the conversation the tab held then
+ * (null: none, as a shell tab or a fresh Codex has).
+ */
+interface Bound { windowId: string; pane: string; agent: boolean; conversation: string | null }
+
+const bound = (windowId: string, info: WindowAgentInfo): Bound => ({ windowId, pane: info.paneId, agent: true, conversation: conversationOf(info) });
+
+type Write = { keys: string[] } | { paste: string };
+/** What the pane, read right before a write, says: write this, not yet (read it again), nothing to write, or refused. */
+type Verdict = { write: Write } | "wait" | "skip" | ConvError;
+
+/** A verdict on the agent's pane as its adapter reads it. */
+const onPane = (kind: AgentKind, verdict: (r: PaneRead) => Verdict) => (ansi: string): Verdict => verdict(adapterFor(kind).readPane(ansi));
 
 /**
- * Reads the pane every `every` ms until `ok` accepts it; null after `ms`, or
- * as soon as `still` (checked before each read, so the read stays the last
- * look before whatever follows) says the tab has changed.
+ * The one way the conversation view writes to a pane. Right before the write
+ * it takes a snapshot of the tab (the window's agent and the pane's screen,
+ * in one tmux call) and writes only if the tab still holds the same pane and
+ * the same conversation, and `verdict` accepts the screen as the input state
+ * the write expects. Anything else and nothing is written: another
+ * conversation or pane is refused at once, and a screen `verdict` waits on is
+ * read again every `every` ms (sleeping first, so an agent has time to redraw
+ * after a key) until `ms` runs out, then refused as `late`. `wordsIn`: the
+ * user's words are already in the prompt, so every refusal says so (`unsent`).
+ *
+ * What no read can close: a dialog drawn, or a conversation begun, after this
+ * snapshot and before the write reaches the pane. The snapshot and the write
+ * are two tmux calls, so that window is one round trip, a few milliseconds.
  */
-async function readUntil(
-  tmux: Pick<Tmux, "capturePane">, kind: AgentKind, pane: string, ok: (r: PaneRead) => boolean, ms: number, every: number,
-  still?: () => Promise<boolean>,
-): Promise<PaneRead | null> {
-  const deadline = Date.now() + ms;
+async function guarded(
+  tmux: Pick<Tmux, "snapshot" | "pasteInto" | "sendKeys">, b: Bound, verdict: (ansi: string) => Verdict,
+  opts: { ms?: number; every?: number; wordsIn?: boolean; late?: ConvError } = {},
+): Promise<{ ok: true; wrote: boolean; ansi: string } | Refusal> {
+  const no = (error: ConvError) => refuse(opts.wordsIn ? "unsent" : error);
+  const deadline = Date.now() + (opts.ms ?? 0);
   for (;;) {
-    await Bun.sleep(every);
-    if (still && !(await still())) return null;
-    const r = await readNow(tmux, kind, pane);
-    if (ok(r)) return r;
-    if (Date.now() >= deadline) return null;
+    if (opts.every !== undefined) await Bun.sleep(opts.every);
+    const snap = await tmux.snapshot(b.windowId, b.pane).catch(() => null);
+    // The window or the pane is gone.
+    if (!snap) return no(b.agent ? "no-agent" : "prompt-changed");
+    if (b.agent && !snap.agent) return no("no-agent");
+    const pane = snap.agent?.paneId ?? snap.active;
+    const conversation = snap.agent ? conversationOf(snap.agent) : null;
+    if (!!snap.agent !== b.agent || pane !== b.pane || conversation !== b.conversation) return no("another-conversation");
+    const v = verdict(snap.ansi);
+    if (v === "wait") {
+      if (Date.now() >= deadline) return no(opts.late ?? "prompt-changed");
+      continue;
+    }
+    if (v === "skip") return { ok: true, wrote: false, ansi: snap.ansi };
+    if (typeof v === "string") return no(v);
+    if ("paste" in v.write) await tmux.pasteInto(b.pane, v.write.paste);
+    else await tmux.sendKeys(b.pane, v.write.keys);
+    return { ok: true, wrote: true, ansi: snap.ansi };
   }
 }
-
-const idle = (r: PaneRead) => !r.dialog && !r.unrecognised && !r.working;
 
 /**
  * The prompt shows some text after a paste: the words are not matched (Claude
@@ -82,27 +121,18 @@ const idle = (r: PaneRead) => !r.dialog && !r.unrecognised && !r.working;
  */
 const holdsWords = (r: PaneRead) => !r.dialog && !r.unrecognised && r.draft === "text" && r.draftText !== QUEUED;
 
-/** Whether the window still holds the agent's pane `pane` and `conversation`: a `/clear` or a resume at the desk changes the one, a new agent the other. */
-const sameAgent = (tmux: Pick<Tmux, "agentOfWindow">, windowId: string, pane: string, conversation: string) => async () => {
-  const now = await tmux.agentOfWindow(windowId);
-  return !!now && now.paneId === pane && conversationOf(now) === conversation;
-};
-
 /**
  * Enter after a paste, only once the prompt shows the words: the same agent
  * and conversation in the window, no dialog, some text. Anything else and the
  * words stay in the prompt unsent. A dialog drawn over the paste would take
  * the Enter, and its option 1 is usually Yes.
  */
-async function submit(tmux: ConvTmux, windowId: string, kind: AgentKind, pane: string, conversation: string): Promise<{ ok: true } | Refusal> {
+async function submit(tmux: ConvTmux, b: Bound, kind: AgentKind): Promise<{ ok: true } | Refusal> {
   // Polled over the redraw delay: a read right after the paste would see the prompt before the agent redrew it.
   // A dialog stops the wait at once; an unrecognised screen may be a redraw caught halfway, so it is read again.
-  const r = await readUntil(tmux, kind, pane, (x) => !!x.dialog || holdsWords(x), REDRAW_MS, 50, sameAgent(tmux, windowId, pane, conversation));
-  if (!r || r.dialog) return refuse("unsent");
-  // What is left: a dialog drawn between this read and the Enter still takes it. The read and the key are two tmux
-  // calls, so the window is one round trip, a few milliseconds.
-  await tmux.sendKeys(pane, ["Enter"]);
-  return { ok: true };
+  const entered = await guarded(tmux, b, onPane(kind, (x) => (x.dialog ? "unsent" : holdsWords(x) ? { write: { keys: ["Enter"] } } : "wait")),
+    { ms: REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
+  return entered.ok ? { ok: true } : entered;
 }
 
 /**
@@ -128,12 +158,15 @@ export async function sendText(
   if (conversationOf(info) !== conversation) return refuse("another-conversation");
   const words = cleanText(text);
   if (words.trim() === "") return { ok: true };
-  const pane = info.paneId;
-  const r = await readNow(tmux, info.kind, pane);
-  // Typed into a dialog, digits would pick its options.
-  if (r.dialog || r.unrecognised) return refuse("waiting");
-  // A prompt whose text can't be read is asked about as if it held some (empty: none to show), and cleared the same way.
-  if (r.draft !== "empty") {
+  const b = bound(windowId, info);
+  const adapter = adapterFor(info.kind);
+  // Typed into a dialog, digits would pick its options. An empty prompt takes the words on this read; one holding
+  // text (or text that can't be read, asked about as if it held some, and cleared the same way) is asked about first.
+  const first = await guarded(tmux, b, onPane(info.kind, (r) =>
+    r.dialog || r.unrecognised ? "waiting" : r.draft === "empty" ? { write: { paste: words } } : "skip"));
+  if (!first.ok) return first;
+  if (!first.wrote) {
+    const r = adapter.readPane(first.ansi);
     // Replace clears only the draft the user saw: one changed at the desk since is shown instead, and kept.
     const shown = draftFingerprint(r);
     if (replace !== shown) return { ok: false, draft: r.draftText ?? "", draftFingerprint: shown };
@@ -142,13 +175,17 @@ export async function sendText(
     // screen otherwise is a turn going on after a "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
     if (r.working || (await believedState(info)) !== "done") return refuse("working");
     if (Date.now() - (lastClear.get(windowId) ?? 0) < CLEAR_AGAIN_MS) return refuse("prompt-changed");
+    // Read again after the transcript: the clear goes only to the draft shown, with the turn still over.
+    const cleared = await guarded(tmux, b, onPane(info.kind, (x) =>
+      x.dialog || x.unrecognised ? "waiting" : draftFingerprint(x) !== shown ? "prompt-changed" : x.working ? "working" : { write: { keys: adapter.clearDraft } }));
+    if (!cleared.ok) return cleared;
     lastClear.set(windowId, Date.now());
-    await tmux.sendKeys(pane, adapterFor(info.kind).clearDraft);
-    const cleared = await readUntil(tmux, info.kind, pane, (x) => !x.dialog && !x.unrecognised && x.draft === "empty", REDRAW_MS, 50);
-    if (!cleared) return refuse("prompt-changed");
+    // The words go in once the prompt reads empty.
+    const pasted = await guarded(tmux, b, onPane(info.kind, (x) =>
+      x.dialog ? "waiting" : !x.unrecognised && x.draft === "empty" ? { write: { paste: words } } : "wait"), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
+    if (!pasted.ok) return pasted;
   }
-  await tmux.pasteInto(pane, words);
-  return submit(tmux, windowId, info.kind, pane, conversation);
+  return submit(tmux, b, info.kind);
 }
 
 /**
@@ -164,35 +201,40 @@ export async function answer(
   // The fingerprint is the dialog's alone: the same prompt in another conversation would match it.
   if (conversationOf(info) !== conversation) return refuse("another-conversation");
   const adapter = adapterFor(info.kind);
-  const pane = info.paneId;
+  const b = bound(windowId, info);
   const words = cleanText(text ?? "");
   const hasText = words.trim() !== "";
   // Before the pane, so the pane is read right before the keys go.
   const multi = info.kind === "claude" && (await pendingQuestionMulti("claude", info.conversation?.transcriptPath ?? "").catch(() => true));
-  const r = await readNow(tmux, info.kind, pane);
-  const card = r.dialog;
-  if (!card || card.fingerprint !== fingerprint) return refuse("prompt-changed");
-  // The pane shows one question at a time: a multi-select one later in the call would be met half-answered (Decision 4).
-  if (card.kind === "question" && multi) return refuse("waiting");
-  const plan = adapter.keysFor(card, option, hasText);
-  if (!plan) return refuse("prompt-changed");
-  await tmux.sendKeys(pane, plan.keys);
+  const chosen: { plan?: KeyPlan } = {};
+  const keyed = await guarded(tmux, b, onPane(info.kind, (r) => {
+    const card = r.dialog;
+    if (!card || card.fingerprint !== fingerprint) return "prompt-changed";
+    // The pane shows one question at a time: a multi-select one later in the call would be met half-answered (Decision 4).
+    if (card.kind === "question" && multi) return "waiting";
+    chosen.plan = adapter.keysFor(card, option, hasText) ?? undefined;
+    return chosen.plan ? { write: { keys: chosen.plan.keys } } : "prompt-changed";
+  }));
+  if (!keyed.ok) return keyed;
+  const plan = chosen.plan!;
   if (plan.text) {
     // The words go in only once this dialog's own field has focus, and Enter only while it still has: anything else
     // on screen (the prompt back, another dialog, a shell) would take them as keys or as a message.
-    const inField = (x: PaneRead) => x.field?.fingerprint === card.fingerprint;
-    if (!(await readUntil(tmux, info.kind, pane, inField, REDRAW_MS, 50))) return refuse("prompt-changed");
-    await tmux.pasteInto(pane, words);
+    const inField = (write: Write) => onPane(info.kind, (x) => (x.field?.fingerprint === fingerprint ? { write } : "wait"));
+    const pasted = await guarded(tmux, b, inField({ paste: words }), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
+    if (!pasted.ok) return pasted;
     // The words are in now: a refusal from here says so. (A long note can scroll a near-full-screen dialog's top away.)
-    if (!(await readUntil(tmux, info.kind, pane, inField, REDRAW_MS, 50, sameAgent(tmux, windowId, pane, conversation)))) return refuse("unsent");
-    // As in `submit`: a dialog drawn between this read and the Enter would take it, one round trip.
-    await tmux.sendKeys(pane, ["Enter"]);
+    const entered = await guarded(tmux, b, inField({ keys: ["Enter"] }), { ms: REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
+    if (!entered.ok) return entered;
   }
   if (plan.followUp) {
-    if (!(await readUntil(tmux, info.kind, pane, idle, FOLLOW_UP_MS, FOLLOW_UP_POLL_MS))) return refuse("prompt-changed");
-    const sent = await sendText(tmux, windowId, conversation, words, null);
+    // Codex's decline ends the turn: the words go as the next message once its composer is back, idle and empty.
     // A draft back in the composer is the desk's: the words are not added to it.
-    if (!sent.ok) return "error" in sent ? sent : refuse("prompt-changed");
+    const pasted = await guarded(tmux, b, onPane(info.kind, (x) =>
+      x.dialog || x.unrecognised || x.working ? "wait" : x.draft === "empty" ? { write: { paste: words } } : "prompt-changed"),
+      { ms: FOLLOW_UP_MS, every: FOLLOW_UP_POLL_MS });
+    if (!pasted.ok) return pasted;
+    return submit(tmux, b, info.kind);
   }
   return { ok: true };
 }
@@ -203,19 +245,19 @@ export async function answer(
  * streaming text under a draft shows nothing), so a `running` stamp counts
  * too. Nothing to stop, or a stop just sent, is ok.
  */
-export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "capturePane" | "sendKeys">, windowId: string, conversation: string): Promise<{ ok: true } | Refusal> {
+export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "snapshot" | "pasteInto" | "sendKeys">, windowId: string, conversation: string): Promise<{ ok: true } | Refusal> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
   // A tap meant for the conversation before a /clear, a resume or a new agent would stop the one there now.
   if (conversationOf(info) !== conversation) return refuse("another-conversation");
-  const r = await readNow(tmux, info.kind, info.paneId);
-  // Escape answers a dialog: the card or Screen does that.
-  if (r.dialog || r.unrecognised) return refuse("waiting");
   // A stamp left `running` by an interrupt (no hook fires for Esc) has nothing to stop: Escape would reach an idle prompt.
-  if (!r.working && (await believedState(info)) !== "running") return { ok: true };
-  if (Date.now() - (lastStop.get(windowId) ?? 0) < STOP_AGAIN_MS) return { ok: true };
-  lastStop.set(windowId, Date.now());
-  await tmux.sendKeys(info.paneId, ["Escape"]);
+  const state = await believedState(info);
+  const again = Date.now() - (lastStop.get(windowId) ?? 0) < STOP_AGAIN_MS;
+  const sent = await guarded(tmux, bound(windowId, info), onPane(info.kind, (r) =>
+    // Escape answers a dialog: the card or Screen does that.
+    r.dialog || r.unrecognised ? "waiting" : (r.working || state === "running") && !again ? { write: { keys: ["Escape"] } } : "skip"));
+  if (!sent.ok) return sent;
+  if (sent.wrote) lastStop.set(windowId, Date.now());
   return { ok: true };
 }
 
@@ -280,13 +322,13 @@ async function settled(tmux: ScreenTmux, windowId: string): Promise<ScreenShot> 
  * it is refused. Either way the answer is the screen after, settled.
  */
 export async function pressKey(
-  tmux: ScreenTmux & Pick<Tmux, "sendKeys">, windowId: string, token: string, key: GenericKey,
+  tmux: ScreenTmux & Pick<Tmux, "snapshot" | "pasteInto" | "sendKeys">, windowId: string, token: string, key: GenericKey,
 ): Promise<{ screen: ScreenShot; error?: ConvError }> {
   if (!GENERIC_KEYS.includes(key)) throw new Error(`not a generic key: ${JSON.stringify(key)}`);
   const { info, pane } = await screenTarget(tmux, windowId);
-  if (screenToken(windowId, pane, info, await tmux.capturePane(pane)) !== token) return { screen: await settled(tmux, windowId), error: "prompt-changed" };
-  await tmux.sendKeys(pane, [key]);
-  return { screen: await settled(tmux, windowId) };
+  const b: Bound = info ? bound(windowId, info) : { windowId, pane, agent: false, conversation: null };
+  const pressed = await guarded(tmux, b, (ansi) => (screenToken(windowId, pane, info, ansi) === token ? { write: { keys: [key] } } : "prompt-changed"));
+  return pressed.ok ? { screen: await settled(tmux, windowId) } : { screen: await settled(tmux, windowId), error: "prompt-changed" };
 }
 
 /**

@@ -18,7 +18,7 @@ import { linksIn, readPage, readSince, searchFile } from "./reader";
  * changes because the phone looked.
  */
 
-export type HubTmux = Pick<Tmux, "agentOfWindow" | "activePane" | "capturePane" | "pasteInto" | "sendKeys" | "paneSize">;
+export type HubTmux = Pick<Tmux, "agentOfWindow" | "activePane" | "capturePane" | "snapshot" | "pasteInto" | "sendKeys" | "paneSize">;
 
 /** What the hub needs of a socket; Bun's ServerWebSocket is one. */
 export interface HubSocket {

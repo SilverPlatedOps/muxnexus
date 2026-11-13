@@ -1283,6 +1283,31 @@ export class Tmux {
     return parseWindowAgent(rows, args);
   }
 
+  /**
+   * The window's agent (as `agentOfWindow` reads it), its active pane, and
+   * what pane `paneId` shows, in one tmux call: tmux runs the three commands
+   * one after another with nothing in between, so no key, redraw or new
+   * conversation lands between the look-up and the capture. What the phone
+   * writes is checked against this, right before the write. An unstamped
+   * codex pane reads as the daemon's here (its arguments aren't read): either
+   * way it names no conversation.
+   */
+  async snapshot(windowId: string, paneId: string): Promise<{ agent: WindowAgentInfo | null; active: string; ansi: string }> {
+    if (!WINDOW_ID.test(windowId)) throw new TmuxError(`not a window id: ${windowId}`);
+    const target = paneIdTarget(paneId);
+    const mark = `muxnexus-snapshot-${crypto.randomUUID()}`;
+    const out = await this.run([
+      "list-panes", "-t", windowId, "-F", `${WINDOW_AGENT_FORMAT}\t#{pane_active}`, ";",
+      "display-message", "-p", mark, ";",
+      "capture-pane", "-p", "-e", "-t", target,
+    ]);
+    const at = out.indexOf(`${mark}\n`);
+    if (at < 0) throw new TmuxError("snapshot: no capture");
+    const rows = out.slice(0, at).split("\n").filter(Boolean);
+    const active = rows.map((r) => r.split("\t")).find((f) => f[f.length - 1] === "1")?.[0] ?? "";
+    return { agent: parseWindowAgent(rows), active, ansi: out.slice(at + mark.length + 1) };
+  }
+
   /** Kill the whole server on this socket. Never throws (used by tests). */
   async killServer(): Promise<void> {
     try {

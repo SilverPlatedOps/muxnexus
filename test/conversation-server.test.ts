@@ -65,6 +65,7 @@ function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
     },
     async activePane(_windowId: string) { return "%1"; },
     async capturePane(_paneId: string) { state.captures++; return state.screen; },
+    async snapshot(windowId: string, paneId: string) { return { agent: await tmux.agentOfWindow(windowId), active: "%1", ansi: await tmux.capturePane(paneId) }; },
     async pasteInto(paneId: string, text: string) {
       state.writes.push(`paste ${paneId} ${text}`);
       await sleep(state.slowPaste);

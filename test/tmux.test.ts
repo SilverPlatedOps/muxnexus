@@ -727,4 +727,20 @@ describe("Tmux.capturePane, pasteInto, sendKeys and activePane", () => {
     expect(await tmux.activePane(windowId)).toBe(second);
     await expect(tmux.activePane(id)).rejects.toThrow(/window id/);
   });
+
+  test("snapshot reads the window's agent, its active pane and a pane's screen in one call", async () => {
+    const id = await catPane();
+    const windowId = (await tmux.run(["display-message", "-p", "-t", "=conv:", "#{window_id}"])).trim();
+    await tmux.run(["set-option", "-p", "-t", id, "@muxnexus_agent", `done ${Math.floor(Date.now() / 1000)} ${process.pid} /Users/me/.claude`]);
+    await tmux.run(["set-option", "-p", "-t", id, "@muxnexus_session", "sess-1 /tmp/sess-1.jsonl"]);
+    const second = (await tmux.run(["split-window", "-P", "-F", "#{pane_id}", "-t", windowId, "cat"])).trim();
+    const snap = await tmux.snapshot(windowId, id);
+    expect(snap.agent).toEqual(await tmux.agentOfWindow(windowId));
+    expect(snap.agent).toMatchObject({ paneId: id, kind: "claude", conversation: { sessionId: "sess-1", transcriptPath: "/tmp/sess-1.jsonl" } });
+    expect(snap.active).toBe(second);
+    expect(snap.ansi).toBe(await tmux.capturePane(id));
+    expect(snap.ansi).toContain("\x1b[2mghost");
+    await expect(tmux.snapshot(id, id)).rejects.toThrow(/window id/);
+    await expect(tmux.snapshot(windowId, windowId)).rejects.toThrow(/pane id/);
+  });
 });
