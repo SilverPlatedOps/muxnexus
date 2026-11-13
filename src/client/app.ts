@@ -677,6 +677,12 @@ const notes = createNotes({
     const w = notesOwner();
     const session = noteSession();
     if (!w || !session) return sidebar.toast("This note has no tab to send to");
+    // Conversation mode types into no terminal: the note goes to the open conversation's text box, to be sent from there.
+    if (convMode) {
+      const put = chatting() ? "not-shown" : convView?.compose(w.id, text) ?? "not-shown";
+      if (put === "composed") return sidebar.toast("In the message box: check it, then Send");
+      return sidebar.toast(put === "not-shown" ? `Open ${tabLabel(w)}'s conversation to send this note` : `${tabLabel(w)} has no conversation to send to`);
+    }
     // An agent's prompt takes a bracketed paste whole; a plain shell would run each line.
     const body = kindOf(w) === "shell" ? text.replace(/\s*\n\s*/g, " ") : text;
     conn.send({ t: "paste-to-window", session, id: w.id, text: body });

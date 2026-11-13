@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
-import { CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, linkRows, mergeItems, stepLine, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
+import {
+  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, linkRows, mergeItems, stepLine, stuckToBottom, TERMINAL_MESSAGES, withLocalActive,
+  wordsOptional, workingLine,
+} from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
 import type { AgentKind } from "../src/shared/chat";
 import type { Card, ConvItem, StepResult } from "../src/shared/conversation";
@@ -39,6 +42,11 @@ test("the window shown is the asked one, else a waiting one, else tmux's active,
   expect(conversationWindow([win("@1"), win("@2", { active: true })], null)).toBe("@2");
   expect(conversationWindow([win("@1"), win("@2")], null)).toBe("@1");
   expect(conversationWindow([], null)).toBeNull();
+});
+
+test("a conversation page sends nothing that attaches, sizes or types into a terminal", () => {
+  // The note's ⌘Enter pastes into the tab's prompt at the desk: in conversation mode it goes to the composer instead.
+  expect([...TERMINAL_MESSAGES].sort()).toEqual(["attach", "attach-view", "paste-to-window", "resize", "scroll", "select-window"]);
 });
 
 test("withLocalActive marks only the chosen window of the chosen session active", () => {

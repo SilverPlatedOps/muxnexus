@@ -25,8 +25,12 @@ export function withLocalActive(sessions: SessionInfo[], session: string | null,
   return sessions.map((s) => (s.name === session ? { ...s, windows: s.windows.map((w) => ({ ...w, active: w.id === windowId })) } : s));
 }
 
-/** The messages that attach a terminal, size it or type into it: a conversation page sends none of them. */
-export const TERMINAL_MESSAGES: ReadonlySet<string> = new Set(["attach", "attach-view", "select-window", "resize", "scroll"]);
+/**
+ * The messages that attach a terminal, size it or type into it: a conversation
+ * page sends none of them. A note's ⌘Enter (`paste-to-window`) goes to the
+ * open conversation's text box instead, to be sent from there.
+ */
+export const TERMINAL_MESSAGES: ReadonlySet<string> = new Set(["attach", "attach-view", "select-window", "resize", "scroll", "paste-to-window"]);
 
 /**
  * What the screen holds after `incoming` arrives: appended (what the agent wrote

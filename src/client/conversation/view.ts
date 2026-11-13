@@ -45,6 +45,12 @@ export interface ConversationView {
   onMessage(m: ServerMessage): boolean;
   /** Every `state`: the header's state, badge and Next waiting count. */
   render(sessions: SessionInfo[]): void;
+  /**
+   * A note's text into the text box of `windowId`'s conversation, after what is
+   * there, to be read and sent as any message is. Not done when that tab isn't
+   * the one shown, or has no conversation to send to.
+   */
+  compose(windowId: string, text: string): "composed" | "not-shown" | "nothing-to-send-to";
 }
 
 /** How much of a step's input or output is shown behind the tap: the server sends them whole. */
@@ -670,11 +676,14 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     draftEl.hidden = false;
   }
 
-  input.addEventListener("input", () => {
+  /** What the text box holds now, typed or put there (a note): kept for the tab, and the buttons painted. */
+  function setTyped(text: string) {
+    if (input.value !== text) input.value = text;
     if (windowId) typed.set(windowId, input.value);
     grow();
     paintSlot();
-  });
+  }
+  input.addEventListener("input", () => setTyped(input.value));
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing) return;
     // ⌘ or Ctrl+Enter sends anywhere. A bare Enter sends only without a touch screen: on one it is the only newline key.
@@ -906,6 +915,12 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     render(next) {
       sessions = next;
       if (windowId) paintHead();
+    },
+    compose(target, text) {
+      if (target !== windowId || agent === undefined) return "not-shown";
+      if (!agent || !conversation) return "nothing-to-send-to";
+      setTyped(input.value.trim() === "" ? text : `${input.value.replace(/\s+$/, "")}\n${text}`);
+      return "composed";
     },
   };
 }
