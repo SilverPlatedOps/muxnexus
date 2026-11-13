@@ -50,6 +50,25 @@ test("around= returns a page holding the row at that offset", async () => {
   expect(text[page.end - 1]).toBe("\n");
 });
 
+test("an around page holding a result holds its call too, however far back the call is", async () => {
+  // A long-running call (a subagent, a slow build): its result comes 40 rows after it, with the agent talking in between.
+  const call = JSON.stringify({ type: "assistant", uuid: "c1", timestamp: "2026-01-01T10:00:00.000Z", message: { content: [{ type: "tool_use", id: "t_far", name: "Bash", input: { command: "make all" } }] } }) + "\n";
+  const result = JSON.stringify({ type: "user", uuid: "c2", timestamp: "2026-01-01T10:09:00.000Z", message: { content: [{ type: "tool_result", tool_use_id: "t_far", content: "build done: needle here" }] } }) + "\n";
+  const rows = [agent(0), call, ...Array.from({ length: 40 }, (_, i) => agent(i + 1)), result, ...Array.from({ length: 10 }, (_, i) => agent(i + 50))];
+  const p = file("far-call.jsonl", rows.join(""));
+  const at = rows.slice(0, 42).join("").length;
+  const page = await readPage("claude", p, { around: at, limit: 10 });
+  const ids = page.items.map((i) => `${i.kind}:${i.id}`);
+  expect(ids).toContain("step-result:t_far");
+  // The call comes first, ahead of the rows the page holds (it is older than all of them); the page still starts where it did.
+  expect(ids[0]).toBe("step:t_far");
+  expect(page.items[0]).toMatchObject({ kind: "step", summary: "Ran make all" });
+  const text = await Bun.file(p).text();
+  expect(page.start).toBeGreaterThan(text.indexOf(call) + call.length);
+  // The search finds the result row; the hit names the step it completes.
+  expect((await searchFile("claude", p, "needle")).hits).toEqual([expect.objectContaining({ id: "t_far", offset: at })]);
+});
+
 test("a 20 MB transcript's last page reads less than 1 MB", async () => {
   const pad = "x".repeat(1000);
   const row = agent(0, pad);

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -260,4 +260,24 @@ test("a page, search or links answer counts only for the tab and conversation sh
   expect(readForShown({ windowId: "@1", conversation: null }, shown)).toBe(false);
   // A tab with no conversation yet: an answer read for none is its own.
   expect(readForShown({ windowId: "@1", conversation: null }, { windowId: "@1", conversation: null })).toBe(true);
+});
+
+test("a step's text is cut to the clip, or, for a search match past it, to a window around the match", () => {
+  const long = `${"a".repeat(5000)}NEEDLE${"b".repeat(5000)}`;
+  // Short, or the match inside the clip: from the start, as always, the match where it is.
+  expect(clipAround("short needle text", 4000, "needle")).toEqual({ text: "short needle text", at: 6 });
+  expect(clipAround(`x needle ${"c".repeat(5000)}`, 4000, "NEEDLE")).toEqual({ text: `x needle ${"c".repeat(3991)}\n… 1009 more characters`, at: 2 });
+  // No query, or none found: the clip from the start.
+  expect(clipAround(long, 4000)).toEqual({ text: `${"a".repeat(4000)}\n… 6006 more characters` });
+  expect(clipAround(long, 4000, "missing")).toEqual({ text: `${"a".repeat(4000)}\n… 6006 more characters` });
+  // Past the clip: a window of the clip's length around the match, each cut end marked.
+  const w = clipAround(long, 4000, "needle");
+  expect(w.text.startsWith("… 3003 characters before\n")).toBe(true);
+  expect(w.text.endsWith("\n… 3003 more characters")).toBe(true);
+  expect(w.text.slice(w.at!, w.at! + 6)).toBe("NEEDLE");
+  expect(w.text.length - "… 3003 characters before\n".length - "\n… 3003 more characters".length).toBe(4000);
+  // Near the end: the window ends with the text, unmarked there.
+  const tail = clipAround(`${"a".repeat(9000)}NEEDLE`, 4000, "needle");
+  expect(tail.text).toBe(`… 5006 characters before\n${"a".repeat(3994)}NEEDLE`);
+  expect(tail.text.slice(tail.at!, tail.at! + 6)).toBe("NEEDLE");
 });

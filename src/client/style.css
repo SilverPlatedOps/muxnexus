@@ -2601,6 +2601,8 @@ select.na-input:disabled { color: var(--dim); }
 .conv-hits-more[hidden] { display: none; }
 .conv-back { bottom: 12px; }
 .conv-found { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; transition: outline-color 0.4s; }
+/* A search's match in a step's input or output. */
+.conv-match { background: var(--accent); color: var(--on-accent, var(--chrome)); border-radius: 2px; }
 @media (hover: hover) {
   .conv-sheet-btn:hover:not(:disabled), .conv-hit-row:hover { background: var(--hover); color: var(--fg-strong); }
 }

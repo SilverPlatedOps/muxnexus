@@ -132,6 +132,26 @@ export function readForShown(read: { windowId: string; conversation: string | nu
   return read.windowId === shown.windowId && read.conversation === shown.conversation;
 }
 
+/**
+ * A step's text as its body shows it: cut to `max` characters from the start,
+ * or, when `query` (a search's, matched as the server matches it: ignoring
+ * case) is found only past that, to a window of `max` around the match. Each
+ * cut end says how much is cut. `at`: where the match is in the text shown.
+ */
+export function clipAround(text: string, max: number, query?: string): { text: string; at?: number } {
+  const found = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1;
+  const len = query?.length ?? 0;
+  if (found < 0 || found + len <= max) {
+    const cut = text.length > max ? `${text.slice(0, max)}\n… ${text.length - max} more characters` : text;
+    return found < 0 ? { text: cut } : { text: cut, at: found };
+  }
+  const hi = Math.min(text.length, found - Math.floor((max - len) / 2) + max);
+  const lo = Math.max(0, hi - max);
+  const head = lo > 0 ? `… ${lo} characters before\n` : "";
+  const tail = hi < text.length ? `\n… ${text.length - hi} more characters` : "";
+  return { text: `${head}${text.slice(lo, hi)}${tail}`, at: head.length + found - lo };
+}
+
 /** Each refusal in a sentence the user can act on. */
 export const CONV_ERROR: Record<ConvError, string> = {
   "another-conversation": "This tab now holds another conversation",

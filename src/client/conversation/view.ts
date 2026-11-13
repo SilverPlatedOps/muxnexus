@@ -15,7 +15,7 @@ import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { SAFE_LINK } from "../live-markdown";
 import {
-  composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
+  clipAround, composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
 } from "./model";
 
 /**
@@ -86,7 +86,7 @@ function button(cls: string, text?: string): HTMLButtonElement {
   return b;
 }
 
-const clip = (s: string) => (s.length > CLIP ? `${s.slice(0, CLIP)}\n… ${s.length - CLIP} more characters` : s);
+const clip = (s: string) => clipAround(s, CLIP).text;
 
 /** How long a step took: "8s", "1m12s", "2h05". Blank under a second, or when a time can't be read. */
 function took(from: string, to: string): string {
@@ -127,8 +127,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   /** A `conv-more` is out: one at a time. */
   let asking = false;
   let retryAt = 0;
-  /** A `conv-around` is out for this item: its page replaces the list instead of joining it. */
-  let aroundFor: { id: string } | null = null;
+  /** A `conv-around` is out for this item (a search hit for `find`): its page replaces the list instead of joining it. */
+  let aroundFor: { id: string; find: string } | null = null;
   /** The list shows a page found by search, not the newest: new items are not appended, and Back to latest is offered. */
   let detached = false;
   let card: Card | null = null;
@@ -410,9 +410,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
 
   function drawHits(m: Extract<ServerMessage, { t: "conv-search-result" }>) {
     searchNext = m.next;
+    const find = searchedFor;
     searchHits.append(...m.hits.map((h) => {
       const row = button("conv-hit-row", h.snippet);
-      row.onclick = () => goTo(h.id, h.offset);
+      row.onclick = () => goTo(h.id, h.offset, find);
       return row;
     }));
     const any = searchHits.childElementCount > 0;
@@ -422,25 +423,43 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     searchMore.disabled = false;
   }
 
-  /** Shows the item a search hit names: scrolled to if it is on screen, else the page around it replaces the list. */
-  function goTo(id: string, offset: number) {
+  /** Shows the item a search hit for `find` names: scrolled to if it is on screen, else the page around it replaces the list. */
+  function goTo(id: string, offset: number, find: string) {
     if (!windowId) return;
     closeSheet();
     if (drawn.has(id)) {
-      reveal(id);
+      reveal(id, find);
       return;
     }
-    aroundFor = { id };
+    aroundFor = { id, find };
     deps.send({ t: "conv-around", windowId, offset });
   }
 
   let hitTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Scrolls item `id` to the middle of the list and marks it for a moment; false when it isn't listed. */
-  function reveal(id: string): boolean {
-    const e = drawn.get(id)?.el;
-    if (!e) return false;
-    const room = body.clientHeight - e.offsetHeight;
-    body.scrollTop += e.getBoundingClientRect().top - body.getBoundingClientRect().top - Math.max(0, room) / 2;
+  /**
+   * Scrolls item `id` to the middle of the list and marks it for a moment; false when it isn't listed. A step is
+   * opened, its input and output shown around `find` (a window of them, for a match past the clip), and the match
+   * scrolled to.
+   */
+  function reveal(id: string, find?: string): boolean {
+    const shown = drawn.get(id);
+    if (!shown) return false;
+    const e = shown.el;
+    let target: HTMLElement = e;
+    if (find && shown.item.kind === "step" && e instanceof HTMLDetailsElement) {
+      e.querySelector(":scope > .conv-step-body")?.remove();
+      e.append(stepBody(shown.item, find));
+      e.open = true;
+      const match = e.querySelector<HTMLElement>(".conv-match");
+      const pre = match?.closest<HTMLElement>(".conv-pre");
+      if (match && pre) {
+        // The output scrolls in its own box: the match to its middle first.
+        pre.scrollTop += match.getBoundingClientRect().top - pre.getBoundingClientRect().top - pre.clientHeight / 2;
+        target = pre;
+      }
+    }
+    const room = body.clientHeight - target.offsetHeight;
+    body.scrollTop += target.getBoundingClientRect().top - body.getBoundingClientRect().top - Math.max(0, room) / 2;
     list.querySelector(".conv-found")?.classList.remove("conv-found");
     e.classList.add("conv-found");
     clearTimeout(hitTimer);
@@ -476,11 +495,22 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
 
   // ---- the items ----
-  function stepBody(it: Step): HTMLElement {
+  /** A step's input or output: from the start, or around `find` (a search's match), the match marked. Text, never markup. */
+  function stepPre(text: string, find?: string): HTMLPreElement {
+    const { text: shown, at } = clipAround(text, CLIP, find);
+    const pre = el("pre", "conv-pre");
+    if (at === undefined || !find) pre.textContent = shown;
+    else pre.append(shown.slice(0, at), el("mark", "conv-match", shown.slice(at, at + find.length)), shown.slice(at + find.length));
+    return pre;
+  }
+
+  function stepBody(it: Step, find?: string): HTMLElement {
     const box = el("div", "conv-step-body");
-    box.append(el("div", "conv-step-label", "Input"), el("pre", "conv-pre", clip(it.input)));
-    if (it.result) box.append(el("div", "conv-step-label", it.result.ok ? "Output" : "Output · failed"), el("pre", "conv-pre", clip(it.result.output) || "(no output)"));
-    else box.append(el("div", "conv-step-label", "No result yet"));
+    box.append(el("div", "conv-step-label", "Input"), stepPre(it.input, find));
+    if (it.result) {
+      box.append(el("div", "conv-step-label", it.result.ok ? "Output" : "Output · failed"));
+      box.append(it.result.output ? stepPre(it.result.output, find) : el("pre", "conv-pre", "(no output)"));
+    } else box.append(el("div", "conv-step-label", "No result yet"));
     return box;
   }
 
@@ -790,7 +820,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
 
   /** The page around a search hit replaces the list; what follows the page is not loaded, so the list stops being live. */
-  function around(m: Extract<ServerMessage, { t: "conv-page" }>, want: { id: string }) {
+  function around(m: Extract<ServerMessage, { t: "conv-page" }>, want: { id: string; find: string }) {
     // A failed read answers with nothing and 0 to 0: the list stays as it was.
     if (m.items.length === 0 && m.start === 0 && m.end === 0) {
       deps.toast("Couldn't load that part of the conversation");
@@ -807,7 +837,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     backBtn.hidden = false;
     paintBody();
     paintWorking();
-    if (!reveal(want.id)) deps.toast("That message is no longer in the conversation");
+    if (!reveal(want.id, want.find)) deps.toast("That message is no longer in the conversation");
   }
 
   function page(m: Extract<ServerMessage, { t: "conv-page" }>) {

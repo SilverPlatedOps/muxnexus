@@ -165,6 +165,36 @@ async function forwardFrom(fh: FileHandle, kind: AgentKind, from: number, size: 
   return { items, start: from, end: restStart, bytesRead: bytes };
 }
 
+/** How far back an around page looks for the call of a result it holds: a long-running call can be far behind its result. */
+const CALL_SCAN_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The calls (steps) of the results in `items` whose call isn't among them,
+ * looked for in the rows before byte `before`, newest first, as far back as
+ * `CALL_SCAN_BYTES`. A call not found by then is left out.
+ */
+async function callsOf(fh: FileHandle, kind: AgentKind, items: Item[], before: number): Promise<{ calls: Item[]; bytes: number }> {
+  const steps = new Set(items.flatMap((i) => (i.kind === "step" ? [i.id] : [])));
+  const wanted = new Set(items.flatMap((i) => (i.kind === "step-result" && !steps.has(i.id) ? [i.id] : [])));
+  const calls: Item[] = [];
+  const counter = { n: 0 };
+  if (wanted.size === 0) return { calls, bytes: 0 };
+  const adapter = adapterFor(kind);
+  for await (const line of linesBack(fh, before, SCAN_CHUNK, counter)) {
+    // An id is in its row as a JSON string: only a row holding one is parsed.
+    if (![...wanted].some((id) => line.text.includes(JSON.stringify(id)))) {
+      if (counter.n >= CALL_SCAN_BYTES) break;
+      continue;
+    }
+    const row = parseRow(line.text);
+    const found = row === undefined ? [] : adapter.rowItems(row).filter((i) => i.kind === "step" && wanted.has(i.id));
+    for (const call of found) wanted.delete(call.id);
+    calls.unshift(...found);
+    if (wanted.size === 0 || counter.n >= CALL_SCAN_BYTES) break;
+  }
+  return { calls, bytes: counter.n };
+}
+
 export async function readPage(kind: AgentKind, path: string, opts: { before?: number; around?: number; limit?: number }): Promise<Page> {
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const fh = await open(path, "r");
@@ -176,7 +206,11 @@ export async function readPage(kind: AgentKind, path: string, opts: { before?: n
       const half = Math.max(1, Math.floor(limit / 2));
       const after = await forwardFrom(fh, kind, mid, size, half);
       const before = await backFrom(fh, kind, mid, size, half);
-      return { items: [...before.items, ...after.items], start: before.start, end: after.end, bytesRead: (before.bytesRead ?? 0) + (after.bytesRead ?? 0) };
+      const items = [...before.items, ...after.items];
+      // A search hit in a result whose call is further back than the page: the call comes too, first (it is older
+      // than every row the page holds), so the hit shows as the step it completes. `start` stays the page's own.
+      const { calls, bytes } = await callsOf(fh, kind, items, before.start);
+      return { items: [...calls, ...items], start: before.start, end: after.end, bytesRead: (before.bytesRead ?? 0) + (after.bytesRead ?? 0) + bytes };
     }
     const end = Math.min(opts.before ?? size, size);
     return await backFrom(fh, kind, end, size, limit);
