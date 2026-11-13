@@ -234,8 +234,9 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
         }, ANSWERED_HOLD_MS);
       } else {
         dropAnswer();
-        if (m.error === "prompt-changed") {
-          deps.toast(CONV_ERROR["prompt-changed"]);
+        // Unsent: the words are in the dialog's field at the desk, and what it shows now is not known.
+        if (m.error === "prompt-changed" || m.error === "unsent") {
+          deps.toast(CONV_ERROR[m.error]);
           // Off until the card is read afresh: opening the tab again sends it, whatever the server last sent.
           stale = true;
           const t = deps.target();

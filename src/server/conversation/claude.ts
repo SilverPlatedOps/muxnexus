@@ -126,7 +126,8 @@ function rowItems(row: any): Out {
 // focus is read on its own (`field`), as the same dialog, so an answer can
 // check its words go into that field and nowhere else.
 
-const QUEUED = "Press up to edit queued messages";
+/** Claude's dim hint in an empty prompt while messages wait to go. */
+export const QUEUED = "Press up to edit queued messages";
 /** `✽ Frosting… (9s · ↓ 82 tokens)`; the glyph cycles. Idle reads `✻ Baked for 24s · done …`. */
 const SPINNER = /^\S \S.*… \(\d/u;
 const PERMISSION_FOOTER = "Esc to cancel · Tab to amend";

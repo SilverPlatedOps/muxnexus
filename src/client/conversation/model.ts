@@ -97,6 +97,7 @@ export const CONV_ERROR: Record<ConvError, string> = {
   waiting: "The agent is waiting on a prompt: answer it first",
   "no-agent": "No agent in this tab",
   working: "The agent is busy; try Replace once it's idle",
+  unsent: "Your words are in the prompt at the desk but weren't sent. Check Screen.",
 };
 
 /**

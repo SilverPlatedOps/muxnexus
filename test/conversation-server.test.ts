@@ -56,7 +56,8 @@ function socket() {
 
 /** A tmux holding one agent tab (pane %1) whose stamp and screen the test sets. */
 function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
-  const state = { agent, screen, captures: 0, lookups: 0, writes: [] as string[], slowPaste: 0 };
+  /** `pasted`, `entered`: the screen after a paste (the words in the prompt) and after Enter (the prompt empty again), when set. */
+  const state = { agent, screen, captures: 0, lookups: 0, writes: [] as string[], slowPaste: 0, pasted: null as string | null, entered: null as string | null };
   const tmux = {
     async agentOfWindow(_windowId: string) {
       state.lookups++;
@@ -67,8 +68,12 @@ function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
     async pasteInto(paneId: string, text: string) {
       state.writes.push(`paste ${paneId} ${text}`);
       await sleep(state.slowPaste);
+      if (state.pasted !== null) state.screen = state.pasted;
     },
-    async sendKeys(paneId: string, keys: string[]) { state.writes.push(`keys ${paneId} ${keys.join(" ")}`); },
+    async sendKeys(paneId: string, keys: string[]) {
+      state.writes.push(`keys ${paneId} ${keys.join(" ")}`);
+      if (state.entered !== null && keys.join(" ") === "Enter") state.screen = state.entered;
+    },
     async paneSize(_paneId: string) { return { cols: 80, rows: 24 }; },
   };
   return { state, tmux };
@@ -338,7 +343,8 @@ describe("the conversation hub", () => {
       expect(state.writes).toEqual(["keys %1 1"]);
 
       state.writes = [];
-      state.screen = pane("claude-idle-empty");
+      state.screen = state.entered = pane("claude-idle-empty");
+      state.pasted = pane("claude-idle-draft");
       state.slowPaste = 50;
       await Promise.all([hub.send(ws, "s1", "@1", "sess-1", "one", false), hub.send(ws, "s2", "@1", "sess-1", "two", false)]);
       expect(state.writes).toEqual(["paste %1 one", "keys %1 Enter", "paste %1 two", "keys %1 Enter"]);

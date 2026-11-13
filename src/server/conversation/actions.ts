@@ -5,6 +5,7 @@ import type { AgentKind } from "../../shared/chat";
 import type { ConvError, GenericKey } from "../../shared/conversation";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
+import { QUEUED } from "./claude";
 import type { PaneRead } from "./pane";
 import { readPage } from "./reader";
 
@@ -52,13 +53,19 @@ async function readNow(tmux: Pick<Tmux, "capturePane">, kind: AgentKind, pane: s
   return adapterFor(kind).readPane(await tmux.capturePane(pane));
 }
 
-/** Reads the pane every `every` ms until `ok` accepts it; null after `ms`. */
+/**
+ * Reads the pane every `every` ms until `ok` accepts it; null after `ms`, or
+ * as soon as `still` (checked before each read, so the read stays the last
+ * look before whatever follows) says the tab has changed.
+ */
 async function readUntil(
   tmux: Pick<Tmux, "capturePane">, kind: AgentKind, pane: string, ok: (r: PaneRead) => boolean, ms: number, every: number,
+  still?: () => Promise<boolean>,
 ): Promise<PaneRead | null> {
   const deadline = Date.now() + ms;
   for (;;) {
     await Bun.sleep(every);
+    if (still && !(await still())) return null;
     const r = await readNow(tmux, kind, pane);
     if (ok(r)) return r;
     if (Date.now() >= deadline) return null;
@@ -66,6 +73,37 @@ async function readUntil(
 }
 
 const idle = (r: PaneRead) => !r.dialog && !r.unrecognised && !r.working;
+
+/**
+ * The prompt shows some text after a paste: the words are not matched (Claude
+ * wraps a long line and folds a big paste into `[Pasted text #1 +N lines]`,
+ * and Codex's composer draws them its own way). Claude's dim hint for queued
+ * messages is text too, but not the words.
+ */
+const holdsWords = (r: PaneRead) => !r.dialog && !r.unrecognised && r.draft === "text" && r.draftText !== QUEUED;
+
+/** Whether the window still holds the agent's pane `pane` and `conversation`: a `/clear` or a resume at the desk changes the one, a new agent the other. */
+const sameAgent = (tmux: Pick<Tmux, "agentOfWindow">, windowId: string, pane: string, conversation: string) => async () => {
+  const now = await tmux.agentOfWindow(windowId);
+  return !!now && now.paneId === pane && conversationOf(now) === conversation;
+};
+
+/**
+ * Enter after a paste, only once the prompt shows the words: the same agent
+ * and conversation in the window, no dialog, some text. Anything else and the
+ * words stay in the prompt unsent. A dialog drawn over the paste would take
+ * the Enter, and its option 1 is usually Yes.
+ */
+async function submit(tmux: ConvTmux, windowId: string, kind: AgentKind, pane: string, conversation: string): Promise<{ ok: true } | Refusal> {
+  // Polled over the redraw delay: a read right after the paste would see the prompt before the agent redrew it.
+  // A dialog stops the wait at once; an unrecognised screen may be a redraw caught halfway, so it is read again.
+  const r = await readUntil(tmux, kind, pane, (x) => !!x.dialog || holdsWords(x), REDRAW_MS, 50, sameAgent(tmux, windowId, pane, conversation));
+  if (!r || r.dialog) return refuse("unsent");
+  // What is left: a dialog drawn between this read and the Enter still takes it. The read and the key are two tmux
+  // calls, so the window is one round trip, a few milliseconds.
+  await tmux.sendKeys(pane, ["Enter"]);
+  return { ok: true };
+}
 
 /**
  * Sends `text` as the user's next message to the conversation the phone
@@ -98,8 +136,7 @@ export async function sendText(
     if (!cleared) return refuse("prompt-changed");
   }
   await tmux.pasteInto(pane, words);
-  await tmux.sendKeys(pane, ["Enter"]);
-  return { ok: true };
+  return submit(tmux, windowId, info.kind, pane, conversation);
 }
 
 /**
@@ -134,7 +171,9 @@ export async function answer(
     const inField = (x: PaneRead) => x.field?.fingerprint === card.fingerprint;
     if (!(await readUntil(tmux, info.kind, pane, inField, REDRAW_MS, 50))) return refuse("prompt-changed");
     await tmux.pasteInto(pane, words);
-    if (!(await readUntil(tmux, info.kind, pane, inField, REDRAW_MS, 50))) return refuse("prompt-changed");
+    // The words are in now: a refusal from here says so. (A long note can scroll a near-full-screen dialog's top away.)
+    if (!(await readUntil(tmux, info.kind, pane, inField, REDRAW_MS, 50, sameAgent(tmux, windowId, pane, conversation)))) return refuse("unsent");
+    // As in `submit`: a dialog drawn between this read and the Enter would take it, one round trip.
     await tmux.sendKeys(pane, ["Enter"]);
   }
   if (plan.followUp) {

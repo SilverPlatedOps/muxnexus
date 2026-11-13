@@ -46,6 +46,9 @@ export interface Card {
   selected?: number;
 }
 
-/** `working`: the desk's draft can't be cleared while the agent works (the key that clears it would interrupt). */
-export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent" | "working";
+/**
+ * `working`: the desk's draft can't be cleared while the agent works (the key that clears it would interrupt).
+ * `unsent`: the words went into the desk's prompt, but the screen changed before Enter, so they wait there.
+ */
+export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent" | "working" | "unsent";
 export type GenericKey = "1" | "2" | "3" | "4" | "5" | "Enter" | "Escape" | "Up" | "Down" | "Tab";
