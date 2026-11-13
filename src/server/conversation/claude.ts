@@ -324,11 +324,16 @@ function question(lines: PaneLine[], texts: string[], field = false): Card | nul
   if (rules.length !== 1 || rules[0] !== chat.row - 1) return null;
   // Multi-select rows carry a checkbox: not a card in this version (Decision 4).
   if (labels.some((l) => /^\[.\] /u.test(l))) return null;
-  const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: o === chat, takesText: o === other }));
-  return {
-    kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...options.map((o) => o.label)]), question: { at, of },
-    ...highlighted(opts),
-  };
+  // Each answer's description: the rows under it up to the next one, wrapped rows joined (read off the pane only).
+  const descriptions = opts.map((o, k) => {
+    const rows: string[] = [];
+    for (let i = o.row + 1; i < (opts[k + 1]?.row ?? scan.end); i++) if (!blank(texts[i]!) && !rule(texts[i]!) && !inField(i)) rows.push(texts[i]!.trim());
+    return rows.join(" ");
+  });
+  const options = opts.map((o, k) => cardOption(o, { label: labels[k], description: descriptions[k], secondary: o === chat, takesText: o === other }));
+  // A changed description is another prompt, as a changed label is.
+  const said = options.flatMap((o) => [o.label, o.description ?? ""]);
+  return { kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...said]), question: { at, of }, ...highlighted(opts) };
 }
 
 /** The step after the last question: the answers, then Submit or Cancel. It has no footer. */

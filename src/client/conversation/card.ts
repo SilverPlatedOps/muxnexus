@@ -121,6 +121,8 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
 
   function optionButton(o: CardOption, cls: string): HTMLButtonElement {
     const b = button(cls, o.label);
+    // As text, under the label: it comes from the agent's screen.
+    if (o.description) b.append(el("span", "conv-card-desc", o.description));
     b.onclick = () => (o.takesText ? openField(o) : answer(o));
     buttons.push(b);
     return b;

@@ -2539,6 +2539,8 @@ select.na-input:disabled { color: var(--dim); }
 .conv-card-btn.quiet { background: none; border-color: transparent; color: var(--muted); font-size: 12px; font-weight: 500; }
 .conv-card-buttons.inline .conv-card-btn { flex: none; text-align: center; }
 .conv-card-btn:disabled { opacity: 0.45; cursor: default; }
+/* An answer's description, under its label. */
+.conv-card-desc { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 400; }
 .conv-card-field-label { color: var(--muted); font-size: 12px; }
 .conv-card-input { flex: none; width: 100%; max-height: 120px; }
 /* A finger leaves :hover where it last tapped: a quiet option must never look like the obvious one. */

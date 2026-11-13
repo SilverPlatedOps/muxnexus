@@ -221,10 +221,11 @@ export function highlighted(opts: PaneOption[]): { selected?: number } {
 /** "Yes, and …" choices make a lasting change (a rule, a mode switch). */
 export const lasting = (label: string): boolean => label.startsWith("Yes, and ");
 
-export function cardOption(o: PaneOption, flags: { label?: string; secondary?: boolean; takesText?: boolean } = {}): CardOption {
+export function cardOption(o: PaneOption, flags: { label?: string; description?: string; secondary?: boolean; takesText?: boolean } = {}): CardOption {
   return {
     index: o.index,
     label: flags.label ?? o.label,
+    ...(flags.description ? { description: flags.description } : {}),
     ...(flags.secondary ? { secondary: true } : {}),
     ...(flags.takesText ? { takesText: true } : {}),
   };

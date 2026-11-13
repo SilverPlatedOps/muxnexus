@@ -26,6 +26,8 @@ export interface StepResult {
 export interface CardOption {
   index: number;
   label: string;
+  /** What the agent says about it, under its label (a question's answers): plain text. */
+  description?: string;
   /** Changes more than this one prompt (a lasting rule, a mode switch): offered, but not as the main button. */
   secondary?: boolean;
   /** Choosing it asks for the user's words ("No, and tell Claude what to do differently"). */

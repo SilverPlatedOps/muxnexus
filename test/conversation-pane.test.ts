@@ -94,10 +94,11 @@ test("single-select questions are cards, numbered by the highlighted tab", () =>
     dialog: {
       kind: "question",
       title: "Pick a colour",
+      // Each answer's description, from the row under it.
       options: [
-        { index: 1, label: "red" },
-        { index: 2, label: "green" },
-        { index: 3, label: "blue" },
+        { index: 1, label: "red", description: "Red" },
+        { index: 2, label: "green", description: "Green" },
+        { index: 3, label: "blue", description: "Blue" },
         { index: 4, label: "Type something.", takesText: true },
         { index: 5, label: "Chat about this", secondary: true },
       ],
@@ -120,8 +121,8 @@ test("a call with one single-select question has no tab bar: its header chip and
       kind: "question",
       title: "Pick a fruit",
       options: [
-        { index: 1, label: "Apple" },
-        { index: 2, label: "Pear" },
+        { index: 1, label: "Apple", description: "Apple" },
+        { index: 2, label: "Pear", description: "Pear" },
         { index: 3, label: "Type something.", takesText: true },
         { index: 4, label: "Chat about this", secondary: true },
       ],
@@ -135,6 +136,28 @@ test("a call with one single-select question has no tab bar: its header chip and
   });
   // In plan mode, under the plan file's name: the same dialog.
   expect(claude("question-single-plan").dialog!.fingerprint).toBe(claude("question-single").dialog!.fingerprint);
+});
+
+test("an answer's description is on its card and in its fingerprint: wrapped rows joined, a changed one a new card", () => {
+  const read = (ansi: string) => adapterFor("claude").readPane(ansi).dialog!;
+  // The first answer's description row, as captured (grey, indented to the label).
+  for (const [name, row, desc] of [
+    ["claude-question", "     \x1b[38;2;153;153;153mRed\x1b[39m", "Red"],
+    ["claude-question-single", "     \x1b[38;5;246mApple\x1b[39m", "Apple"],
+  ] as const) {
+    const ansi = raw(name);
+    expect(ansi).toContain(row);
+    // Another description, the labels the same: another prompt, so a tap read off the old one is refused.
+    const changed = read(ansi.replace(row, row.replace(desc, "Not this one")));
+    expect(changed.options[0]).toMatchObject({ index: 1, description: "Not this one" });
+    expect(changed.fingerprint).not.toBe(read(ansi).fingerprint);
+    // A description too long for the pane wraps onto rows indented under the label: one line on the card.
+    const wrapped = read(ansi.replace(row, `${row.replace(desc, `${desc} and more`)}\n     words below`));
+    expect(wrapped.options[0]!.description).toBe(`${desc} and more words below`);
+    expect(wrapped.options.map((o) => o.index)).toEqual(read(ansi).options.map((o) => o.index));
+  }
+  // The field focused, the descriptions are the card's still: the same fingerprint.
+  expect(claude("question-other-field").field!.fingerprint).toBe(claude("question").dialog!.fingerprint);
 });
 
 test("a header chip is one highlighted header under a rule, with the one-question footer", () => {
