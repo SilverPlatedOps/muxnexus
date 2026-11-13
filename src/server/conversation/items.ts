@@ -16,7 +16,16 @@ export function afterHeader(text: string): string {
   return text.replace(/^\[muxnexus · [^\n]*\]\n*/, "");
 }
 
-const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+export const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+/** Text written for a terminal, without its escapes (colours, links) and other control characters but newlines and tabs. */
+export function plain(s: string): string {
+  return s
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[@-_]?/g, "")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+}
 
 /** One line saying what a tool did. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

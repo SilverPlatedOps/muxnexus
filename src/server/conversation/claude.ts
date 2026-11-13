@@ -3,7 +3,7 @@
 
 import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
-import { afterHeader, inputText, peerOf, stepSummary, textOf } from "./items";
+import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
   allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, isRule, lastFilled, lasting, nextFilled,
   optionRow, paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
@@ -13,11 +13,55 @@ type Out = (ConvItem | StepResult)[];
 
 const INTERRUPT = /^\[Request interrupted by user/;
 
-/** A user's text: the human's own, or a peer's message from a room. */
-function said(id: string, at: string, text: string, queued: boolean): ConvItem[] {
+/** What the first `<tag>…</tag>` in `text` holds, or "". */
+const inside = (text: string, tag: string): string => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)?.[1] ?? "";
+
+/**
+ * What the harness writes in the user's turn, known by the tag it starts
+ * with: a slash command and its output, a shell command typed with `!` and
+ * what it printed (`parent` is the command's row), a background task's or
+ * another agent's news. Undefined for anything else, the user's own words.
+ */
+function harness(id: string, at: string, text: string, parent: string | undefined): Out | undefined {
+  switch (/^\s*<([a-z-]+)[\s>]/.exec(text)?.[1]) {
+    case "command-name":
+    case "command-message": {
+      const name = plain(inside(text, "command-name")).trim();
+      const args = plain(inside(text, "command-args")).trim();
+      return name ? [{ id, kind: "notice", at, text: clip(args ? `${name} ${args}` : name, 120) }] : [];
+    }
+    case "local-command-stdout":
+    case "local-command-stderr":
+    case "local-command-caveat":
+    // A task may report more than once, and the agent's reply says what came of it.
+    case "task-notification":
+      return [];
+    case "agent-message":
+      return [{ id, kind: "notice", at, text: "Message from another agent" }];
+    case "bash-input": {
+      const command = plain(inside(text, "bash-input"));
+      return [{ id, kind: "step", at, tool: "Bash", summary: stepSummary("Bash", { command }), input: command }];
+    }
+    case "bash-stdout":
+    case "bash-stderr": {
+      if (!parent) return [];
+      const out = plain(inside(text, "bash-stdout")).trimEnd();
+      const err = plain(inside(text, "bash-stderr")).trimEnd();
+      // No exit status is written down: only an error and nothing else counts as failed.
+      return [{ id: parent, kind: "step-result", ok: out !== "" || err === "", output: [out, err].filter(Boolean).join("\n"), at }];
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A user's text: the human's own, a peer's message from a room, or what the harness wrote in the user's turn. */
+function said(id: string, at: string, text: string, queued: boolean, parent?: string): Out {
   if (INTERRUPT.test(text)) return [{ id, kind: "notice", at, text: "Interrupted" }];
   const from = peerOf(text);
   if (from !== null) return [{ id, kind: "peer", at, text: afterHeader(text), from }];
+  const written = harness(id, at, text, parent);
+  if (written) return written;
   return [queued ? { id, kind: "you", at, text, queued: true } : { id, kind: "you", at, text }];
 }
 
@@ -31,11 +75,16 @@ function rowItems(row: any): Out {
     if (row.type === "system") return row.subtype === "compact_boundary" ? [{ id: uuid, kind: "notice", at, text: "Conversation compacted" }] : [];
     if (row.type === "attachment") {
       const a = row.attachment;
-      return a?.type === "queued_command" && typeof a.prompt === "string" ? said(uuid, at, a.prompt, true) : [];
+      // Not on `isMeta`, which a room's message queued mid-turn carries too.
+      if (a?.type !== "queued_command" || typeof a.prompt !== "string" || a.commandMode === "task-notification") return [];
+      return said(uuid, at, a.prompt, true);
     }
     const content = row.message?.content;
     if (row.type === "user") {
-      if (typeof content === "string") return said(uuid, at, content, row.promptSource === "queued");
+      // Rows the harness marks as its own: a command's output (/context), a caveat, a compacted conversation's summary.
+      const meta = row.isMeta === true || row.isCompactSummary === true || row.isVisibleInTranscriptOnly === true;
+      const parent = typeof row.parentUuid === "string" ? row.parentUuid : undefined;
+      if (typeof content === "string") return meta ? [] : said(uuid, at, content, row.promptSource === "queued", parent);
       if (!Array.isArray(content)) return [];
       const out: Out = [];
       const only = content.length === 1;
@@ -43,8 +92,8 @@ function rowItems(row: any): Out {
         const id = only ? uuid : `${uuid}:${i}`;
         if (b?.type === "tool_result" && typeof b.tool_use_id === "string") {
           out.push({ id: b.tool_use_id, kind: "step-result", ok: !b.is_error && !row.toolDenialKind, output: textOf(b.content), at });
-        } else if (b?.type === "text" && typeof b.text === "string") {
-          out.push(...said(id, at, b.text, row.promptSource === "queued"));
+        } else if (b?.type === "text" && typeof b.text === "string" && !meta) {
+          out.push(...said(id, at, b.text, row.promptSource === "queued", parent));
         }
       });
       return out;

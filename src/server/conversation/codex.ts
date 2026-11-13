@@ -11,8 +11,8 @@ import {
 
 type Out = (ConvItem | StepResult)[];
 
-/** Context the harness injects as a user message; never the user's words. */
-const INJECTED = /^\s*<(environment_context|user_instructions)>/;
+/** Context the harness injects as a user message (instructions, the note after an interrupt); never the user's words. */
+const INJECTED = /^\s*(?:<(?:environment_context|user_instructions|turn_aborted)>|# AGENTS\.md instructions)/;
 
 /** The command inside an `exec` call's JS-ish input: `exec_command({cmd:"…"})`. */
 function execCommand(input: string): string {
