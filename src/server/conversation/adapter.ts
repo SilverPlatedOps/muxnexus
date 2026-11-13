@@ -21,6 +21,12 @@ export interface ConvAdapter {
   /** The keys that empty the prompt. Sent only to an idle prompt that holds text. */
   clearDraft: string[];
   /**
+   * Whether the prompt `read` shows holds `words`, just pasted into it, and nothing else: the text as drawn (wrapped
+   * and indented: whitespace aside, the same), or the agent's own placeholder for a paste of their size. False
+   * when that can't be told: Enter would send whatever the prompt holds.
+   */
+  owns(read: PaneRead, words: string): boolean;
+  /**
    * The screen's rows as a Screen key's token sees them (`rowKey`: text and attributes), with what the agent
    * redraws on its own, unasked, made steady: a timer's redraw is no change while anything else is.
    */

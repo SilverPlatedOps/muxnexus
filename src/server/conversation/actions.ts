@@ -5,7 +5,6 @@ import type { AgentKind } from "../../shared/chat";
 import type { ConvError, GenericKey } from "../../shared/conversation";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor, type KeyPlan } from "./adapter";
-import { QUEUED } from "./claude";
 import { fingerprint, paneLines, rowKey, type PaneRead } from "./pane";
 import { readPage } from "./reader";
 
@@ -114,23 +113,19 @@ async function guarded(
 }
 
 /**
- * The prompt shows some text after a paste: the words are not matched (Claude
- * wraps a long line and folds a big paste into `[Pasted text #1 +N lines]`,
- * and Codex's composer draws them its own way). Claude's dim hint for queued
- * messages is text too, but not the words.
- */
-const holdsWords = (r: PaneRead) => !r.dialog && !r.unrecognised && r.draft === "text" && r.draftText !== QUEUED;
-
-/**
  * Enter after a paste, only once the prompt shows the words: the same agent
- * and conversation in the window, no dialog, some text. Anything else and the
- * words stay in the prompt unsent. A dialog drawn over the paste would take
- * the Enter, and its option 1 is usually Yes.
+ * and conversation in the window, no dialog, and the prompt holding the words
+ * pasted and nothing else (the adapter's `owns`: wrapped, or folded into the
+ * agent's placeholder of their size). Anything else and the words stay in the
+ * prompt unsent: a dialog drawn over the paste would take the Enter (its
+ * option 1 is usually Yes), and words typed at the desk meanwhile would be
+ * sent as the phone's.
  */
-async function submit(tmux: ConvTmux, b: Bound, kind: AgentKind): Promise<{ ok: true } | Refusal> {
+async function submit(tmux: ConvTmux, b: Bound, kind: AgentKind, words: string): Promise<{ ok: true } | Refusal> {
+  const adapter = adapterFor(kind);
   // Polled over the redraw delay: a read right after the paste would see the prompt before the agent redrew it.
-  // A dialog stops the wait at once; an unrecognised screen may be a redraw caught halfway, so it is read again.
-  const entered = await guarded(tmux, b, onPane(kind, (x) => (x.dialog ? "unsent" : holdsWords(x) ? { write: { keys: ["Enter"] } } : "wait")),
+  // A dialog stops the wait at once; anything else may be a redraw caught halfway, so it is read again.
+  const entered = await guarded(tmux, b, onPane(kind, (x) => (x.dialog ? "unsent" : adapter.owns(x, words) ? { write: { keys: ["Enter"] } } : "wait")),
     { ms: REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
   return entered.ok ? { ok: true } : entered;
 }
@@ -185,7 +180,7 @@ export async function sendText(
       x.dialog ? "waiting" : !x.unrecognised && x.draft === "empty" ? { write: { paste: words } } : "wait"), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
     if (!pasted.ok) return pasted;
   }
-  return submit(tmux, b, info.kind);
+  return submit(tmux, b, info.kind, words);
 }
 
 /**
@@ -234,7 +229,7 @@ export async function answer(
       x.dialog || x.unrecognised || x.working ? "wait" : x.draft === "empty" ? { write: { paste: words } } : "prompt-changed"),
       { ms: FOLLOW_UP_MS, every: FOLLOW_UP_POLL_MS });
     if (!pasted.ok) return pasted;
-    return submit(tmux, b, info.kind);
+    return submit(tmux, b, info.kind, words);
   }
   return { ok: true };
 }

@@ -5,8 +5,8 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, hashId, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
-  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, lastFilled, lasting, nextFilled, optionRow,
-  paneLines, rowKey, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
+  allDim, blank, block, cardOption, findRowBack, fingerprint, highlighted, lastFilled, lasting, optionRow,
+  paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -151,23 +151,28 @@ function approval(texts: string[]): Card | null {
 }
 
 /**
- * The composer: its rows run to the first blank row, and below them is only
- * the status line's block. Null when there is none (a dialog is up, or the
- * screen holds something else), so a submitted prompt is never taken for it.
+ * The composer: the last plain `›` row, and the status line's block at the
+ * bottom of the screen after a blank row. Its rows run from the `›` row to
+ * that blank row; blank rows among them are a draft's own (paragraphs). Null
+ * when there is none (a dialog is up, or the screen holds something else), so
+ * a submitted prompt is never taken for it.
  */
 function composer(lines: PaneLine[], texts: string[]): { row: number; end: number } | null {
   const last = lastFilled(texts);
   const row = findRowBack(texts, (t) => /^›( |$)/u.test(t), last + 1);
   if (row < 0 || lines[row]!.dim[0] || lines[row]!.highlight[0] || option(texts[row]!)) return null;
-  const end = findRow(texts, blank, row + 1);
-  const status = end < 0 ? -1 : nextFilled(texts, end);
-  if (status < 0 || findRow(texts, blank, status, last) >= 0) return null;
+  // The status block: the filled rows at the bottom, back to a blank row (the composer's own rows are above it).
+  let status = last;
+  while (status > row && !blank(texts[status - 1]!)) status--;
+  if (status <= row) return null;
+  let end = status - 1;
+  while (end > row + 1 && blank(texts[end - 1]!)) end--;
   return { row, end };
 }
 
 function draftIn(lines: PaneLine[], texts: string[], { row, end }: { row: number; end: number }): Pick<PaneRead, "draft" | "draftText"> {
   const more = texts.slice(row + 1, end);
-  if (!more.every((t) => t.startsWith("  "))) return { draft: "unknown" };
+  if (!more.every((t) => t === "" || t.startsWith("  "))) return { draft: "unknown" };
   if (more.length === 0 && allDim(lines[row]!, 2)) return { draft: "empty" };
   return { draft: "text", draftText: [texts[row]!.slice(2), ...more.map((t) => t.slice(2))].join("\n") };
 }
@@ -186,6 +191,21 @@ function readPane(ansi: string): PaneRead {
   }
 }
 
+// --- The words pasted (codex-fixes-2 fix 3) ---
+
+/** Measured on 0.167.1: a paste of more than 1000 characters (code points, line breaks included) shows as `[Pasted Content N chars]`. */
+const PASTED = /^\[Pasted Content (\d+) chars\]$/u;
+const FOLD_CHARS = 1000;
+
+function owns(r: PaneRead, words: string): boolean {
+  if (r.dialog || r.unrecognised || r.draft !== "text") return false;
+  const shown = r.draftText ?? "";
+  const folded = PASTED.exec(shown.trim());
+  const chars = [...words].length;
+  if (folded) return chars > FOLD_CHARS && Number(folded[1]) === chars;
+  return squeezed(shown) !== "" && squeezed(shown) === squeezed(words);
+}
+
 // --- Answering (the Codex checks doc, "Key map for the approval dialog") ---
 
 /** The approval's own hotkeys, which act at once wherever the highlight is. */
@@ -200,4 +220,4 @@ function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
 
 // C-c empties the composer, and a running turn carries on (unlike Claude's).
 // Steady as it is: over 75 s on 0.167.1 nothing on an idle composer or an approval changed on its own.
-export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady: (lines) => lines.map(rowKey) };
+export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady: (lines) => lines.map(rowKey), owns };

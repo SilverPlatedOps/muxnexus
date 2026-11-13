@@ -78,6 +78,12 @@ let windows = 100;
 /** A window id never used before: Stop and Replace keep a per-window memory of their last key. */
 const fresh = () => `@${++windows}`;
 
+/** The desk's own words in the prompt, not the phone's. */
+const DESK = {
+  claude: raw("claude-idle-draft").replace("hello draft", "from the desk"),
+  codex: raw("codex-idle-draft").replace("hello draft", "from the desk"),
+};
+
 const shown = (kind: "claude" | "codex", name: string) => draftFingerprint(adapterFor(kind).readPane(raw(name)));
 const card = (kind: "claude" | "codex", name: string) => adapterFor(kind).readPane(raw(name)).dialog!.fingerprint;
 
@@ -86,8 +92,8 @@ interface Action {
   agent: WindowAgentInfo;
   /** The screen first, then the screen after each write. */
   screens: string[];
-  /** A screen drawn at the desk that no write may follow. */
-  foreign: string;
+  /** Screens drawn at the desk that no write may follow: a dialog, or the desk's own words in the prompt. */
+  foreign: string[];
   run(tab: Tab): Promise<{ ok: boolean }>;
 }
 
@@ -96,35 +102,35 @@ const ACTIONS: Action[] = [
     name: "send",
     agent: claude,
     screens: [raw("claude-idle-empty"), raw("claude-idle-draft"), raw("claude-idle-empty")],
-    foreign: raw("claude-bash-permission"),
+    foreign: [raw("claude-bash-permission"), DESK.claude],
     run: (tab) => sendText(tab, fresh(), "sess-A", "hello draft", null),
   },
   {
     name: "send to Codex",
     agent: codex,
     screens: [raw("codex-idle-empty"), raw("codex-idle-draft"), raw("codex-idle-empty")],
-    foreign: raw("codex-approval"),
+    foreign: [raw("codex-approval"), DESK.codex],
     run: (tab) => sendText(tab, fresh(), "thread-A", "hello draft", null),
   },
   {
     name: "send, replacing the desk's draft",
     agent: claude,
     screens: [raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), raw("claude-idle-draft"), raw("claude-idle-empty")],
-    foreign: raw("claude-bash-permission"),
+    foreign: [raw("claude-bash-permission"), DESK.claude],
     run: (tab) => sendText(tab, fresh(), "sess-A", "hello draft", shown("claude", "claude-idle-multiline-draft")),
   },
   {
     name: "answer by key",
     agent: claude,
     screens: [raw("claude-bash-permission"), raw("claude-working")],
-    foreign: raw("claude-write-permission"),
+    foreign: [raw("claude-write-permission"), DESK.claude],
     run: (tab) => answer(tab, fresh(), "sess-A", card("claude", "claude-bash-permission"), 1),
   },
   {
     name: "answer with words",
     agent: claude,
     screens: [raw("claude-bash-no-card"), raw("claude-bash-no-field"), raw("claude-bash-no-text"), raw("claude-working")],
-    foreign: raw("claude-write-permission"),
+    foreign: [raw("claude-write-permission"), DESK.claude],
     run: (tab) => answer(tab, fresh(), "sess-A", card("claude", "claude-bash-no-card"), 4, "instead list the directory"),
   },
   {
@@ -132,14 +138,14 @@ const ACTIONS: Action[] = [
     agent: codex,
     screens: [raw("codex-approval"), raw("codex-idle-empty"), raw("codex-idle-draft"), raw("codex-working")],
     // Another approval, for another command.
-    foreign: raw("codex-approval").replaceAll("probe2.txt", "other.txt"),
+    foreign: [raw("codex-approval").replaceAll("probe2.txt", "other.txt"), DESK.codex],
     run: (tab) => answer(tab, fresh(), "thread-A", card("codex", "codex-approval"), 3, "hello draft"),
   },
   {
     name: "stop",
     agent: { ...claude, state: "running", since: SINCE },
     screens: [raw("claude-working"), raw("claude-idle-empty")],
-    foreign: raw("claude-bash-permission"),
+    foreign: [raw("claude-bash-permission")],
     run: async (tab) => {
       const r = await stop(tab, fresh(), "sess-A");
       // Stop is ok with nothing to stop: only an Escape sent counts as the happy path's.
@@ -150,7 +156,7 @@ const ACTIONS: Action[] = [
     name: "a Screen key",
     agent: claude,
     screens: [raw("claude-bash-permission-tip"), raw("claude-working")],
-    foreign: raw("claude-idle-empty"),
+    foreign: [raw("claude-idle-empty")],
     run: async (tab) => {
       const windowId = fresh();
       const seen = await screenNow(liveTab(claude, [raw("claude-bash-permission-tip")]), windowId);
@@ -172,14 +178,15 @@ describe("every write is guarded", () => {
       const reads = happy.calls.filter((c) => c.at < writes.at(-1)!.at && c.name !== "pasteInto" && c.name !== "sendKeys").map((c) => c.at);
       expect(reads.length).toBeGreaterThan(0);
       const late: string[] = [];
-      for (const how of ["conversation", "pane", "desk"] as const) {
+      const changes: { how: Change; foreign?: string }[] = [{ how: "conversation" }, { how: "pane" }, ...action.foreign.map((foreign) => ({ how: "desk" as const, foreign }))];
+      for (const [k, { how, foreign }] of changes.entries()) {
         // The first look-up is where the action learns its pane: a pane changed before it is the one it is for.
         const boundaries = how === "pane" ? reads.filter((at) => at > 0) : reads;
         await Promise.all(boundaries.map(async (at) => {
-          const tab = liveTab(action.agent, action.screens, { at, how, foreign: action.foreign });
+          const tab = liveTab(action.agent, action.screens, { at, how, foreign });
           const r = await action.run(tab);
           const after = tab.writes().filter((w) => w.at > at);
-          if (r.ok || after.length > 0) late.push(`${how} before call ${at} (${happy.calls[at]!.name}): ${r.ok ? "ok, " : ""}${JSON.stringify(after.map((w) => [w.name, w.args[1]]))}`);
+          if (r.ok || after.length > 0) late.push(`${how}${how === "desk" ? ` ${k - 2}` : ""} before call ${at} (${happy.calls[at]!.name}): ${r.ok ? "ok, " : ""}${JSON.stringify(after.map((w) => [w.name, w.args[1]]))}`);
         }));
       }
       expect(late).toEqual([]);

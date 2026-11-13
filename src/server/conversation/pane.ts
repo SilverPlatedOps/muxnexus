@@ -150,6 +150,9 @@ export function allDim(line: PaneLine, from = 0): boolean {
   return true;
 }
 
+/** Text with its whitespace and the agents' prompt glyphs taken out: a prompt wraps and indents what it shows. */
+export const squeezed = (text: string): string => text.replace(/[\s❯›]/gu, "");
+
 /** sha1 hex of the parts joined by newlines. */
 export function fingerprint(parts: string[]): string {
   return createHash("sha1").update(parts.join("\n")).digest("hex");

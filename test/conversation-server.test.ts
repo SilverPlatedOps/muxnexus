@@ -56,7 +56,10 @@ function socket() {
 
 /** A tmux holding one agent tab (pane %1) whose stamp and screen the test sets. */
 function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
-  /** `pasted`, `entered`: the screen after a paste (the words in the prompt) and after Enter (the prompt empty again), when set. */
+  /**
+   * `pasted`, `entered`: the screen after a paste (a prompt holding "hello draft", which then reads as the words
+   * pasted) and after Enter (the prompt empty again), when set.
+   */
   const state = { agent, screen, captures: 0, lookups: 0, writes: [] as string[], slowPaste: 0, pasted: null as string | null, entered: null as string | null };
   const tmux = {
     async agentOfWindow(_windowId: string) {
@@ -69,7 +72,7 @@ function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
     async pasteInto(paneId: string, text: string) {
       state.writes.push(`paste ${paneId} ${text}`);
       await sleep(state.slowPaste);
-      if (state.pasted !== null) state.screen = state.pasted;
+      if (state.pasted !== null) state.screen = state.pasted.replace("hello draft", text);
     },
     async sendKeys(paneId: string, keys: string[]) {
       state.writes.push(`keys ${paneId} ${keys.join(" ")}`);

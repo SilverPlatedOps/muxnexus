@@ -6,7 +6,7 @@ import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
   allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
-  optionRow, paneLines, rowKey, scanOptions, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
+  optionRow, paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -398,6 +398,29 @@ function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
   return { keys: card.kind === "permission" ? [...moves, "Tab"] : moves, text: "paste-then-enter" };
 }
 
+// --- The words pasted (codex-fixes-2 fix 3) ---
+
+/**
+ * Measured on 2.1.323: a paste with three line breaks or more, or of more
+ * than 800 characters (UTF-16 units: 400 emoji show, 401 fold), shows as
+ * `[Pasted text #N +M lines]`, M the line breaks; with none, `[Pasted text #N]`.
+ * N counts the session's pastes.
+ */
+const PASTED = /^\[Pasted text #\d+(?: \+(\d+) lines)?\]$/u;
+const FOLD_CHARS = 800;
+const FOLD_BREAKS = 3;
+
+function owns(r: PaneRead, words: string): boolean {
+  if (r.dialog || r.unrecognised || r.draft !== "text") return false;
+  const shown = r.draftText ?? "";
+  const folded = PASTED.exec(shown.trim());
+  if (folded) {
+    const breaks = (words.match(/\n/g) ?? []).length;
+    return (breaks >= FOLD_BREAKS || words.length > FOLD_CHARS) && Number(folded[1] ?? 0) === breaks;
+  }
+  return squeezed(shown) !== "" && squeezed(shown) === squeezed(words);
+}
+
 // --- Screen's token (codex-fixes-1 fix 1) ---
 
 /** A meter or a count: a word with a digit or a meter's cell in it (`41%`, `2h22`, `██░|░░`, `▸5173`, `62K/1M`). */
@@ -425,6 +448,7 @@ export const claudeAdapter: ConvAdapter = {
   readPane,
   keysFor,
   steady,
+  owns,
   // C-u clears one line of a multi-line draft only. C-c clears the lot, but
   // arms "Press Ctrl-C again to exit", and while a turn runs it interrupts the
   // turn instead (the draft stays): so it is sent once, and only when idle.
