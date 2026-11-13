@@ -36,24 +36,30 @@ function changed(agent: WindowAgentInfo, how: Change): WindowAgentInfo {
 /**
  * A tab that behaves like one: the agent and its screen are state. Each write moves the screen on, as the agent
  * would redraw it (`screens`, in turn), and `change` alters the tab for good as call `at` begins (every tmux call
- * counts): the conversation or pane behind the window, or the screen (`foreign`, drawn at the desk).
+ * counts), or once `afterWrite` writes have landed: the conversation or pane behind the window, or the screen
+ * (`foreign`, drawn at the desk).
  */
-function liveTab(agent: WindowAgentInfo, screens: string[], change?: { at: number; how: Change; foreign: string }) {
+function liveTab(agent: WindowAgentInfo, screens: string[], change?: { at?: number; afterWrite?: number; how: Change; foreign?: string }) {
   let me = agent;
   let screen = screens[0]!;
   let step = 1;
   let n = 0;
   let done = false;
+  let written = 0;
   const calls: { at: number; name: string; args: unknown[] }[] = [];
+  const apply = () => {
+    done = true;
+    me = changed(me, change!.how);
+    if (change!.how === "desk") screen = change!.foreign!;
+  };
   const begin = (name: string, ...args: unknown[]) => {
-    if (change && n === change.at && !done) {
-      done = true;
-      me = changed(me, change.how);
-      if (change.how === "desk") screen = change.foreign;
-    }
+    if (change && n === change.at && !done) apply();
     calls.push({ at: n++, name, args });
   };
-  const moveOn = () => { if (!done) screen = screens[step++] ?? screen; };
+  const moveOn = () => {
+    if (!done) screen = screens[step++] ?? screen;
+    if (change && ++written === change.afterWrite && !done) apply();
+  };
   return {
     calls,
     writes: () => calls.filter((c) => c.name === "pasteInto" || c.name === "sendKeys"),
@@ -179,6 +185,29 @@ describe("every write is guarded", () => {
       expect(late).toEqual([]);
     }, 30_000);
   }
+});
+
+// Codex reproduced both on 0edbcf7: the words went into conversation B, and the call said `unsent` only afterwards.
+describe("a conversation changed while an action waits gets none of its words", () => {
+  test("Replace: the tab is cleared at the desk while the clear is waited on", async () => {
+    const tab = liveTab(claude, [raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), raw("claude-idle-draft")], { afterWrite: 1, how: "conversation" });
+    expect(await sendText(tab, fresh(), "sess-A", "hello draft", shown("claude", "claude-idle-multiline-draft"))).toEqual({ ok: false, error: "another-conversation" });
+    // The clear, and nothing after it.
+    expect(tab.writes().map((w) => w.args[1])).toEqual([["C-c"]]);
+  });
+
+  test("a card's words: the conversation changes once the keys that open its field are in", async () => {
+    const tab = liveTab(claude, [raw("claude-bash-no-card"), raw("claude-bash-no-field"), raw("claude-bash-no-text")], { afterWrite: 1, how: "conversation" });
+    expect(await answer(tab, fresh(), "sess-A", card("claude", "claude-bash-no-card"), 4, "instead list the directory")).toEqual({ ok: false, error: "another-conversation" });
+    expect(tab.writes().map((w) => w.args[1])).toEqual([["Down", "Down", "Down", "Tab"]]);
+  });
+
+  test("Replace reads the pane again after the transcript, right before the clear", async () => {
+    // The draft changes at the desk while the transcript is read: the clear doesn't go.
+    const tab = liveTab(claude, [raw("claude-idle-multiline-draft")], { at: 2, how: "desk", foreign: raw("claude-idle-draft") });
+    expect(await sendText(tab, fresh(), "sess-A", "hello draft", shown("claude", "claude-idle-multiline-draft"))).toEqual({ ok: false, error: "prompt-changed" });
+    expect(tab.writes()).toEqual([]);
+  });
 });
 
 describe("the guard is the only way in", () => {
