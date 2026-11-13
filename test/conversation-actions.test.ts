@@ -804,6 +804,35 @@ describe("stop and keys", () => {
     expect(moved.writes()).toEqual([]);
   });
 
+  test("the agent's own working row ticking is no change: its timer, its glyph, its shimmer; any other change is", async () => {
+    /** A key pressed with the token for `before` while the tab shows `now`. */
+    const keyAfter = async (agent: WindowAgentInfo, before: string, now: string) => {
+      expect(now).not.toBe(before);
+      const seen = await screenNow(fakeTmux(agent, [before]), "@1");
+      const tmux = fakeTmux(agent, [now]);
+      return { error: (await pressKey(tmux, "@1", seen.token, "Escape")).error, writes: tmux.writes().length };
+    };
+    const pressed = { error: undefined, writes: 1 };
+    const refused = { error: "prompt-changed" as const, writes: 0 };
+    // Claude Code 2.1.323, a second apart: the glyph cycles (✽ ✳ ✢ · ✶), one letter of the verb shimmers, the elapsed
+    // time and the token count move on, the arrow turns.
+    const claude = raw("claude-working");
+    const spinner = "\x1b[38;2;255;153;51m·\x1b[39m \x1b[38;2;255;161;64mManifesting…\x1b[38;2;255;153;51m \x1b[38;2;153;153;153m(6s · ↓\x1b[39m \x1b[38;2;153;153;153m25 tokens)\x1b[39m";
+    expect(claude).toContain(spinner);
+    const ticked = "\x1b[38;2;255;153;51m✽\x1b[39m \x1b[38;2;255;161;64mManif\x1b[38;2;255;183;101me\x1b[38;2;255;161;64msting…\x1b[38;2;255;153;51m \x1b[38;2;153;153;153m(1m 7s · ↑\x1b[39m \x1b[38;2;153;153;153m1.2k tokens)\x1b[39m";
+    expect(await keyAfter(claudeAgent(), claude, claude.replace(spinner, ticked))).toEqual(pressed);
+    // Codex 0.167.1: the elapsed time, and the bullet's colour pulsing.
+    const codex = raw("codex-working");
+    const working = "\x1b[1m\x1b[38;2;128;128;128m•\x1b[0m \x1b[2mWorking\x1b[0m \x1b[2m(7s • \x1b[0;1mesc\x1b[0;2m to interrupt)\x1b[0m";
+    expect(codex).toContain(working);
+    expect(await keyAfter(codexAgent(), codex, codex.replace(working, working.replace("128;128;128", "231;231;231").replace("(7s", "(1m 09s")))).toEqual(pressed);
+    // Anything else in those rows, or anywhere else, is a change: another verb, words after the timer, the prompt typed in.
+    expect(await keyAfter(claudeAgent(), claude, claude.replace(spinner, spinner.replace("Manifesting", "Compacting")))).toEqual(refused);
+    expect(await keyAfter(claudeAgent(), claude, claude.replace(spinner, spinner.replace("tokens)", "tokens · thinking)")))).toEqual(refused);
+    expect(await keyAfter(codexAgent(), codex, codex.replace(working, working.replace("Working", "Waiting")))).toEqual(refused);
+    expect(await keyAfter(codexAgent(), codex, codex.replace("\x1b[2mAsk Codex to do anything\x1b[0m", "Ask Codex to do anything"))).toEqual(refused);
+  });
+
   test("the screen after a key is taken once it settles: two reads alike, or at most about a second", async () => {
     // The key's redraw comes in a moment: the reply waits for two reads in a row that agree.
     const settling = fakeTmux(null, ["$ \n", "$ \n", "$ l\n", "$ ls\n", "$ ls\n"]);

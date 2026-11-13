@@ -218,6 +218,24 @@ function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
   return hasText ? { keys: ["Escape"], followUp: true } : { keys: [APPROVAL_KEYS[option - 1]!] };
 }
 
+// --- Screen's token ---
+
+/** The working row's elapsed time: `(7s • esc to interrupt)`, `(1m 04s • esc to interrupt)`. */
+const ELAPSED = /\((?:\d+[hms] ?)+ • esc to interrupt\)/u;
+
+/**
+ * The screen's rows as a Screen key's token sees them. Over 75 s on 0.167.1
+ * nothing on an idle composer or an approval changed on its own; a turn's
+ * working row (`• Working (7s • esc to interrupt)`, or another verb) ticks
+ * its elapsed time each second and pulses its bullet's colour, measured a
+ * second apart. In that row those read steady, its words still count.
+ */
+function steady(lines: PaneLine[]): string[] {
+  return lines.map((l) => {
+    const text = l.text.trimEnd();
+    return WORKING.test(text) && ELAPSED.test(text) ? `\u0001working ${text.replace(ELAPSED, "(# • esc to interrupt)")}` : rowKey(l);
+  });
+}
+
 // C-c empties the composer, and a running turn carries on (unlike Claude's).
-// Steady as it is: over 75 s on 0.167.1 nothing on an idle composer or an approval changed on its own.
-export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady: (lines) => lines.map(rowKey), owns };
+export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady, owns };

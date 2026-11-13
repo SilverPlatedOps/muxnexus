@@ -457,7 +457,20 @@ function steady(lines: PaneLine[]): string[] {
   const texts = lines.map((l) => l.text.trimEnd());
   const box = inputBox(texts);
   const meter = (i: number) => !!box && i > box.bottom && METER.test(texts[i]!);
-  return lines.map((l, i) => (meter(i) ? texts[i]!.split(/\s+/u).map((w) => (TICKING.test(w) ? "#" : w)).join(" ") : rowKey(l)));
+  return lines.map((l, i) => (meter(i) ? texts[i]!.split(/\s+/u).map((w) => (TICKING.test(w) ? "#" : w)).join(" ") : spinning(texts[i]!) ?? rowKey(l)));
+}
+
+/**
+ * Claude's own working row, `✽ Improvising… (12s · ↓ 102 tokens)`, as a
+ * Screen key's token sees it, or null for any other row. Measured on 2.1.323
+ * a second apart: the glyph cycles (✽ ✳ ✢ · ✶), one letter of the verb
+ * shimmers (its colour), the elapsed time and the count move on, and the
+ * arrow turns with the stream. Those read steady; the verb and every other
+ * word still count, so a dialog drawn over it is still a change.
+ */
+function spinning(text: string): string | null {
+  const m = /^\S (\S[^…]*)… \((?:\d+[hms] ?)+(?: · [↑↓] [\d.]+k? tokens)?\)$/u.exec(text);
+  return m ? `\u0001working ${m[1]}` : null;
 }
 
 export const claudeAdapter: ConvAdapter = {
