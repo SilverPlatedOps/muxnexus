@@ -412,10 +412,11 @@ its conversation too.
   desk before your tap is refused ("This prompt changed: refresh"), never
   answered. A card is read off the tab's screen, so a prompt that doesn't fit it
   whole goes through Screen instead: a plan longer than the screen, whose start
-  has scrolled away, or a pane too narrow for an option's line. So does a Bash
-  permission with a "This command requires approval" row over its question, as
-  Claude Code 2.1.323 sometimes draws it (with a "Tip: auto mode…" row and a
-  description of the command).
+  has scrolled away, or a pane too narrow for an option's line. A Bash
+  permission's description of its command is on the card; any other row
+  between its title and the command (beyond Claude Code 2.1.323's "Tip: auto
+  mode…" row), or a "This command requires approval" row over its question,
+  sends it through Screen.
 - **Screen** (`⋯ → Screen`, or offered in the card's place) is the tab's terminal,
   read-only, with keys for 1–5, Enter, Esc, ↑ and ↓, and Tab. It answers what a
   card can't. A key goes only to the screen you saw: if it changed meanwhile,

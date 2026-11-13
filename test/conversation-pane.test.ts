@@ -34,6 +34,8 @@ test("a Bash prompt is a permission card with the command and the pane's own opt
     dialog: {
       kind: "permission",
       title: "Bash command",
+      // The row between the title and the command, saying what it does.
+      description: "Create probe.txt then sleep 20 seconds",
       detail: "touch probe.txt && sleep 20",
       options: [
         { index: 1, label: "Yes" },
@@ -48,6 +50,30 @@ test("a Bash prompt is a permission card with the command and the pane's own opt
     draft: "unknown",
     working: false,
   });
+});
+
+test("a Bash prompt's description is on its card and in its fingerprint; any other row over the command is Screen's", () => {
+  // Claude Code 2.1.323: the title, a tip, a description of the command, then the command between dashed rules.
+  const tip = raw("claude-bash-permission-tip");
+  const description = "\x1b[38;5;246mCreate empty file made.txt\x1b[39m";
+  const card = adapterFor("claude").readPane(tip).dialog!;
+  // Another description is another prompt: what the user agreed to is what it says.
+  for (const other of ["Delete everything in home", "Warning: this command writes outside the project"]) {
+    const read = adapterFor("claude").readPane(tip.replace(description, other)).dialog;
+    expect(read!.fingerprint).not.toBe(card.fingerprint);
+    expect(read).toMatchObject({ description: other });
+  }
+  expect(card).toMatchObject({ kind: "permission", title: "Bash command", description: "Create empty file made.txt", detail: "touch made.txt" });
+  // The tip and blank rows alone, no description: still a card.
+  expect(adapterFor("claude").readPane(tip.replace(` ${description}\n`, "")).dialog).toMatchObject({ kind: "permission", detail: "touch made.txt" });
+  // A second row besides the tip, or another tip: no layout this reader was written against, so Screen.
+  for (const extra of [` ${description}\n Warning: this command writes outside the project`, " Tip: something else entirely"]) {
+    const read = adapterFor("claude").readPane(tip.replace(` ${description}`, extra));
+    expect(read).toMatchObject({ dialog: null, unrecognised: true });
+  }
+  // "This command requires approval" over the question, as 2.1.323 sometimes draws it: Screen too.
+  const approval = tip.replace(" Do you want to proceed?", " This command requires approval\n\n Do you want to proceed?");
+  expect(adapterFor("claude").readPane(approval)).toMatchObject({ dialog: null, unrecognised: true });
 });
 
 test("a Write prompt names the file and its content; an Edit prompt the file and the diff", () => {

@@ -171,6 +171,8 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
     buttons.length = 0;
     const title = el("div", "conv-card-title", cardTitle(card));
     const parts: HTMLElement[] = [head(agentShown, card), title];
+    // As text: it comes from the agent's screen.
+    if (card.description) parts.push(el("div", "conv-card-description", card.description));
     if (card.detail) parts.push(el("pre", "conv-pre conv-card-detail", card.detail));
     const { primary, secondary } = cardButtons(card);
     const choices = el("div", "conv-card-choices");

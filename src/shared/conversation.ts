@@ -38,6 +38,8 @@ export interface CardOption {
 export interface Card {
   kind: "permission" | "plan" | "question" | "approval";
   title: string;
+  /** What the agent says the request does, in its words (a Bash permission's description): plain text. */
+  description?: string;
   detail?: string;
   options: CardOption[];
   /** Of the dialog as read; an answer is refused once the pane no longer matches it. */

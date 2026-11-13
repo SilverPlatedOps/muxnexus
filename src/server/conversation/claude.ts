@@ -142,6 +142,8 @@ const PLAN_FOOTER = "ctrl+g to edit in Vim · ";
 const PLAN_FEEDBACK = "Tell Claude what to change";
 const PLAN_HINT = "shift+tab to approve with this feedback";
 const PLAN_ASK = "Claude has written up a plan and is ready to execute. Would you like to proceed?";
+/** 2.1.323 draws it under a Bash permission's title, over the command's description. */
+const BASH_TIP = 'Tip: auto mode handles these prompts for you — choose "switch to auto mode" below';
 /** One sentence, its only `?` at the end: `Do you want to proceed?`, `Do you want to create notes.txt?`. */
 const PERMISSION_ASK = /^Do you want to [^?]+\?$/u;
 
@@ -211,7 +213,15 @@ function permission(texts: string[], field = false): Card | null {
   const body = block(texts, open + 1, close, 1);
   const parts = [title];
   let detail = body;
-  if (title !== "Bash command") {
+  let description: string | undefined;
+  if (title === "Bash command") {
+    // Between the title and the command: blank rows, the tip, and at most one row saying what the command does. It is
+    // on the card and in the fingerprint (another description is another prompt); any other row, and it is Screen's.
+    const rows = texts.slice(head + 1, open).filter((t) => !blank(t)).map((t) => t.trim()).filter((t) => t !== BASH_TIP);
+    if (rows.length > 1 || rows[0]?.startsWith("Tip:")) return null;
+    description = rows[0];
+    if (description) parts.push(description);
+  } else {
     // The file's path: the one row between the heading and the content.
     const rows = texts.slice(head + 1, open).filter((t) => !blank(t));
     if (rows.length !== 1) return null;
@@ -220,7 +230,10 @@ function permission(texts: string[], field = false): Card | null {
     parts.push(path);
   }
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: lasting(labels[k]!), takesText: o === no }));
-  return { kind: "permission", title, detail, options, fingerprint: fingerprint([...parts, body, ...options.map((o) => o.label)]), ...highlighted(opts) };
+  return {
+    kind: "permission", title, ...(description ? { description } : {}), detail, options,
+    fingerprint: fingerprint([...parts, body, ...options.map((o) => o.label)]), ...highlighted(opts),
+  };
 }
 
 /** With `field`, the dialog with its change request focused: the card as it read before, for its fingerprint. */

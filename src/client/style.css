@@ -2526,6 +2526,8 @@ select.na-input:disabled { color: var(--dim); }
 .conv-card > * { flex: none; }
 .conv-card-meta { color: var(--muted); font-size: 11px; }
 .conv-card-title { color: var(--fg-strong); font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
+/* What the agent says the request does (a Bash permission's description). */
+.conv-card-description { color: var(--fg); line-height: 1.45; overflow-wrap: anywhere; }
 .conv-card > .conv-card-detail { flex: 0 1000 auto; min-height: 3.6em; max-height: none; }
 .conv-card-choices, .conv-card-field { display: flex; flex-direction: column; gap: 8px; }
 .conv-card-buttons { display: flex; flex-direction: column; gap: 8px; }
