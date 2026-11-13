@@ -131,3 +131,26 @@ export function cardArmedAt(before: { fingerprint: string; at: number } | null, 
 export function wordsOptional(card: Card): boolean {
   return card.kind === "permission" || card.kind === "approval";
 }
+
+/** The longest a link's label gets in the Links sheet. */
+const LINK_LABEL = 48;
+
+/**
+ * Links as rows for the Links sheet: a GitHub pull request reads `owner/repo#12`,
+ * anything else as its host and path, cut to 48 characters (the full address is
+ * what Open and Copy use).
+ */
+export function linkRows(links: { url: string; pr: boolean }[]): { url: string; label: string; pr: boolean }[] {
+  return links.map(({ url, pr }) => {
+    const gh = /^https?:\/\/(?:www\.)?github\.com\/([^/?#]+)\/([^/?#]+)\/pull\/(\d+)/i.exec(url);
+    if (gh) return { url, label: `${gh[1]}/${gh[2]}#${gh[3]}`, pr };
+    let label = url;
+    try {
+      const u = new URL(url);
+      label = u.host + (u.pathname === "/" ? "" : u.pathname);
+    } catch {
+      // Not an address the browser reads: shown as it is.
+    }
+    return { url, label: label.length > LINK_LABEL ? `${label.slice(0, LINK_LABEL - 1)}…` : label, pr };
+  });
+}

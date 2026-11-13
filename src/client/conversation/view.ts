@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
-import type { AgentKind } from "../../shared/chat";
+import { SEARCH_LIMITS, type AgentKind } from "../../shared/chat";
 import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { AgentInfo, ClientMessage, ServerMessage, SessionInfo, WindowInfo } from "../../shared/protocol";
 import { formatElapsed, GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, profileBadge, windowGlyph } from "../agent";
@@ -13,7 +13,8 @@ import { isArchived, visualOrder } from "../groups";
 import { sessionLabel, tabLabel } from "../labels";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
-import { CONV_ERROR, mergeItems, stuckToBottom, workingLine } from "./model";
+import { SAFE_LINK } from "../live-markdown";
+import { CONV_ERROR, linkRows, mergeItems, stuckToBottom, workingLine } from "./model";
 
 /**
  * One tab's agent as a conversation, for a phone or an iPad: what it said and
@@ -118,6 +119,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   /** A `conv-more` is out: one at a time. */
   let asking = false;
   let retryAt = 0;
+  /** A `conv-around` is out for this item: its page replaces the list instead of joining it. */
+  let aroundFor: { id: string } | null = null;
+  /** The list shows a page found by search, not the newest: new items are not appended, and Back to latest is offered. */
+  let detached = false;
   let card: Card | null = null;
   let screen = false;
   let working = false;
@@ -163,8 +168,23 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   newBtn.hidden = true;
   /** The tab's terminal, read-only, over the list: from `⋯`, the card's offer, or in place of a tab with no agent. */
   const screenView = createScreen({ send: (m) => deps.send(m), windowId: () => windowId });
+  const backBtn = button("conv-new conv-back", "Back to latest ↓");
+  backBtn.hidden = true;
+
+  // Links and Search share one sheet over the list.
+  const sheet = el("section", "conv-sheet");
+  sheet.hidden = true;
+  const sheetBar = el("div", "conv-sheet-bar");
+  const sheetTitle = el("div", "conv-sheet-title");
+  const sheetClose = button("conv-sheet-btn", "Close");
+  sheetBar.append(sheetTitle, sheetClose);
+  const linksPane = el("div", "conv-sheet-pane");
+  const searchPane = el("div", "conv-sheet-pane");
+  const sheetBody = el("div", "conv-sheet-body");
+  sheetBody.append(linksPane, searchPane);
+  sheet.append(sheetBar, sheetBody);
   const main = el("div", "conv-main");
-  main.append(body, newBtn, screenView.el);
+  main.append(body, newBtn, backBtn, screenView.el, sheet);
 
   /** Where the text box sits: the waiting card takes its place. */
   const slot = el("div", "conv-slot");
@@ -246,9 +266,197 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     // A tab with no agent already shows it: read it again.
     screenView.open(screenView.state() === "fixed");
   }
-  // Links and Search: search's work (their own sheets).
-  function showLinks() { deps.toast("Links aren't available yet"); }
-  function showSearch() { deps.toast("Search isn't available yet"); }
+
+  // ---- Links and Search ----
+  function openSheet(title: string, pane: HTMLElement) {
+    sheetTitle.textContent = title;
+    linksPane.hidden = pane !== linksPane;
+    searchPane.hidden = pane !== searchPane;
+    sheet.hidden = false;
+  }
+  const closeSheet = () => { sheet.hidden = true; };
+  sheetClose.onclick = closeSheet;
+
+  /** Copies `text`: the clipboard API where the page may use it, else a hidden text box (plain http has no `navigator.clipboard`). */
+  async function copyText(text: string): Promise<boolean> {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // Refused: try the text box.
+    }
+    const box = el("textarea");
+    box.value = text;
+    box.readOnly = true;
+    box.setAttribute("aria-hidden", "true");
+    box.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
+    document.body.append(box);
+    box.select();
+    box.setSelectionRange(0, text.length);
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    box.remove();
+    return ok;
+  }
+
+  const sheetNote = (text: string) => el("div", "conv-sheet-note", text);
+
+  let linksReq: string | null = null;
+
+  function showLinks() {
+    if (!windowId) return;
+    linksReq = `links-${++seq}`;
+    linksPane.replaceChildren(sheetNote("Reading links…"));
+    openSheet("Links", linksPane);
+    deps.send({ t: "conv-links", req: linksReq, windowId });
+  }
+
+  function drawLinks(links: { url: string; pr: boolean }[]) {
+    const rows = linkRows(links);
+    if (rows.length === 0) {
+      linksPane.replaceChildren(sheetNote("No links in this conversation"));
+      return;
+    }
+    linksPane.replaceChildren(...rows.map((r) => {
+      const row = el("div", `conv-link${r.pr ? " pr" : ""}`);
+      const label = el("div", "conv-link-label", r.label);
+      const full = el("div", "conv-link-url", r.url);
+      const open = button("conv-sheet-btn", "Open");
+      open.onclick = () => {
+        // Only a web address leaves for a new tab; the address came from the conversation.
+        if (/^https?:\/\//i.test(r.url) && SAFE_LINK.test(r.url)) window.open(r.url, "_blank", "noopener");
+        else deps.toast("Not a web address");
+      };
+      const copy = button("conv-sheet-btn", "Copy");
+      copy.onclick = () => { void copyText(r.url).then((ok) => deps.toast(ok ? "Copied" : "Couldn't copy")); };
+      const buttons = el("div", "conv-link-buttons");
+      buttons.append(open, copy);
+      row.append(label, full, buttons);
+      return row;
+    }));
+  }
+
+  const searchForm = el("form", "conv-search-form");
+  const searchInput = el("input", "conv-search-input");
+  searchInput.type = "search";
+  searchInput.placeholder = "Search this conversation";
+  searchInput.maxLength = SEARCH_LIMITS.query;
+  searchInput.setAttribute("enterkeyhint", "search");
+  searchInput.setAttribute("aria-label", "Search this conversation");
+  searchInput.autocomplete = "off";
+  const searchGo = button("conv-sheet-btn", "Search");
+  searchGo.type = "submit";
+  searchForm.append(searchInput, searchGo);
+  const searchNote = sheetNote("");
+  searchNote.hidden = true;
+  const searchHits = el("div", "conv-hits");
+  const searchMore = button("conv-sheet-btn conv-hits-more", "Older matches");
+  searchMore.hidden = true;
+  searchPane.append(searchForm, searchNote, searchHits, searchMore);
+  /** The search out, and the cursor its older matches continue from. */
+  let searchReq: { req: string; more: boolean } | null = null;
+  let searchNext: number | undefined;
+  let searchedFor = "";
+
+  function showSearch() {
+    openSheet("Search", searchPane);
+    searchInput.focus();
+  }
+
+  function runSearch(more: boolean) {
+    const query = more ? searchedFor : searchInput.value.trim();
+    if (!windowId || !query) return;
+    searchedFor = query;
+    const req = `search-${++seq}`;
+    searchReq = { req, more };
+    searchNote.textContent = "Searching…";
+    searchNote.hidden = false;
+    searchMore.disabled = true;
+    if (!more) {
+      searchHits.replaceChildren();
+      searchMore.hidden = true;
+    }
+    deps.send({ t: "conv-search", req, windowId, query, ...(more && searchNext !== undefined ? { cursor: searchNext } : {}) });
+  }
+  searchForm.onsubmit = (e) => {
+    e.preventDefault();
+    searchInput.blur();
+    runSearch(false);
+  };
+  searchMore.onclick = () => runSearch(true);
+
+  function drawHits(m: Extract<ServerMessage, { t: "conv-search-result" }>) {
+    searchNext = m.next;
+    searchHits.append(...m.hits.map((h) => {
+      const row = button("conv-hit-row", h.snippet);
+      row.onclick = () => goTo(h.id, h.offset);
+      return row;
+    }));
+    const any = searchHits.childElementCount > 0;
+    searchNote.textContent = any ? "" : `No matches for "${searchedFor}"`;
+    searchNote.hidden = any;
+    searchMore.hidden = m.next === undefined;
+    searchMore.disabled = false;
+  }
+
+  /** Shows the item a search hit names: scrolled to if it is on screen, else the page around it replaces the list. */
+  function goTo(id: string, offset: number) {
+    if (!windowId) return;
+    closeSheet();
+    if (drawn.has(id)) {
+      reveal(id);
+      return;
+    }
+    aroundFor = { id };
+    deps.send({ t: "conv-around", windowId, offset });
+  }
+
+  let hitTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Scrolls item `id` to the middle of the list and marks it for a moment; false when it isn't listed. */
+  function reveal(id: string): boolean {
+    const e = drawn.get(id)?.el;
+    if (!e) return false;
+    const room = body.clientHeight - e.offsetHeight;
+    body.scrollTop += e.getBoundingClientRect().top - body.getBoundingClientRect().top - Math.max(0, room) / 2;
+    list.querySelector(".conv-found")?.classList.remove("conv-found");
+    e.classList.add("conv-found");
+    clearTimeout(hitTimer);
+    hitTimer = setTimeout(() => e.classList.remove("conv-found"), 2400);
+    return true;
+  }
+
+  backBtn.onclick = () => {
+    if (!windowId) return;
+    backBtn.disabled = true;
+    // Opened again for the same tab, the newest page replaces everything shown (a `conv`).
+    deps.send({ t: "conv-open", windowId });
+  };
+
+  /** Back to the newest page and the live list: a tab switch, a close, or a `conv`. */
+  function attached() {
+    detached = false;
+    aroundFor = null;
+    backBtn.hidden = true;
+    backBtn.disabled = false;
+  }
+
+  function resetSheet() {
+    closeSheet();
+    linksReq = null;
+    searchReq = null;
+    searchNext = undefined;
+    searchedFor = "";
+    searchInput.value = "";
+    searchHits.replaceChildren();
+    searchNote.hidden = true;
+    searchMore.hidden = true;
+  }
 
   // ---- the items ----
   function stepBody(it: Step): HTMLElement {
@@ -358,10 +566,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
 
   function paintWorking() {
     const stuck = atEnd();
-    const on = working && !!agent;
+    const on = working && !!agent && !detached;
     workingEl.hidden = !on;
     if (on) workingText.textContent = workingLine(items, Date.now()) ?? "Working";
-    if (stuck) toEnd();
+    if (stuck && !detached) toEnd();
   }
 
   /** The page before what is shown, when the reader is near the top or the list doesn't fill the screen. */
@@ -486,6 +694,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     asking = false;
     retryAt = 0;
     orphans = [];
+    attached();
     paintItems(mergeItems([], m.items, "append"), "all");
     keepOrphans(m.items);
     // A tab with no agent is its screen; one that has gained an agent is its conversation again.
@@ -512,7 +721,35 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     else if (added > 0) newBtn.hidden = false;
   }
 
+  /** The page around a search hit replaces the list; what follows the page is not loaded, so the list stops being live. */
+  function around(m: Extract<ServerMessage, { t: "conv-page" }>, want: { id: string }) {
+    // A failed read answers with nothing and 0 to 0: the list stays as it was.
+    if (m.items.length === 0 && m.start === 0 && m.end === 0) {
+      deps.toast("Couldn't load that part of the conversation");
+      return;
+    }
+    orphans = [];
+    asking = false;
+    retryAt = 0;
+    detached = true;
+    paintItems(mergeItems([], m.items, "append"), "all");
+    keepOrphans(m.items);
+    start = m.start;
+    newBtn.hidden = true;
+    backBtn.hidden = false;
+    paintBody();
+    paintWorking();
+    if (!reveal(want.id)) deps.toast("That message is no longer in the conversation");
+  }
+
   function page(m: Extract<ServerMessage, { t: "conv-page" }>) {
+    // An older page that was already out ends where the list begins; any other page is the one asked for around a hit.
+    if (aroundFor && !(asking && m.end === start)) {
+      const want = aroundFor;
+      aroundFor = null;
+      around(m, want);
+      return;
+    }
     asking = false;
     // Only the page that ends where the shown items begin; anything else (a failed read) is dropped.
     if (m.end !== start || m.start > start) {
@@ -560,7 +797,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         if (m.windowId === windowId) loaded(m);
         return true;
       case "conv-items":
-        if (m.windowId === windowId && agent) appended(m.items);
+        if (m.windowId === windowId && agent && !detached) appended(m.items);
         return true;
       case "conv-page":
         if (m.windowId === windowId && agent) page(m);
@@ -577,7 +814,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
           if (asked()) draftEl.hidden = true;
           paintSlot();
           paintWorking();
-          if (stuck) toEnd();
+          if (stuck && !detached) toEnd();
         }
         return true;
       case "conv-result":
@@ -587,7 +824,16 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         screenView.result(m);
         return true;
       case "conv-search-result":
+        if (searchReq?.req === m.req) {
+          searchReq = null;
+          drawHits(m);
+        }
+        return true;
       case "conv-links-result":
+        if (linksReq === m.req) {
+          linksReq = null;
+          drawLinks(m.links);
+        }
         return true;
       default:
         return false;
@@ -610,6 +856,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       start = 0;
       asking = false;
       retryAt = 0;
+      attached();
+      resetSheet();
       card = null;
       screen = false;
       working = false;
@@ -642,6 +890,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       orphans = [];
       dropPending();
       stopping = null;
+      attached();
+      resetSheet();
       waiting.reset();
       screenView.close();
       drawn.clear();

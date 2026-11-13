@@ -2561,6 +2561,42 @@ select.na-input:disabled { color: var(--dim); }
 }
 .conv-screen-key { min-width: 0; height: 44px; padding: 0; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; color: var(--fg-strong); font: 700 13px var(--mono); cursor: pointer; }
 .conv-screen-key:active { background: var(--current); }
+
+/* Links and Search: one sheet over the list. A hit's item is marked for a moment once found. */
+.conv-sheet { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; background: var(--term); }
+.conv-sheet[hidden] { display: none; }
+.conv-sheet-bar { flex: none; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 6px 4px 14px; border-bottom: 1px solid var(--line-soft); background: var(--chrome); }
+.conv-sheet-title { flex: 1; min-width: 0; color: var(--fg-strong); font-weight: 700; }
+.conv-sheet-btn { flex: none; min-height: 44px; padding: 0 14px; background: none; border: 1px solid var(--edge); border-radius: 8px; color: var(--fg); font: 600 12px var(--mono); cursor: pointer; }
+.conv-sheet-btn:disabled { opacity: 0.45; cursor: default; }
+.conv-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 14px 14px; }
+.conv-sheet-pane[hidden] { display: none; }
+.conv-sheet-note { padding: 24px 0; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.conv-link { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.conv-link-label { color: var(--fg-strong); font-weight: 700; overflow-wrap: anywhere; }
+.conv-link.pr .conv-link-label { color: var(--accent); }
+.conv-link-url { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.conv-link-buttons { display: flex; gap: 8px; margin-top: 4px; }
+.conv-link-buttons .conv-sheet-btn { flex: 1; }
+.conv-search-form { display: flex; gap: 8px; }
+.conv-search-input {
+  flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
+  color: var(--fg-strong); font: 16px var(--mono);
+}
+.conv-search-input:focus { outline: none; border-color: var(--accent); }
+.conv-search-input::placeholder { color: var(--dim); }
+.conv-hits { display: flex; flex-direction: column; margin-top: 8px; }
+.conv-hit-row {
+  min-height: 44px; padding: 10px 2px; background: none; border: 0; border-bottom: 1px solid var(--line-soft);
+  color: var(--fg); font: 12.5px/1.45 var(--mono); text-align: left; overflow-wrap: anywhere; cursor: pointer;
+}
+.conv-hits-more { display: block; width: 100%; margin-top: 10px; }
+.conv-hits-more[hidden] { display: none; }
+.conv-back { bottom: 12px; }
+.conv-found { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; transition: outline-color 0.4s; }
+@media (hover: hover) {
+  .conv-sheet-btn:hover:not(:disabled), .conv-hit-row:hover { background: var(--hover); color: var(--fg-strong); }
+}
 /* A phone on its side has no height to spare: the card may take the list's
    sliver, Screen takes the card's place while open (its keys answer the same
    dialog; Close brings the card back), and the keys sit in one row. */

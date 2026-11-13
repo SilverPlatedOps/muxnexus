@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
-import { CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, mergeItems, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
+import { CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, linkRows, mergeItems, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
 import type { AgentKind } from "../src/shared/chat";
 import type { Card, ConvItem, StepResult } from "../src/shared/conversation";
@@ -178,4 +178,22 @@ test("a dialog not shown before takes taps only after a moment", () => {
   // The same dialog again (its highlight moved, the agent's state changed) keeps the time it had.
   expect(cardArmedAt({ fingerprint: "q2", at: q2 }, "q2", T0 + 1100)).toBe(q2);
   expect(CARD_ARM_MS).toBeGreaterThanOrEqual(300);
+});
+
+test("PR links read as owner/repo#number", () => {
+  const rows = linkRows([
+    { url: "https://github.com/o/r/pull/12", pr: true },
+    { url: "https://github.com/o/r/pull/12/files#diff", pr: true },
+    { url: "https://gitlab.example.com/g/p/-/merge_requests/3", pr: true },
+    { url: "https://example.com/", pr: false },
+    { url: "https://docs.example.com/a/very/long/path/that/keeps/going/and/going/forever/index.html?q=1", pr: false },
+    { url: "not a url", pr: false },
+  ]);
+  expect(rows[0]).toEqual({ url: "https://github.com/o/r/pull/12", label: "o/r#12", pr: true });
+  expect(rows[1]!.label).toBe("o/r#12");
+  expect(rows[2]!.label).toBe("gitlab.example.com/g/p/-/merge_requests/3");
+  expect(rows[3]!.label).toBe("example.com");
+  expect(rows[4]!.label.length).toBe(48);
+  expect(rows[4]!.label.endsWith("…")).toBe(true);
+  expect(rows[5]!.label).toBe("not a url");
 });
