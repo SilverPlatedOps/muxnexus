@@ -446,6 +446,40 @@ describe("the conversation hub", () => {
     }
   });
 
+  test("Stop before any output: the working line goes once the pane is idle, and a second Stop sends no Escape", async () => {
+    // Esc before Claude writes anything puts the prompt back in the box and writes no transcript row; no hook fires,
+    // so the stamp stays `running`, set before the Stop.
+    const since = Math.floor(Date.now() / 1000) - 10;
+    const { state, tmux } = fakeTmux({ ...claude(transcript(), "running"), since }, pane("claude-working"));
+    // The transcript ends in an interrupt from long before: nothing in it says this turn ended.
+    const sendKeys = tmux.sendKeys;
+    tmux.sendKeys = async (paneId: string, keys: string[]) => {
+      await sendKeys(paneId, keys);
+      if (keys.join(" ") === "Escape") state.screen = pane("claude-idle-draft");
+    };
+    const hub = createConversationHub({ tmux, pollMs: 30 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: false, working: true });
+      await hub.interrupt(ws, "x", "@1", "sess-1");
+      expect(state.writes).toEqual(["keys %1 Escape"]);
+      await waitFor(() => ws.last("conv-card")?.working === false, 1000, "the working line gone");
+      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: false, working: false });
+      // Past the double-tap window: still nothing to stop, so no Escape reaches the prompt put back.
+      await sleep(2100);
+      await hub.interrupt(ws, "y", "@1", "sess-1");
+      expect(ws.all("conv-result").map((r) => [r.req, r.ok])).toEqual([["x", true], ["y", true]]);
+      expect(state.writes).toEqual(["keys %1 Escape"]);
+      // A new turn (the next stamp) runs again.
+      state.agent = { ...claude(state.agent!.conversation!.transcriptPath, "running"), since: Math.floor(Date.now() / 1000) + 1 };
+      state.screen = pane("claude-working");
+      await waitFor(() => ws.last("conv-card")?.working === true, 1000, "working again");
+    } finally {
+      hub.stop();
+    }
+  }, 10_000);
+
   test("Stop answers with a result", async () => {
     const { tmux } = fakeTmux(claude(transcript()), pane("claude-bash-permission"));
     const hub = createConversationHub({ tmux, pollMs: 1000 });

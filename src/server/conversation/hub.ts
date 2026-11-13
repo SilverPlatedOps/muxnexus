@@ -7,7 +7,7 @@ import type { Card, GenericKey } from "../../shared/conversation";
 import type { ServerMessage } from "../../shared/protocol";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
-import { answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "./actions";
+import { afterStop, answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop, stoppedSince } from "./actions";
 import { linksIn, readPage, readSince, searchFile } from "./reader";
 
 /**
@@ -107,7 +107,9 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
 
   /**
    * What the tab waits on, sent when it changed. The pane is read only while
-   * the stamp says waiting; anything a card can't answer shows Screen.
+   * the stamp says waiting, or says running after a Stop the server sent
+   * (`afterStop`: an Esc before any output leaves nothing else to go by);
+   * anything a card can't answer shows Screen.
    */
   async function card(ws: HubSocket, sub: Sub, info: WindowAgentInfo | null) {
     let card: Card | null = null;
@@ -115,6 +117,10 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     // Not the raw stamp: an interrupt leaves it `running` (or `input`, Esc on a prompt) with no hook to move it.
     const state = info ? await believedState(info) : undefined;
     let working = state === "running";
+    if (info && state === "running" && stoppedSince(sub.windowId, info)) {
+      const read = await tmux.capturePane(info.paneId).then((ansi) => adapterFor(info.kind).readPane(ansi)).catch(() => null);
+      working = afterStop(sub.windowId, info, state, read) === "running";
+    }
     if (info && state === "input") {
       const read = await tmux.capturePane(info.paneId).then((ansi) => adapterFor(info.kind).readPane(ansi)).catch(() => null);
       card = read?.dialog ?? null;

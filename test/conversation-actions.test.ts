@@ -323,6 +323,25 @@ describe("send", () => {
     expect(later.writes()).toEqual([]);
   });
 
+  test("after a Stop before any output the stamp still says running, but the turn is over: the prompt put back can be replaced", async () => {
+    // Esc before Claude wrote anything: no transcript row, no hook, and the prompt's words back in the box.
+    const agent = claudeAgent({ state: "running", since: Math.floor(Date.now() / 1000) - 60 });
+    const stopping = fakeTmux(agent, [raw("claude-working")]);
+    expect(await stop(stopping, "@30", "sess-1")).toEqual({ ok: true });
+    expect(stopping.writes()).toEqual([["sendKeys", "%1", ["Escape"]]]);
+    const replace = fakeTmux(agent, [raw("claude-idle-draft"), raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
+    expect(await sendText(replace, "@30", "sess-1", "hello draft", DRAFT.claude)).toEqual({ ok: true });
+    expect(replace.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "hello draft"], ["sendKeys", "%1", ["Enter"]]]);
+    // While the pane still shows it working (the Escape not taken yet), or for a stamp newer than the Stop, it runs.
+    const busy = fakeTmux(agent, [raw("claude-queued")]);
+    expect(await sendText(busy, "@30", "sess-1", "x", shownDraft("claude", raw("claude-queued")))).toEqual({ ok: false, error: "working" });
+    const next = fakeTmux(claudeAgent({ state: "running", since: Math.floor(Date.now() / 1000) + 1 }), [raw("claude-idle-draft")]);
+    expect(await sendText(next, "@30", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
+    // Another tab's Stop says nothing about this one.
+    const other = fakeTmux(agent, [raw("claude-idle-draft")]);
+    expect(await sendText(other, "@31", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
+  });
+
   test("a clear that doesn't take sends nothing more, and a second C-c never follows", async () => {
     const stuck = fakeTmux(claudeAgent(), [raw("claude-idle-draft")]);
     expect(await sendText(stuck, "@7", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "prompt-changed" });

@@ -3,6 +3,7 @@
 
 import type { AgentKind } from "../../shared/chat";
 import type { ConvError, GenericKey } from "../../shared/conversation";
+import type { AgentState } from "../../shared/protocol";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor, type KeyPlan } from "./adapter";
 import { fingerprint, paneLines, rowKey, type PaneRead } from "./pane";
@@ -33,7 +34,8 @@ const CLEAR_AGAIN_MS = 5000;
 const lastClear = new Map<string, number>();
 /** A second Escape soon after the first is Claude's Esc Esc (it opens the rewind list): a double tap stops once. */
 const STOP_AGAIN_MS = 2000;
-const lastStop = new Map<string, number>();
+/** When Stop's Escape last went to each window, and the pane and conversation it went to. */
+const stopSent = new Map<string, { pane: string; conversation: string | null; at: number }>();
 
 export const GENERIC_KEYS: readonly string[] =["1", "2", "3", "4", "5", "Enter", "Escape", "Up", "Down", "Tab"] satisfies GenericKey[];
 
@@ -171,11 +173,14 @@ export async function sendText(
     // Claude's C-c interrupts a running turn instead, and text streaming under a draft shows no sign of work: the
     // stamp must say the turn is done, or the transcript that it was interrupted since. `input` with the prompt on
     // screen otherwise is a turn going on after a "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
-    if (r.working || (await believedState(info)) !== "done") return refuse("working");
+    // A Stop before any output ends the turn with neither (`afterStop`).
+    const stamp = await believedState(info);
+    if (r.working || afterStop(windowId, info, stamp, r) !== "done") return refuse("working");
     if (Date.now() - (lastClear.get(windowId) ?? 0) < CLEAR_AGAIN_MS) return refuse("prompt-changed");
     // Read again after the transcript: the clear goes only to the draft shown, with the turn still over.
     const cleared = await guarded(tmux, b, onPane(info.kind, (x) =>
-      x.dialog || x.unrecognised ? "waiting" : draftFingerprint(x) !== shown ? "prompt-changed" : x.working ? "working" : { write: { keys: adapter.clearDraft } }));
+      x.dialog || x.unrecognised ? "waiting" : draftFingerprint(x) !== shown ? "prompt-changed"
+        : x.working || afterStop(windowId, info, stamp, x) !== "done" ? "working" : { write: { keys: adapter.clearDraft } }));
     if (!cleared.ok) return cleared;
     lastClear.set(windowId, Date.now());
     // The words go in once the prompt reads empty.
@@ -238,10 +243,36 @@ export async function answer(
 }
 
 /**
+ * The agent's state as the conversation view believes it, given the stamp's
+ * as `believedState` believes it (`state`) and the pane read just now: a
+ * `running` stamp set before a Stop the server sent to this pane, in this
+ * conversation, counts as done while the pane shows the agent idle (its
+ * prompt, no dialog, not working). An Esc before the agent wrote anything
+ * leaves no row in its conversation file and fires no hook, so nothing else
+ * would ever say the turn ended; the next stamp (a new turn) is newer than
+ * the Stop and stands. The hub, Replace and Stop all go by this.
+ */
+export function afterStop(windowId: string, info: WindowAgentInfo, state: AgentState | undefined, read: PaneRead | null): AgentState | undefined {
+  if (state !== "running" || !read || !stoppedSince(windowId, info)) return state;
+  return !read.dialog && !read.unrecognised && !read.working ? "done" : state;
+}
+
+/**
+ * Whether Stop's Escape went to this tab's agent pane, in its conversation,
+ * after its stamp was set. The stamp's time is in whole seconds: one set in
+ * the Stop's own second may be the next turn's, so only an earlier second counts.
+ */
+export function stoppedSince(windowId: string, info: WindowAgentInfo): boolean {
+  const stop = stopSent.get(windowId);
+  return !!stop && info.since !== undefined && stop.pane === info.paneId && stop.conversation === conversationOf(info) && info.since < Math.floor(stop.at / 1000);
+}
+
+/**
  * Interrupts the agent (Escape) while it works and no dialog is up, if the
  * tab still holds `conversation`. The pane can't always tell (Claude
  * streaming text under a draft shows nothing), so a `running` stamp counts
- * too. Nothing to stop, or a stop just sent, is ok.
+ * too, unless a Stop already ended that turn (`afterStop`). Nothing to stop,
+ * or a stop just sent, is ok.
  */
 export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "snapshot" | "pasteInto" | "sendKeys">, windowId: string, conversation: string): Promise<{ ok: true } | Refusal> {
   const info = await tmux.agentOfWindow(windowId);
@@ -249,13 +280,13 @@ export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "snapshot" | "past
   // A tap meant for the conversation before a /clear, a resume or a new agent would stop the one there now.
   if (conversationOf(info) !== conversation) return refuse("another-conversation");
   // A stamp left `running` by an interrupt (no hook fires for Esc) has nothing to stop: Escape would reach an idle prompt.
-  const state = await believedState(info);
-  const again = Date.now() - (lastStop.get(windowId) ?? 0) < STOP_AGAIN_MS;
+  const stamp = await believedState(info);
+  const again = Date.now() - (stopSent.get(windowId)?.at ?? 0) < STOP_AGAIN_MS;
   const sent = await guarded(tmux, bound(windowId, info), onPane(info.kind, (r) =>
     // Escape answers a dialog: the card or Screen does that.
-    r.dialog || r.unrecognised ? "waiting" : (r.working || state === "running") && !again ? { write: { keys: ["Escape"] } } : "skip"));
+    r.dialog || r.unrecognised ? "waiting" : (r.working || afterStop(windowId, info, stamp, r) === "running") && !again ? { write: { keys: ["Escape"] } } : "skip"));
   if (!sent.ok) return sent;
-  if (sent.wrote) lastStop.set(windowId, Date.now());
+  if (sent.wrote) stopSent.set(windowId, { pane: info.paneId, conversation: conversationOf(info), at: Date.now() });
   return { ok: true };
 }
 
