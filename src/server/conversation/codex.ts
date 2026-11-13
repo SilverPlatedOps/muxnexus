@@ -25,7 +25,6 @@ function execCommand(input: string): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function call(p: any, at: string): Out {
-  const id = String(p.call_id ?? hashId(at + p.type));
   let command = "";
   let input = "";
   if (p.type === "custom_tool_call") {
@@ -39,6 +38,7 @@ function call(p: any, at: string): Out {
     } catch { /* not JSON: no command */ }
   }
   const tool = String(p.name ?? "tool");
+  const id = String(p.call_id ?? hashId(at + p.type + tool + input));
   const summary = command ? stepSummary("Bash", { command }) : stepSummary(tool, undefined);
   return [{ id, kind: "step", at, tool, summary, input }];
 }
@@ -54,15 +54,17 @@ function rowItems(row: any): Out {
       return p.type === "turn_aborted" ? [{ id: hashId(at + "turn_aborted"), kind: "notice", at, text: "Interrupted" }] : [];
     }
     if (row.type !== "response_item") return [];
-    const id = hashId(at + p.type);
     if (p.type === "message" && Array.isArray(p.content)) {
+      // Messages carry no id, and several can share a timestamp (a forked agent's copied history): their words tell them apart.
+      const idOf = (text: string) => hashId(at + p.type + p.role + text);
       if (p.role === "assistant") {
         const text = p.content.filter((b: any) => b?.type === "output_text" && typeof b.text === "string").map((b: any) => b.text).join("");
-        return text ? [{ id, kind: "agent", at, text }] : [];
+        return text ? [{ id: idOf(text), kind: "agent", at, text }] : [];
       }
       if (p.role === "user") {
         const text = p.content.filter((b: any) => b?.type === "input_text" && typeof b.text === "string").map((b: any) => b.text).join("");
         if (!text || INJECTED.test(text)) return [];
+        const id = idOf(text);
         const from = peerOf(text);
         return [from !== null ? { id, kind: "peer", at, text: afterHeader(text), from } : { id, kind: "you", at, text }];
       }

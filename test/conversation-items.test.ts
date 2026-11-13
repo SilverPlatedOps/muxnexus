@@ -89,6 +89,16 @@ test("codex: the instructions and notes it injects are never the user's; a room'
   expect(one("codex", user("[muxnexus · ops · #4 · from @claude (Claude) · peer, not the user]\nplease review"))).toMatchObject([{ kind: "peer", from: "claude", text: "please review" }]);
 });
 
+test("codex: rows sharing a timestamp keep their own ids, the same row the same id on every read", () => {
+  // A forked child agent's rollout starts with the history copied in, user and assistant messages at one instant.
+  const at = "2026-01-01T10:00:09.000Z";
+  const message = (role: string, text: string) => ({ timestamp: at, type: "response_item", payload: { type: "message", role, content: [{ type: role === "user" ? "input_text" : "output_text", text }] } });
+  const call = (input: string) => ({ timestamp: at, type: "response_item", payload: { type: "custom_tool_call", name: "exec", input } });
+  const ids = [message("user", "first"), message("assistant", "second"), message("assistant", "third"), call("a"), call("b")].map((r) => one("codex", r)[0]!.id);
+  expect(new Set(ids).size).toBe(5);
+  expect(one("codex", message("assistant", "second"))[0]!.id).toBe(ids[1]!);
+});
+
 test("rows that are not rows never throw", () => {
   for (const kind of ["claude", "codex"] as const) for (const r of [null, 3, "x", {}, { type: "user", message: 5 }, { type: "response_item", payload: 1 }]) expect(one(kind, r)).toEqual([]);
 });
