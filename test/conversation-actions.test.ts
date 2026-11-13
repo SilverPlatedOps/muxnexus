@@ -561,7 +561,7 @@ describe("stop and keys", () => {
   test("a Screen key reaches the screen the user saw, and the answer is the screen after it", async () => {
     const keys: GenericKey[] = ["1", "2", "3", "4", "5", "Enter", "Escape", "Up", "Down", "Tab"];
     for (const key of keys) {
-      // A layout no card reads: what Screen is for.
+      // A permission as Claude Code 2.1.323 draws it with a tip and a description (a card too: Screen works on any screen).
       const tmux = fakeTmux(claudeAgent(), [raw("claude-bash-permission-tip")]);
       const seen = await screenNow(tmux, "@1");
       expect(seen).toMatchObject({ ansi: raw("claude-bash-permission-tip"), cols: 120, rows: 40 });
