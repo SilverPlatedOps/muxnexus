@@ -170,9 +170,9 @@ function composer(lines: PaneLine[], texts: string[]): { row: number; end: numbe
   return { row, end };
 }
 
-function draftIn(lines: PaneLine[], texts: string[], { row, end }: { row: number; end: number }): Pick<PaneRead, "draft" | "draftText"> {
+function draftIn(lines: PaneLine[], texts: string[], { row, end }: { row: number; end: number }): Pick<PaneRead, "draft" | "draftText" | "draftRows"> {
   const more = texts.slice(row + 1, end);
-  if (!more.every((t) => t === "" || t.startsWith("  "))) return { draft: "unknown" };
+  if (!more.every((t) => t === "" || t.startsWith("  "))) return { draft: "unknown", draftRows: lines.slice(row, end).map(rowKey) };
   if (more.length === 0 && allDim(lines[row]!, 2)) return { draft: "empty" };
   return { draft: "text", draftText: [texts[row]!.slice(2), ...more.map((t) => t.slice(2))].join("\n") };
 }

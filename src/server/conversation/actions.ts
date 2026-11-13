@@ -132,11 +132,14 @@ async function submit(tmux: ConvTmux, b: Bound, kind: AgentKind, words: string):
 
 /**
  * The desk's draft as read, for a Replace to name: its text's fingerprint,
- * or "unknown" for one that can't be read (the user was told so, and a
- * second unreadable edit since would be cleared unseen).
+ * or for one whose text can't be read, its rows' as drawn, attributes and
+ * all (the user was told it can't be shown; any change to it since asks
+ * again). A prompt with no rows to go by gets a fingerprint no Replace can
+ * carry back: it is never cleared.
  */
 export function draftFingerprint(r: PaneRead): string {
-  return r.draft === "text" ? fingerprint(["text", r.draftText ?? ""]) : "unknown";
+  if (r.draft === "text") return fingerprint(["text", r.draftText ?? ""]);
+  return fingerprint(r.draftRows ? ["rows", ...r.draftRows] : ["none", crypto.randomUUID()]);
 }
 
 /**

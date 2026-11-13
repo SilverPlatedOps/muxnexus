@@ -248,13 +248,37 @@ describe("send", () => {
     // A draft read but now unreadable, or the other way round: shown again, nothing cleared.
     const unreadable = raw("codex-idle-multiline-draft").replace("  line two", " line two");
     const toUnknown = fakeTmux(codexAgent(), [unreadable]);
-    expect(await sendText(toUnknown, "@9", "thread-1", "x", DRAFT.codex)).toEqual({ ok: false, draft: "", draftFingerprint: "unknown" });
+    expect(await sendText(toUnknown, "@9", "thread-1", "x", DRAFT.codex)).toEqual({ ok: false, draft: "", draftFingerprint: shownDraft("codex", unreadable) });
     const toText = fakeTmux(codexAgent(), [raw("codex-idle-draft")]);
-    expect(await sendText(toText, "@9", "thread-1", "x", "unknown")).toEqual({ ok: false, draft: "hello draft", draftFingerprint: DRAFT.codex });
+    expect(await sendText(toText, "@9", "thread-1", "x", shownDraft("codex", unreadable))).toEqual({ ok: false, draft: "hello draft", draftFingerprint: DRAFT.codex });
     expect([...toUnknown.writes(), ...toText.writes()]).toEqual([]);
     // A draft's fingerprint is its text's: another text, another fingerprint.
     expect(DRAFT.claude).not.toBe(DRAFT.lines);
     expect(DRAFT.claude).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("two drafts that can't be read are two drafts: Replace clears only the one shown", async () => {
+    // Codex composers whose second row isn't indented as a draft's is: the text can't be read, the rows are there.
+    const first = raw("codex-idle-multiline-draft").replace("  line two", " line two");
+    const second = raw("codex-idle-multiline-draft").replace("  line two", " line six");
+    const ask = fakeTmux(codexAgent(), [first]);
+    const shown = await sendText(ask, "@27", "thread-1", "hello draft", null);
+    expect(shown).toMatchObject({ ok: false, draft: "" });
+    const print = (shown as { draftFingerprint: string }).draftFingerprint;
+    // Changed at the desk since it was shown: shown again, nothing cleared.
+    const changed = fakeTmux(codexAgent(), [second, second]);
+    const again = await sendText(changed, "@28", "thread-1", "hello draft", print);
+    expect(changed.writes()).toEqual([]);
+    expect(again).toMatchObject({ ok: false, draft: "" });
+    expect((again as { draftFingerprint: string }).draftFingerprint).not.toBe(print);
+    // The same rows read again: the same draft.
+    expect(print).toMatch(/^[0-9a-f]{40}$/);
+    expect(draftFingerprint(adapterFor("codex").readPane(first))).toBe(print);
+    expect(draftFingerprint(adapterFor("codex").readPane(second))).not.toBe(print);
+    // As shown: cleared, then the words.
+    const same = fakeTmux(codexAgent(), [first, first, raw("codex-idle-empty"), PASTED.codex]);
+    expect(await sendText(same, "@29", "thread-1", "hello draft", print)).toEqual({ ok: true });
+    expect(same.writes()[0]).toEqual(["sendKeys", "%2", ["C-c"]]);
   });
 
   test("Claude's draft is cleared by one C-c: C-u leaves a multi-line draft's first line", () => {
@@ -329,14 +353,14 @@ describe("send", () => {
     const unreadable = raw("codex-idle-multiline-draft").replace("  line two", " line two");
     expect(adapterFor("codex").readPane(unreadable)).toMatchObject({ dialog: null, unrecognised: false, draft: "unknown" });
     const ask = fakeTmux(codexAgent(), [unreadable]);
-    expect(await sendText(ask, "@24", "thread-1", "x", null)).toEqual({ ok: false, draft: "", draftFingerprint: "unknown" });
+    expect(await sendText(ask, "@24", "thread-1", "x", null)).toEqual({ ok: false, draft: "", draftFingerprint: shownDraft("codex", unreadable) });
     expect(ask.writes()).toEqual([]);
     const replace = fakeTmux(codexAgent(), [unreadable, unreadable, raw("codex-idle-empty"), PASTED.codex]);
-    expect(await sendText(replace, "@25", "thread-1", "hello draft", "unknown")).toEqual({ ok: true });
+    expect(await sendText(replace, "@25", "thread-1", "hello draft", shownDraft("codex", unreadable))).toEqual({ ok: true });
     expect(replace.writes()).toEqual([["sendKeys", "%2", ["C-c"]], ["pasteInto", "%2", "hello draft"], ["sendKeys", "%2", ["Enter"]]]);
     // Not read as empty after the clear: nothing is pasted.
     const stuck = fakeTmux(codexAgent(), [unreadable]);
-    expect(await sendText(stuck, "@26", "thread-1", "x", "unknown")).toEqual({ ok: false, error: "prompt-changed" });
+    expect(await sendText(stuck, "@26", "thread-1", "x", shownDraft("codex", unreadable))).toEqual({ ok: false, error: "prompt-changed" });
     expect(stuck.writes()).toEqual([["sendKeys", "%2", ["C-c"]]]);
   });
 

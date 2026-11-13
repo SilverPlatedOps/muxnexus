@@ -18,6 +18,8 @@ export interface PaneRead {
   draft: "empty" | "text" | "unknown";
   /** The prompt's text as shown, whenever `draft` is "text". */
   draftText?: string;
+  /** The prompt's rows as drawn (`rowKey`), whenever `draft` is "unknown" with a prompt on screen: what tells two drafts that can't be read apart. */
+  draftRows?: string[];
   working: boolean;
   /**
    * A dialog whose text field has focus, taking the user's words: named by the
