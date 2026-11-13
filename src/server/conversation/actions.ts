@@ -223,13 +223,16 @@ export async function answer(
   if (!keyed.ok) return keyed;
   const plan = chosen.plan!;
   if (plan.text) {
-    // The words go in only once this dialog's own field has focus, and Enter only while it still has: anything else
-    // on screen (the prompt back, another dialog, a shell) would take them as keys or as a message.
-    const inField = (write: Write) => onPane(info.kind, (x) => (x.field?.fingerprint === fingerprint ? { write } : "wait"));
-    const pasted = await guarded(tmux, b, inField({ paste: words }), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
+    // The words go in only once this dialog's own field has focus, empty, and Enter only while it holds those words and
+    // nothing else (as Send's Enter does): anything else on screen (the prompt back, another dialog, a shell) would
+    // take them as keys or as a message, and words typed into the field at the desk would go as the phone's.
+    const inField = (x: PaneRead) => x.field?.fingerprint === fingerprint;
+    const pasted = await guarded(tmux, b, onPane(info.kind, (x) =>
+      !inField(x) ? "wait" : x.field!.text === "" ? { write: { paste: words } } : "prompt-changed"), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
     if (!pasted.ok) return pasted;
     // The words are in now: a refusal from here says so. (A long note can scroll a near-full-screen dialog's top away.)
-    const entered = await guarded(tmux, b, inField({ keys: ["Enter"] }), { ms: REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
+    const entered = await guarded(tmux, b, onPane(info.kind, (x) =>
+      inField(x) && adapter.shows(x.field!.text, words) ? { write: { keys: ["Enter"] } } : "wait"), { ms: REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
     if (!entered.ok) return entered;
   }
   if (plan.followUp) {

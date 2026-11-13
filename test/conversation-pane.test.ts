@@ -241,31 +241,36 @@ test("a dialog whose text box has focus is not a card: a digit would be typed, n
 test("a focused field is read as the dialog it belongs to, before and after the user's words go in", () => {
   const card = (name: string) => claude(name).dialog!.fingerprint;
   // Each set was captured from one dialog: its card, the field focused, the field holding words that wrap and run over two lines.
+  // The field holds the user's words as drawn (wrapped rows as rows), or "" while it shows its dim placeholder.
   for (const [cardName, fields] of [
-    ["bash-no-card", ["bash-no-field", "bash-no-text"]],
-    ["plan-change-card", ["plan-change-field", "plan-change-text"]],
-    ["question", ["question-other-field", "question-other-text"]],
-    ["question-2", ["question-typing"]],
-    ["question-single-plan", ["question-single-field", "question-single-text"]],
-    ["plan", ["plan-feedback"]],
+    ["bash-no-card", [["bash-no-field", ""], ["bash-no-text", "instead of touching the file, list the directory with ls -la and then tell me how many entries it has, and\nalso say why\nsecond line of the note"]]],
+    ["plan-change-card", [["plan-change-field", ""], ["plan-change-text", "use the word bye instead of hi everywhere, and also add a third step that prints the file contents afterwards\nsecond line"]]],
+    ["question", [["question-other-field", ""], ["question-other-text", "a deep purple close to violet, like the evening sky just after sunset, not quite blue and not quite red either\nsecond line"]]],
+    ["question-2", [["question-typing", ""]]],
+    ["question-single-plan", [["question-single-field", ""], ["question-single-text", "kiwi"]]],
+    ["plan", [["plan-feedback", ""]]],
   ] as const) {
-    for (const name of fields) expect(claude(name)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false, field: { fingerprint: card(cardName) } });
+    for (const [name, text] of fields) expect(claude(name)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false, field: { fingerprint: card(cardName), text } });
   }
   // Words with a numbered line, a blank line, a rule or the dialog's own hint in them: all of it the field's, read to the
   // dialog's own end (the permission's footer, the plan's hint, the rule over "Chat about this"), never as options.
   const short = card("plan-short");
-  expect(claude("plan-short-field").field).toEqual({ fingerprint: short });
+  expect(claude("plan-short-field").field).toEqual({ fingerprint: short, text: "" });
   // The words' extra rows scrolled the dialog's heading off the top: no longer the whole dialog, so no field.
   expect(claude("plan-short-text-lines")).not.toHaveProperty("field");
   // With the rows above put back (from the same dialog's card): the field.
   const card_ = raw("claude-plan-short").split("\n");
   const typed = raw("claude-plan-short-text-lines").split("\n");
   const top = card_.slice(0, card_.findIndex((r) => r.includes("Here is Claude")));
-  expect(adapterFor("claude").readPane([...top, ...typed].join("\n")).field).toEqual({ fingerprint: short });
-  expect(claude("question-single-text-lines").field).toEqual({ fingerprint: card("question-single") });
+  // The words quote the hint: the field's own hint is its last row, and not the words'.
+  expect(adapterFor("claude").readPane([...top, ...typed].join("\n")).field).toEqual({
+    fingerprint: short, text: "Two things:\n\n1. keep five steps\n────────────\nshift+tab to approve with this feedback",
+  });
+  expect(claude("question-single-text-lines").field).toEqual({ fingerprint: card("question-single"), text: "kiwi\n\n1. ripe one\nthanks" });
   const ruled = raw("claude-question-single-text-lines").replace("     thanks", "     ────────────\n     4. Chat about this");
-  expect(adapterFor("claude").readPane(ruled).field).toEqual({ fingerprint: card("question-single") });
-  for (const name of ["write-no-lines", "write-no-blank"]) expect(claude(name)).toMatchObject({ dialog: null, unrecognised: true, field: { fingerprint: anyPrint } });
+  expect(adapterFor("claude").readPane(ruled).field).toEqual({ fingerprint: card("question-single"), text: "kiwi\n\n1. ripe one\n────────────\n4. Chat about this" });
+  expect(claude("write-no-lines")).toMatchObject({ dialog: null, unrecognised: true, field: { fingerprint: anyPrint, text: "Two things:\n1. do not create the file\nThen reply with just the word skipped2." } });
+  expect(claude("write-no-blank")).toMatchObject({ dialog: null, unrecognised: true, field: { fingerprint: anyPrint, text: "Do not create the file.\n\nReply with just the word skipped3." } });
   // A row under the field that isn't indented to it is not the user's: no field.
   expect(adapterFor("claude").readPane(raw("claude-write-no-lines").replace("          1. do not create", "  1. do not create"))).not.toHaveProperty("field");
 

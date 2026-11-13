@@ -25,10 +25,11 @@ export interface PaneRead {
   working: boolean;
   /**
    * A dialog whose text field has focus, taking the user's words: named by the
-   * fingerprint of the card it reads as with the field unfocused. No card is
+   * fingerprint of the card it reads as with the field unfocused, with the
+   * words it holds as drawn ("" while it shows its placeholder). No card is
    * offered then (`dialog` null, `unrecognised` true): a digit would be typed.
    */
-  field?: { fingerprint: string };
+  field?: { fingerprint: string; text: string };
 }
 
 /** Nothing on screen can be trusted. */

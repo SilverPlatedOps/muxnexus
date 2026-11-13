@@ -78,6 +78,9 @@ let windows = 100;
 /** A window id never used before: Stop and Replace keep a per-window memory of their last key. */
 const fresh = () => `@${++windows}`;
 
+/** The words `claude-bash-no-text`'s field holds. */
+const NOTE = "instead of touching the file, list the directory with ls -la and then tell me how many entries it has, and also say why\nsecond line of the note";
+
 /** The desk's own words in the prompt, not the phone's. */
 const DESK = {
   claude: raw("claude-idle-draft").replace("hello draft", "from the desk"),
@@ -130,8 +133,9 @@ const ACTIONS: Action[] = [
     name: "answer with words",
     agent: claude,
     screens: [raw("claude-bash-no-card"), raw("claude-bash-no-field"), raw("claude-bash-no-text"), raw("claude-working")],
-    foreign: [raw("claude-write-permission"), DESK.claude],
-    run: (tab) => answer(tab, fresh(), "sess-A", card("claude", "claude-bash-no-card"), 4, "instead list the directory"),
+    // Another dialog, the prompt back with the desk's words, or the desk's own note in the field.
+    foreign: [raw("claude-write-permission"), DESK.claude, raw("claude-bash-no-text").replace("instead of touching", "rather than touching")],
+    run: (tab) => answer(tab, fresh(), "sess-A", card("claude", "claude-bash-no-card"), 4, NOTE),
   },
   {
     name: "a Codex decline, then the words as the next message",

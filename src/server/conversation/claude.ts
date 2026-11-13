@@ -187,8 +187,22 @@ function askBefore(texts: string[], from: number, to: number): string {
   return texts.slice(from, to).filter((t) => !blank(t) && !rule(t)).map((t) => t.trim()).join(" ");
 }
 
+/** A dialog as read; with its field focused, also the words the field holds (`fieldWords`). */
+type Read = Card & { words?: string };
+
+/**
+ * The words a focused field holds, as drawn: its own row after `prefix` (a permission's `No, `) and the rows under it,
+ * `from` to `to`, without their indent. "" while it shows its dim placeholder and nothing under it.
+ */
+function fieldWords(lines: PaneLine[], texts: string[], o: PaneOption, prefix: string, from: number, to: number): string {
+  const at = o.labelAt + prefix.length;
+  const rows = texts.slice(from, to);
+  if (allDim(lines[o.row]!, at) && rows.every(blank)) return "";
+  return [texts[o.row]!.slice(at), ...rows.map((t) => t.slice(Math.min(indentOf(t), at)))].join("\n").trimEnd();
+}
+
 /** With `field`, the dialog after Tab on its No row: the card as it read before, for its fingerprint. */
-function permission(texts: string[], field = false): Card | null {
+function permission(lines: PaneLine[], texts: string[], field = false): Read | null {
   const last = lastFilled(texts);
   if (last < 0 || texts[last]!.trim() !== (field ? PERMISSION_FIELD_FOOTER : PERMISSION_FOOTER)) return null;
   const top = findRowBack(texts, rule, last);
@@ -233,11 +247,12 @@ function permission(texts: string[], field = false): Card | null {
   return {
     kind: "permission", title, ...(description ? { description } : {}), detail, options,
     fingerprint: fingerprint([...parts, body, ...options.map((o) => o.label)]), ...highlighted(opts),
+    ...(field && scan.field ? { words: fieldWords(lines, texts, no, "No, ", scan.field.from, scan.field.to) } : {}),
   };
 }
 
 /** With `field`, the dialog with its change request focused: the card as it read before, for its fingerprint. */
-function plan(texts: string[], field = false): Card | null {
+function plan(lines: PaneLine[], texts: string[], field = false): Read | null {
   const last = lastFilled(texts);
   if (last < 0 || !texts[last]!.trim().startsWith(PLAN_FOOTER)) return null;
   const title = "Ready to code?";
@@ -266,7 +281,11 @@ function plan(texts: string[], field = false): Card | null {
   if (opts.length < 2 || labels[labels.length - 1] !== PLAN_FEEDBACK || !labels.slice(0, -1).every((l) => l.startsWith("Yes"))) return null;
   const detail = block(texts, open + 1, close, 1);
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: lasting(labels[k]!), takesText: o === feedback }));
-  return { kind: "plan", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]), ...highlighted(opts) };
+  return {
+    kind: "plan", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]), ...highlighted(opts),
+    // Its field runs down to the hint, the field's last row.
+    ...(field && scan.field ? { words: fieldWords(lines, texts, feedback, "", scan.field.from, scan.field.to - 1) } : {}),
+  };
 }
 
 interface Tab { glyph: string; header: string; lit: boolean }
@@ -310,7 +329,7 @@ function questionHeader(lines: PaneLine[], texts: string[], last: number, field:
 }
 
 /** With `field`, the question with "Type something." focused: the card as it read before, for its fingerprint. */
-function question(lines: PaneLine[], texts: string[], field = false): Card | null {
+function question(lines: PaneLine[], texts: string[], field = false): Read | null {
   const last = lastFilled(texts);
   const header = last < 0 ? null : questionHeader(lines, texts, last, field);
   if (!header) return null;
@@ -346,7 +365,11 @@ function question(lines: PaneLine[], texts: string[], field = false): Card | nul
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], description: descriptions[k], secondary: o === chat, takesText: o === other }));
   // A changed description is another prompt, as a changed label is.
   const said = options.flatMap((o) => [o.label, o.description ?? ""]);
-  return { kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...said]), question: { at, of }, ...highlighted(opts) };
+  return {
+    kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...said]), question: { at, of }, ...highlighted(opts),
+    // Its field runs down to the rule over "Chat about this".
+    ...(field && scan.field ? { words: fieldWords(lines, texts, other, "", scan.field.from, scan.field.to) } : {}),
+  };
 }
 
 /** The step after the last question: the answers, then Submit or Cancel. It has no footer. */
@@ -373,10 +396,10 @@ function readPane(ansi: string): PaneRead {
     const texts = lines.map((l) => l.text.trimEnd());
     const box = inputBox(texts);
     if (box) return { dialog: null, unrecognised: false, ...draftIn(lines, texts, box), working: workingAround(texts, box) };
-    const dialog = permission(texts) ?? plan(texts) ?? question(lines, texts) ?? review(lines, texts);
+    const dialog = permission(lines, texts) ?? plan(lines, texts) ?? question(lines, texts) ?? review(lines, texts);
     if (dialog) return { dialog, unrecognised: false, draft: "unknown", working: false };
-    const field = permission(texts, true) ?? plan(texts, true) ?? question(lines, texts, true);
-    return field ? { ...UNREADABLE, field: { fingerprint: field.fingerprint } } : { ...UNREADABLE };
+    const field = permission(lines, texts, true) ?? plan(lines, texts, true) ?? question(lines, texts, true);
+    return field ? { ...UNREADABLE, field: { fingerprint: field.fingerprint, text: field.words ?? "" } } : { ...UNREADABLE };
   } catch {
     return { ...UNREADABLE };
   }
@@ -423,15 +446,17 @@ const PASTED = /^\[Pasted text #\d+(?: \+(\d+) lines)?\]$/u;
 const FOLD_CHARS = 800;
 const FOLD_BREAKS = 3;
 
-function owns(r: PaneRead, words: string): boolean {
-  if (r.dialog || r.unrecognised || r.draft !== "text") return false;
-  const shown = r.draftText ?? "";
+function shows(shown: string, words: string): boolean {
   const folded = PASTED.exec(shown.trim());
   if (folded) {
     const breaks = (words.match(/\n/g) ?? []).length;
     return (breaks >= FOLD_BREAKS || words.length > FOLD_CHARS) && Number(folded[1] ?? 0) === breaks;
   }
   return squeezed(shown) !== "" && squeezed(shown) === squeezed(words);
+}
+
+function owns(r: PaneRead, words: string): boolean {
+  return !r.dialog && !r.unrecognised && r.draft === "text" && shows(r.draftText ?? "", words);
 }
 
 // --- Screen's token (codex-fixes-1 fix 1) ---
@@ -481,6 +506,7 @@ export const claudeAdapter: ConvAdapter = {
   keysFor,
   steady,
   owns,
+  shows,
   // C-u clears one line of a multi-line draft only. C-c clears the lot, but
   // arms "Press Ctrl-C again to exit", and while a turn runs it interrupts the
   // turn instead (the draft stays): so it is sent once, and only when idle.

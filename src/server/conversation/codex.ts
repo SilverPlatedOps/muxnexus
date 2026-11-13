@@ -197,13 +197,15 @@ function readPane(ansi: string): PaneRead {
 const PASTED = /^\[Pasted Content (\d+) chars\]$/u;
 const FOLD_CHARS = 1000;
 
-function owns(r: PaneRead, words: string): boolean {
-  if (r.dialog || r.unrecognised || r.draft !== "text") return false;
-  const shown = r.draftText ?? "";
+function shows(shown: string, words: string): boolean {
   const folded = PASTED.exec(shown.trim());
   const chars = [...words].length;
   if (folded) return chars > FOLD_CHARS && Number(folded[1]) === chars;
   return squeezed(shown) !== "" && squeezed(shown) === squeezed(words);
+}
+
+function owns(r: PaneRead, words: string): boolean {
+  return !r.dialog && !r.unrecognised && r.draft === "text" && shows(r.draftText ?? "", words);
 }
 
 // --- Answering (the Codex checks doc, "Key map for the approval dialog") ---
@@ -238,4 +240,4 @@ function steady(lines: PaneLine[]): string[] {
 }
 
 // C-c empties the composer, and a running turn carries on (unlike Claude's).
-export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady, owns };
+export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady, owns, shows };

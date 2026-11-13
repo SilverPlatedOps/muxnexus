@@ -98,6 +98,10 @@ function fakeTmux(agent: WindowAgentInfo | null | (WindowAgentInfo | null)[], pa
 const PASTED = { claude: raw("claude-idle-draft"), codex: raw("codex-idle-draft") };
 /** Claude at work (a message queued) with "hello draft" typed in its box. */
 const WORKING_DRAFT = raw("claude-queued").replace(/\x1b\[2m\x1b\[39mPress.*messages\x1b\[0m/u, "\x1b[39mhello draft");
+/** The words each captured field holds (`claude-bash-no-text`, `-plan-change-text`, `-question-other-text`). */
+const NOTE = "instead of touching the file, list the directory with ls -la and then tell me how many entries it has, and also say why\nsecond line of the note";
+const CHANGE = "use the word bye instead of hi everywhere, and also add a third step that prints the file contents afterwards\nsecond line";
+const PURPLE = "a deep purple close to violet, like the evening sky just after sunset, not quite blue and not quite red either\nsecond line";
 /** `n` characters of `w0 w1 w2 …`: the words pasted in the lab captures. */
 function spaced(n: number): string {
   let s = "";
@@ -472,10 +476,10 @@ describe("answer", () => {
   test("No with words: down from the highlighted row, Tab, then the words once the field has focus", async () => {
     // Card, field focused, field holding the words: one dialog, captured in turn.
     const tmux = fakeTmux(claudeAgent(), [raw("claude-bash-no-card"), raw("claude-bash-no-field"), raw("claude-bash-no-text")]);
-    expect(await answer(tmux, "@1", "sess-1", print("claude", "bash-no-card"), 4, "instead list\x1b the directory")).toEqual({ ok: true });
+    expect(await answer(tmux, "@1", "sess-1", print("claude", "bash-no-card"), 4, NOTE.replace("list the", "list\x1b the"))).toEqual({ ok: true });
     expect(tmux.writes()).toEqual([
       ["sendKeys", "%1", ["Down", "Down", "Down", "Tab"]],
-      ["pasteInto", "%1", "instead list the directory"],
+      ["pasteInto", "%1", NOTE],
       ["sendKeys", "%1", ["Enter"]],
     ]);
     // A snapshot of the tab (its agent and the pane) right before each write: the keys, the paste and Enter.
@@ -483,7 +487,7 @@ describe("answer", () => {
     // The list wraps (Down on the last row goes to row 1), so the moves start from the highlight the pane shows.
     for (const [at, keys] of [[3, ["Down", "Tab"]], [4, ["Tab"]]] as const) {
       const moved = fakeTmux(claudeAgent(), [noCardAt(at), raw("claude-bash-no-field"), raw("claude-bash-no-text")]);
-      expect(await answer(moved, "@1", "sess-1", print("claude", "bash-no-card"), 4, "words")).toEqual({ ok: true });
+      expect(await answer(moved, "@1", "sess-1", print("claude", "bash-no-card"), 4, NOTE)).toEqual({ ok: true });
       expect(moved.writes()[0]).toEqual(["sendKeys", "%1", keys]);
     }
   });
@@ -501,6 +505,32 @@ describe("answer", () => {
       expect(await answer(tmux, "@1", "sess-1", read.dialog!.fingerprint, 3, words)).toEqual({ ok: true });
       expect(tmux.writes()).toEqual([["sendKeys", "%1", ["Down", "Down", "Tab"]], ["pasteInto", "%1", words], ["sendKeys", "%1", ["Enter"]]]);
     }
+  });
+
+  test("a field's Enter goes only on the words pasted into it: the desk's edit in between is refused unsent", async () => {
+    // Each field as the desk left it after the phone's paste: other words in place of the phone's.
+    for (const [card, field, typed, option, words, edit] of [
+      ["bash-no-card", "bash-no-field", "bash-no-text", 4, NOTE, ["instead of touching", "rather than touching"]],
+      ["plan-change-card", "plan-change-field", "plan-change-text", 3, CHANGE, ["second line", "second idea"]],
+      ["question", "question-other-field", "question-other-text", 4, PURPLE, ["a deep purple", "a pale purple"]],
+      ["question-single-plan", "question-single-field", "question-single-text", 3, "kiwi", ["kiwi", "lime"]],
+    ] as const) {
+      const desk = raw(`claude-${typed}`).replace(edit[0], edit[1]);
+      expect(desk).not.toBe(raw(`claude-${typed}`));
+      const tmux = fakeTmux(claudeAgent(), [raw(`claude-${card}`), raw(`claude-${field}`), desk]);
+      expect({ card, r: await answer(tmux, "@1", "sess-1", print("claude", card), option, words) }).toEqual({ card, r: { ok: false, error: "unsent" } });
+      expect(tmux.writes().map((w) => w[0])).toEqual(["sendKeys", "pasteInto"]);
+    }
+    // Part of the words, or more than them, is not them either.
+    const short = fakeTmux(claudeAgent(), [raw("claude-bash-no-card"), raw("claude-bash-no-field"), raw("claude-bash-no-text")]);
+    expect(await answer(short, "@1", "sess-1", print("claude", "bash-no-card"), 4, NOTE.split("\n")[0]!)).toEqual({ ok: false, error: "unsent" });
+    expect(short.writes().map((w) => w[0])).toEqual(["sendKeys", "pasteInto"]);
+  }, 20_000);
+
+  test("the words go into the field only while it is empty: one holding the desk's words gets nothing", async () => {
+    const tmux = fakeTmux(claudeAgent(), [raw("claude-bash-no-card"), raw("claude-bash-no-text")]);
+    expect(await answer(tmux, "@1", "sess-1", print("claude", "bash-no-card"), 4, NOTE)).toEqual({ ok: false, error: "prompt-changed" });
+    expect(tmux.writes()).toEqual([["sendKeys", "%1", ["Down", "Down", "Down", "Tab"]]]);
   });
 
   test("the words go only into the dialog's own field, and Enter only while it still has focus", async () => {
@@ -528,21 +558,25 @@ describe("answer", () => {
 
   test("a plan's change request moves onto its field; a question's own answer is its digit, then the words", async () => {
     const plan = fakeTmux(claudeAgent(), [raw("claude-plan-change-card"), raw("claude-plan-change-field"), raw("claude-plan-change-text")]);
-    expect(await answer(plan, "@1", "sess-1", print("claude", "plan-change-card"), 3, "use bye instead")).toEqual({ ok: true });
-    expect(plan.writes()).toEqual([["sendKeys", "%1", ["Down", "Down"]], ["pasteInto", "%1", "use bye instead"], ["sendKeys", "%1", ["Enter"]]]);
+    expect(await answer(plan, "@1", "sess-1", print("claude", "plan-change-card"), 3, CHANGE)).toEqual({ ok: true });
+    expect(plan.writes()).toEqual([["sendKeys", "%1", ["Down", "Down"]], ["pasteInto", "%1", CHANGE], ["sendKeys", "%1", ["Enter"]]]);
 
     const approve = fakeTmux(claudeAgent(), [raw("claude-plan")]);
     expect(await answer(approve, "@1", "sess-1", print("claude", "plan"), 2)).toEqual({ ok: true });
     expect(approve.writes()).toEqual([["sendKeys", "%1", ["2"]]]);
 
     const question = fakeTmux(claudeAgent(), [raw("claude-question"), raw("claude-question-other-field"), raw("claude-question-other-text")]);
-    expect(await answer(question, "@1", "sess-1", print("claude", "question"), 4, "purple")).toEqual({ ok: true });
-    expect(question.writes()).toEqual([["sendKeys", "%1", ["4"]], ["pasteInto", "%1", "purple"], ["sendKeys", "%1", ["Enter"]]]);
+    expect(await answer(question, "@1", "sess-1", print("claude", "question"), 4, PURPLE)).toEqual({ ok: true });
+    expect(question.writes()).toEqual([["sendKeys", "%1", ["4"]], ["pasteInto", "%1", PURPLE], ["sendKeys", "%1", ["Enter"]]]);
 
     // A call with one question: the same keys, and Enter submits it at once (no review step).
     const single = fakeTmux(claudeAgent(), [raw("claude-question-single-plan"), raw("claude-question-single-field"), raw("claude-question-single-text")]);
     expect(await answer(single, "@1", "sess-1", print("claude", "question-single-plan"), 3, "kiwi")).toEqual({ ok: true });
     expect(single.writes()).toEqual([["sendKeys", "%1", ["3"]], ["pasteInto", "%1", "kiwi"], ["sendKeys", "%1", ["Enter"]]]);
+    // An answer of several lines, a blank one and a numbered one among them.
+    const lines = fakeTmux(claudeAgent(), [raw("claude-question-single-plan"), raw("claude-question-single-field"), raw("claude-question-single-text-lines")]);
+    expect(await answer(lines, "@1", "sess-1", print("claude", "question-single-plan"), 3, "kiwi\n\n1. ripe one\nthanks")).toEqual({ ok: true });
+    expect(lines.writes().at(-1)).toEqual(["sendKeys", "%1", ["Enter"]]);
   });
 
   test("each question is one digit; the review screen is answered with the user's pick", async () => {
