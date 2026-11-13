@@ -279,7 +279,7 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     },
 
     /** Stop: always answered for `req`, so a refusal can be shown. */
-    async interrupt(ws: HubSocket, req: string, windowId: string, conversation: string) {
+    async interrupt(ws: HubSocket, req: string, windowId: string, conversation: string | null) {
       try {
         const r = await inLane(windowId, () => stop(tmux, windowId, conversation));
         send(ws, { t: "conv-result", req, ...r });

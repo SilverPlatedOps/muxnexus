@@ -162,6 +162,8 @@ export async function sendText(
   const adapter = adapterFor(info.kind);
   // Typed into a dialog, digits would pick its options. An empty prompt takes the words on this read; one holding
   // text (or text that can't be read, asked about as if it held some, and cleared the same way) is asked about first.
+  // What is left before the paste is the guard's round trip: a dialog drawn after its snapshot would take the words as
+  // typed keys. Enter is still withheld then: `submit` refuses on a dialog.
   const first = await guarded(tmux, b, onPane(info.kind, (r) =>
     r.dialog || r.unrecognised ? "waiting" : r.draft === "empty" ? { write: { paste: words } } : "skip"));
   if (!first.ok) return first;
@@ -274,11 +276,14 @@ export function stoppedSince(windowId: string, info: WindowAgentInfo): boolean {
  * too, unless a Stop already ended that turn (`afterStop`). Nothing to stop,
  * or a stop just sent, is ok.
  */
-export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "snapshot" | "pasteInto" | "sendKeys">, windowId: string, conversation: string): Promise<{ ok: true } | Refusal> {
+export async function stop(
+  tmux: Pick<Tmux, "agentOfWindow" | "snapshot" | "pasteInto" | "sendKeys">, windowId: string, conversation: string | null,
+): Promise<{ ok: true } | Refusal> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
-  // A tap meant for the conversation before a /clear, a resume or a new agent would stop the one there now.
-  if (conversationOf(info) !== conversation) return refuse("another-conversation");
+  // A tap meant for the conversation before a /clear, a resume or a new agent would stop the one there now. None
+  // (`null`) is a fresh Codex's, before its first thread: a Claude tab always names its session.
+  if (conversationOf(info) !== conversation || (conversation === null && info.kind !== "codex")) return refuse("another-conversation");
   // A stamp left `running` by an interrupt (no hook fires for Esc) has nothing to stop: Escape would reach an idle prompt.
   const stamp = await believedState(info);
   const again = Date.now() - (stopSent.get(windowId)?.at ?? 0) < STOP_AGAIN_MS;

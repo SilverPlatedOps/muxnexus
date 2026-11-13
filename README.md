@@ -402,9 +402,10 @@ its conversation too.
 
 - **Send** types your message into the agent as if you were at the desk, line
   breaks and all. If the desk's prompt already holds unsent text, you're shown it
-  and asked before it's replaced. If a prompt comes up while your words go in,
-  Enter isn't pressed: they wait in the desk's prompt, and you're told. While the
-  agent works, **Stop** presses Esc.
+  and asked before it's replaced. Enter is pressed only on your own words: if a
+  prompt comes up while they go in, or the desk's prompt doesn't show them, it
+  isn't, and you're told they may be waiting there. While the agent works,
+  **Stop** presses Esc.
 - **Prompts become cards.** When the agent waits on you, a card takes the text
   box's place: Claude Code's Bash, Write and Edit permissions, its plan approval
   and its questions with one answer each, and Codex's command approval. Tap an

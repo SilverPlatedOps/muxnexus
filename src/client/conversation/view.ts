@@ -672,8 +672,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     compose.hidden = asked() || agent === null;
     input.disabled = !conversation;
     input.placeholder = conversation || agent === undefined ? "Message" : "Nothing to send to yet";
-    // A Stop names the conversation it is for: with none to name there is nothing to bind it to.
-    stopBtn.hidden = !working || asked() || !conversation;
+    // A Stop names the conversation it is for; with none to name, only a fresh Codex's "none yet" binds it.
+    stopBtn.hidden = !working || asked() || (!conversation && agent !== "codex");
     stopBtn.disabled = stopping !== null;
     sendBtn.disabled = !conversation || pending !== null || input.value.trim() === "";
     const elsewhere = writtenElsewhere(composed, conversation);
@@ -779,7 +779,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   });
   sendBtn.onclick = () => send(input.value);
   stopBtn.onclick = () => {
-    if (!windowId || !conversation || stopping) return;
+    if (!windowId || (!conversation && agent !== "codex") || stopping) return;
     stopping = `stop-${++seq}`;
     deps.send({ t: "conv-stop", windowId, conversation, req: stopping });
     paintSlot();

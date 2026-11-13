@@ -657,6 +657,19 @@ describe("stop and keys", () => {
     }
   });
 
+  test("a fresh Codex with no thread yet can be stopped: the view and the tab both name none", async () => {
+    const fresh = codexAgent({ thread: undefined, fresh: true, state: undefined });
+    const tmux = fakeTmux(fresh, [raw("codex-working")]);
+    expect(await stop(tmux, "@34", null)).toEqual({ ok: true });
+    expect(tmux.writes()).toEqual([["sendKeys", "%2", ["Escape"]]]);
+    // None named while the tab holds one, or a Claude tab (it always names its session): refused, no Escape.
+    for (const agent of [codexAgent(), claudeAgent({ conversation: undefined })]) {
+      const other = fakeTmux(agent, [raw(agent.kind === "claude" ? "claude-working" : "codex-working")]);
+      expect(await stop(other, "@35", null)).toEqual({ ok: false, error: "another-conversation" });
+      expect(other.writes()).toEqual([]);
+    }
+  });
+
   test("a double tap on Stop sends one Escape: two would be Esc Esc", async () => {
     const first = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
     const second = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);

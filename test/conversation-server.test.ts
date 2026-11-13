@@ -646,8 +646,11 @@ describe("conversations over the socket", () => {
     // A page request names itself, so its answer can't be taken for another's.
     await refused({ t: "conv-more", windowId: "@1", before: 10 }, "invalid conv-more");
     await refused({ t: "conv-around", windowId: "@1", offset: 10 }, "invalid conv-around");
-    // A Stop names the conversation it was meant for.
+    // A Stop names the conversation it was meant for, or null for none yet.
     await refused({ t: "conv-stop", req: "s", windowId: "@1" }, "invalid conv-stop");
+    await refused({ t: "conv-stop", req: "s", windowId: "@1", conversation: 5 }, "invalid conv-stop");
+    c.send({ t: "conv-stop", req: "s0", windowId: "@1", conversation: null });
+    expect(await waitFor(() => all(c.messages, "conv-result").find((r) => r.req === "s0"), 2000, "the null Stop's result")).toMatchObject({ ok: false, error: "no-agent" });
     await refused({ t: "conv-search", windowId: "@1", query: "x" }, "invalid conv-search");
     c.ws.close();
   });

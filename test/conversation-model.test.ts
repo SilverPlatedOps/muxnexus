@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  answerMessage, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  answerMessage, CONV_ERROR, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -261,6 +261,12 @@ test("a card's answer names the conversation the card was read for, never the on
   expect(answerMessage(shown, { windowId: "@1", conversation: "B" }, "r2", no, "use the other folder")).toMatchObject({ conversation: "A", option: no.index, text: "use the other folder" });
   // A card read for no conversation answers nothing.
   expect(answerMessage({ card, for: null }, { windowId: "@1", conversation: "B" }, "r3", yes)).toBeNull();
+});
+
+test("the unsent refusal says only what is known: the words may be in the desk's prompt, or never showed", () => {
+  // Refused before Enter: a dialog drew over them, or they never showed (Claude's survey took a digit, a leading `!`
+  // switched it to bash mode), or the desk's own words took their place.
+  expect(CONV_ERROR.unsent).toBe("Not sent. Your words may be in the prompt at the desk: check Screen.");
 });
 
 test("a card counts only for the tab and conversation shown now", () => {

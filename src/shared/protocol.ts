@@ -277,11 +277,12 @@ export type ClientMessage =
    */
   | { t: "conv-answer"; req: string; windowId: string; conversation: string; fingerprint: string; option: number; text?: string }
   /**
-   * Interrupt the agent, if the tab still holds `conversation` (the `conv`'s).
+   * Interrupt the agent, if the tab still holds `conversation` (the `conv`'s;
+   * null for a Codex tab with no thread yet, which still has none).
    * Always answered with `conv-result` for `req` ("" when absent): refused
    * with `waiting` while a dialog is up.
    */
-  | { t: "conv-stop"; windowId: string; conversation: string; req?: string }
+  | { t: "conv-stop"; windowId: string; conversation: string | null; req?: string }
   /** What the tab's terminal shows now: answered with `conv-screen-result`. */
   | { t: "conv-screen"; req: string; windowId: string }
   /**
