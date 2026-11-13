@@ -774,7 +774,7 @@ describe("stop and keys", () => {
     // Measured on Claude Code 2.1.323 with a two-row statusline refreshed every 5 s: over 75 s idle only the meter
     // row's countdowns moved (`2h22` to `2h21`, `19h02` to `19h01`, then `19h` on the hour).
     const idle = raw("claude-idle-statusline");
-    const ticked = idle.replace("2h22", "2h21").replace("19h02", "19h").replace("41%", "42%").replace("▸5173 ", "▸51734");
+    const ticked = idle.replace("2h22", "2h21").replace("19h02", "19h").replace("41%", "42%");
     expect(ticked).not.toBe(idle);
     const keyAfter = async (now: string) => {
       const seen = await screenNow(fakeTmux(claudeAgent(), [idle]), "@1");
@@ -782,17 +782,26 @@ describe("stop and keys", () => {
       return { r: await pressKey(tmux, "@1", seen.token, "Up"), writes: tmux.writes() };
     };
     expect((await keyAfter(ticked)).writes).toEqual([["sendKeys", "%1", ["Up"]]]);
-    // The mode switched at the desk, words typed into the prompt, a notice drawn under it: refused.
+    // The mode switched at the desk, words typed into the prompt, a notice drawn under it: refused. So is a digit
+    // that changed in a row under the box holding no meter (never seen to tick): the agents' count, a port, a list.
     for (const now of [
       idle.replace("manual", "accept"),
       idle.replace("\x1b[2mTry\x1b[0m \x1b[2m\"how\x1b[0m", "hi \x1b[2m\"how\x1b[0m"),
       idle.replace(/(agents\x1b\[39m)\n/, "$1\n                  update available\n"),
+      idle.replace(/(\x1b\[38;5;246m)2(\x1b\[39m \x1b\[38;5;246magents)/, "$13$2"),
+      idle.replace("▸5173 ", "▸5174 "),
     ]) {
       expect(now).not.toBe(idle);
       const { r, writes } = await keyAfter(now);
       expect(r.error).toBe("prompt-changed");
       expect(writes).toEqual([]);
     }
+    // A list under the box (a `/` command's choices) whose count moved on.
+    const listed = idle.replace(/(agents\x1b\[39m)\n/, "$1\n  /compact   keep a summary (1 of 3)\n");
+    const seen = await screenNow(fakeTmux(claudeAgent(), [listed]), "@1");
+    const moved = fakeTmux(claudeAgent(), [listed.replace("(1 of 3)", "(2 of 3)")]);
+    expect((await pressKey(moved, "@1", seen.token, "Enter")).error).toBe("prompt-changed");
+    expect(moved.writes()).toEqual([]);
   });
 
   test("the screen after a key is taken once it settles: two reads alike, or at most about a second", async () => {

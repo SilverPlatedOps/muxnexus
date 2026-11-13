@@ -436,23 +436,28 @@ function owns(r: PaneRead, words: string): boolean {
 
 // --- Screen's token (codex-fixes-1 fix 1) ---
 
-/** A meter or a count: a word with a digit or a meter's cell in it (`41%`, `2h22`, `██░|░░`, `▸5173`, `62K/1M`). */
+/** A meter's cell: a bar (`██░|░░`). */
+const METER = /[█▉▊▋▌▍▎▏▓▒░]/u;
+/** A meter or a count: a word with a digit or a meter's cell in it (`41%`, `2h22`, `██░|░░`, `0/1M`). */
 const TICKING = /[\d█▉▊▋▌▍▎▏▓▒░]/u;
 
 /**
- * Under the prompt box, the statusline a timer redraws: measured on 2.1.323
- * with a two-row statusline refreshed every 5 s, its countdowns moved each
- * minute (`2h22`, `2h21`; `19h02`, `19h01`, then `19h`), and nothing else did
- * (its colours neither). There each such word reads `#` and spacing is one
- * space, so a meter's tick is no change, while a word that comes or goes (a
- * mode, a notice) still is. Above the box, the prompt and the rest of the
- * screen, and any dialog (none draws a statusline), are as they are, drawn as
- * they are: a highlight or a dim placeholder is part of what a key acts on.
+ * The statusline row a timer redraws: measured on 2.1.323 with a two-row
+ * statusline refreshed every 5 s, only the row under the prompt box holding
+ * meters changed, its countdowns each minute (`2h22`, `2h21`; `19h02`,
+ * `19h01`, then `19h`), and nothing else did (its colours neither). In such a
+ * row each word with a digit or a meter cell reads `#` and spacing is one
+ * space, so a tick is no change, while a word that comes or goes still is.
+ * Every other row, the rest of the statusline and the mode row included, is
+ * as it is, drawn as it is: a highlight or a dim placeholder is part of what a
+ * key acts on, and a count that moves there (a list's, the agents') was never
+ * seen to move on its own.
  */
 function steady(lines: PaneLine[]): string[] {
   const texts = lines.map((l) => l.text.trimEnd());
   const box = inputBox(texts);
-  return lines.map((l, i) => (box && i > box.bottom ? texts[i]!.split(/\s+/u).map((w) => (TICKING.test(w) ? "#" : w)).join(" ") : rowKey(l)));
+  const meter = (i: number) => !!box && i > box.bottom && METER.test(texts[i]!);
+  return lines.map((l, i) => (meter(i) ? texts[i]!.split(/\s+/u).map((w) => (TICKING.test(w) ? "#" : w)).join(" ") : rowKey(l)));
 }
 
 export const claudeAdapter: ConvAdapter = {
