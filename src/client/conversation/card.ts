@@ -7,7 +7,7 @@ import type { Card, CardOption, GenericKey } from "../../shared/conversation";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { palette } from "../terminal";
 import { appearance, onAppearance } from "../theme";
-import { CONV_ERROR, cardArmedAt, cardButtons, cardTitle, wordsOptional } from "./model";
+import { answerMessage, CONV_ERROR, cardArmedAt, cardButtons, cardTitle, wordsOptional } from "./model";
 
 /**
  * What the agent waits on, answered from the phone: the waiting card, which
@@ -51,15 +51,15 @@ function button(cls: string, text: string): HTMLButtonElement {
 export interface CardDeps {
   send(m: ClientMessage): void;
   toast(m: string): void;
-  /** The tab and conversation an answer is for (the latest `conv`'s); null while there is none. */
+  /** The tab and conversation the view shows (the latest `conv`'s); null while there is none. An answer names the card's own conversation. */
   target(): { windowId: string; conversation: string } | null;
   openScreen(): void;
 }
 
 export interface WaitingCard {
   el: HTMLElement;
-  /** What the latest `conv-card` says: a card, Screen's offer (`screen`), or neither (hidden). */
-  show(card: Card | null, screen: boolean, agent: AgentKind | null | undefined): void;
+  /** What the latest `conv-card` says: a card read for `conversation`, Screen's offer (`screen`), or neither (hidden). */
+  show(card: Card | null, screen: boolean, agent: AgentKind | null | undefined, conversation: string | null): void;
   /** True when `m` answers this card's answer (handled here). */
   result(m: Result): boolean;
   /** Forget the card and any answer in flight: another tab, or none. */
@@ -71,8 +71,9 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
   root.hidden = true;
   root.setAttribute("role", "group");
 
-  /** The card drawn, or null for Screen's offer or nothing. */
+  /** The card drawn, or null for Screen's offer or nothing, and the conversation it was read for. */
   let shown: Card | null = null;
+  let shownFor: string | null = null;
   let shownScreen = false;
   /**
    * An answer out (`req` set) or taken by the agent (`req` null) for the
@@ -105,17 +106,15 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
   function answer(option: CardOption, words?: string) {
     const t = deps.target();
     if (!t || !shown || busy()) return;
-    const text = option.takesText && words?.trim() ? words : undefined;
     const req = `answer-${++seq}`;
+    const m = answerMessage({ card: shown, for: shownFor }, t, req, option, words);
+    if (!m) return;
     const timer = setTimeout(() => {
       dropAnswer();
       paintBusy();
     }, ANSWER_GIVE_UP_MS);
     answering = { req, fingerprint: shown.fingerprint, timer };
-    deps.send({
-      t: "conv-answer", req, windowId: t.windowId, conversation: t.conversation,
-      fingerprint: shown.fingerprint, option: option.index, ...(text !== undefined ? { text } : {}),
-    });
+    deps.send(m);
     paintBusy();
   }
 
@@ -202,8 +201,17 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
 
   return {
     el: root,
-    show(card, screen, agent) {
+    show(card, screen, agent, conversation) {
       agentShown = agent;
+      // A card read for another conversation than the one drawn is another card, whatever its fingerprint.
+      if (conversation !== shownFor) {
+        dropAnswer();
+        field = null;
+        armAt = 0;
+        shown = null;
+        root.replaceChildren();
+      }
+      shownFor = conversation;
       stale = false;
       if (answering && answering.fingerprint !== card?.fingerprint) dropAnswer();
       if (card) {
@@ -255,6 +263,7 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
       armAt = 0;
       clearTimeout(armTimer);
       shown = null;
+      shownFor = null;
       shownScreen = false;
       field = null;
       buttons.length = 0;

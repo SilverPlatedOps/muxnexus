@@ -581,10 +581,12 @@ export type ServerMessage =
   | { t: "conv-page"; windowId: string; conversation: string | null; items: (ConvItem | StepResult)[]; start: number; end: number }
   /**
    * The dialog the agent waits on, or none: sent on open and whenever it changes.
+   * `conversation`: the one the pane was read for (as for `conv-page`): a card
+   * answers it, never one the tab holds later.
    * `screen`: it waits on something no card can answer, so offer Screen.
    * `working`: the agent is busy (offer Stop).
    */
-  | { t: "conv-card"; windowId: string; card: Card | null; screen: boolean; working: boolean }
+  | { t: "conv-card"; windowId: string; conversation: string | null; card: Card | null; screen: boolean; working: boolean }
   /** Search hits in `conversation`, the one searched (as for `conv-page`). */
   | { t: "conv-search-result"; req: string; windowId: string; conversation: string | null; hits: { id: string; offset: number; snippet: string }[]; next?: number }
   /** Every URL in `conversation` once, pull requests first. */

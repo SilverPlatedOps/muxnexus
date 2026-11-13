@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  answerMessage, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -249,6 +249,26 @@ test("Send goes to the conversation the words were written for, and asks first w
   // While the tab's conversation isn't known yet (opening), the words aren't said to be for another.
   expect(writtenElsewhere(forA, null)).toBe(false);
   expect(writtenElsewhere({ text: "", for: "A" }, "B")).toBe(false);
+});
+
+test("a card's answer names the conversation the card was read for, never the one shown by then", () => {
+  const card = adapterFor("claude").readPane(readFileSync(new URL("./fixtures/conversation/pane-claude-bash-no-card.ansi", import.meta.url), "utf8")).dialog!;
+  const yes = card.options[0]!;
+  const no = card.options.at(-1)!;
+  // Drawn for A; the view shows B by the tap (a /clear at the desk, its `conv` in before the card's reset).
+  const shown = { card, for: "A" };
+  expect(answerMessage(shown, { windowId: "@1", conversation: "B" }, "r1", yes)).toEqual({ t: "conv-answer", req: "r1", windowId: "@1", conversation: "A", fingerprint: card.fingerprint, option: 1 });
+  expect(answerMessage(shown, { windowId: "@1", conversation: "B" }, "r2", no, "use the other folder")).toMatchObject({ conversation: "A", option: no.index, text: "use the other folder" });
+  // A card read for no conversation answers nothing.
+  expect(answerMessage({ card, for: null }, { windowId: "@1", conversation: "B" }, "r3", yes)).toBeNull();
+});
+
+test("a card counts only for the tab and conversation shown now", () => {
+  const shown = { windowId: "@1", conversation: "A" };
+  expect(readForShown({ windowId: "@1", conversation: "A" }, shown)).toBe(true);
+  // A card read for the conversation before (a /clear meanwhile), or for none.
+  expect(readForShown({ windowId: "@1", conversation: "B" }, shown)).toBe(false);
+  expect(readForShown({ windowId: "@1", conversation: null }, shown)).toBe(false);
 });
 
 test("a page, search or links answer counts only for the tab and conversation shown now", () => {

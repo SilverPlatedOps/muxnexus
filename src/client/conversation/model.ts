@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { Card, CardOption, ConvError, ConvItem, StepResult } from "../../shared/conversation";
-import type { SessionInfo, WindowInfo } from "../../shared/protocol";
+import type { ClientMessage, SessionInfo, WindowInfo } from "../../shared/protocol";
 import { formatElapsed } from "../agent";
 
 /**
@@ -180,6 +180,27 @@ export function cardTitle(card: Card): string {
   const first = card.detail?.split("\n", 1)[0]?.trim() ?? "";
   if (!first) return `Allow ${card.title}?`;
   return `Allow ${card.title}: ${first.length > TITLE_DETAIL ? `${first.slice(0, TITLE_DETAIL - 1)}…` : first}?`;
+}
+
+/** A card as drawn, and the conversation it was read for (the `conv-card`'s). */
+export interface ShownCard { card: Card; for: string | null }
+
+/**
+ * The `conv-answer` for choosing `option` (with `words`, for one that takes
+ * them) on the card shown, in tab `target.windowId`: bound to the
+ * conversation the card was read for, not whichever the view shows by the
+ * tap, so a card left over from before a /clear can't answer the new
+ * conversation's prompt (the server refuses it). Null for a card read for none.
+ */
+export function answerMessage(
+  shown: ShownCard, target: { windowId: string; conversation: string }, req: string, option: CardOption, words?: string,
+): Extract<ClientMessage, { t: "conv-answer" }> | null {
+  if (shown.for === null) return null;
+  const text = option.takesText && words?.trim() ? words : undefined;
+  return {
+    t: "conv-answer", req, windowId: target.windowId, conversation: shown.for,
+    fingerprint: shown.card.fingerprint, option: option.index, ...(text !== undefined ? { text } : {}),
+  };
 }
 
 /** How long a dialog not shown before waits before its buttons take a tap. */

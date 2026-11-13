@@ -35,7 +35,7 @@ interface Sub {
   path: string | null;
   /** Byte offset read up to; null while the file can't be read (not written yet). */
   end: number | null;
-  /** The last `conv-card` sent, as `fingerprint|selected|screen|working`. */
+  /** The last `conv-card` sent, as `conversation|fingerprint|selected|screen|working`. */
   card: string | null;
   /** Whether the pending question has a multi-select part, for the card and file length it was worked out at. */
   multi: { key: string; value: boolean } | null;
@@ -129,10 +129,12 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       if (card?.kind === "question" && !screen) screen = await multiSelect(sub, info, card);
       if (screen) card = null;
     }
-    const key = `${card?.fingerprint ?? ""}|${card?.selected ?? ""}|${screen}|${working}`;
+    // The card is the conversation's the pane was read with: a tap on it answers that one only.
+    const conversation = info ? conversationOf(info) : null;
+    const key = `${conversation ?? ""}|${card?.fingerprint ?? ""}|${card?.selected ?? ""}|${screen}|${working}`;
     if (!current(ws, sub) || key === sub.card) return;
     sub.card = key;
-    send(ws, { t: "conv-card", windowId: sub.windowId, card, screen, working });
+    send(ws, { t: "conv-card", windowId: sub.windowId, conversation, card, screen, working });
   }
 
   async function multiSelect(sub: Sub, info: WindowAgentInfo, card: Card): Promise<boolean> {

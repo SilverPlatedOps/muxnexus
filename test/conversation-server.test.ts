@@ -149,7 +149,7 @@ describe("the conversation hub", () => {
     const ws = socket();
     try {
       await hub.open(ws, "@1");
-      expect(ws.last("conv-card")).toEqual({ t: "conv-card", windowId: "@1", card: null, screen: false, working: true });
+      expect(ws.last("conv-card")).toEqual({ t: "conv-card", windowId: "@1", conversation: "thread-1", card: null, screen: false, working: true });
       state.screen = pane("codex-idle-empty");
       await waitFor(() => ws.all("conv-card").length === 2, 1000, "the idle composer");
       expect(ws.last("conv-card")).toMatchObject({ card: null, screen: false, working: false });
@@ -190,7 +190,7 @@ describe("the conversation hub", () => {
       const ws = socket();
       try {
         await hub.open(ws, "@1");
-        expect({ fixture, ...ws.last("conv-card") }).toEqual({ fixture, t: "conv-card", windowId: "@1", card: null, screen: false, working: false });
+        expect({ fixture, ...ws.last("conv-card") }).toEqual({ fixture, t: "conv-card", windowId: "@1", conversation: expect.any(String), card: null, screen: false, working: false });
         expect(state.captures).toBe(0);
       } finally {
         hub.stop();
@@ -260,7 +260,7 @@ describe("the conversation hub", () => {
     const ws = socket();
     try {
       await hub.open(ws, "@1");
-      expect(ws.last("conv-card")).toEqual({ t: "conv-card", windowId: "@1", card: null, screen: false, working: true });
+      expect(ws.last("conv-card")).toEqual({ t: "conv-card", windowId: "@1", conversation: "sess-1", card: null, screen: false, working: true });
       state.agent = claude(transcript(), "done");
       await waitFor(() => ws.last("conv-card")?.working === false, 1000, "idle");
       expect(ws.last("conv-card")).toMatchObject({ card: null, screen: false });
@@ -387,6 +387,29 @@ describe("the conversation hub", () => {
         { t: "conv-result", req: "s1", ok: true },
         { t: "conv-result", req: "s2", ok: true },
       ]);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("a card names the conversation it was read for; an answer bound to it is refused once the tab holds another, the same prompt on screen", async () => {
+    const { state, tmux } = fakeTmux(claude(transcript()), pane("claude-bash-permission"));
+    const hub = createConversationHub({ tmux, pollMs: 30 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      const first = ws.last("conv-card")!;
+      expect(first).toMatchObject({ windowId: "@1", conversation: "sess-1", card: { kind: "permission" } });
+      // A /clear and the same command asked again at once: the next poll sends the new conversation, then its card.
+      state.agent = claude(transcript(), "input", "sess-2");
+      const next = await waitFor(() => ws.all("conv-card").find((c) => c.conversation === "sess-2"), 1000, "the new conversation's card");
+      expect(next.card!.fingerprint).toBe(first.card!.fingerprint);
+      const conv = ws.all("conv").map((m) => m.conversation);
+      expect(conv).toEqual(["sess-1", "sess-2"]);
+      // The old card's tap, bound to the conversation it was drawn for.
+      await hub.answer(ws, "a", "@1", first.conversation!, first.card!.fingerprint, 1);
+      expect(ws.last("conv-result")).toEqual({ t: "conv-result", req: "a", ok: false, error: "another-conversation" });
+      expect(state.writes).toEqual([]);
     } finally {
       hub.stop();
     }
@@ -519,7 +542,7 @@ describe("conversations over the socket", () => {
     const conv = await waitFor(() => c.last("conv"), 3000, "conv");
     expect(conv).toMatchObject({ windowId: tab.windowId, agent: "claude", conversation: "sess-1", start: 0, end: statSync(path).size });
     expect(conv.items.map((i) => i.kind)).toEqual(["you", "you", "you", "peer", "peer", "agent", "step", "step-result", "step-result", "step-result", "notice", "notice"]);
-    expect(await waitFor(() => c.last("conv-card"), 3000, "conv-card")).toEqual({ t: "conv-card", windowId: tab.windowId, card: null, screen: false, working: false });
+    expect(await waitFor(() => c.last("conv-card"), 3000, "conv-card")).toEqual({ t: "conv-card", windowId: tab.windowId, conversation: "sess-1", card: null, screen: false, working: false });
     // One conversation per socket: opening another tab's replaces it.
     c.send({ t: "conv-open", windowId: codexWindow });
     const codex = await waitFor(() => c.last("conv")?.windowId === codexWindow ? c.last("conv") : undefined, 3000, "the Codex tab's conv");

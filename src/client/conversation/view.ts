@@ -782,10 +782,15 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   // ---- messages ----
   function loaded(m: Extract<ServerMessage, { t: "conv" }>) {
     agent = m.agent;
-    // A yes asked for under another conversation is no yes for this one, and its search and links are not this one's.
+    // A yes asked for under another conversation is no yes for this one, and its search, links and waiting card
+    // (with its field and armed state) are not this one's: the new conversation's card follows.
     if (m.conversation !== conversation) {
       confirming = false;
       resetSheet();
+      waiting.reset();
+      card = null;
+      screen = false;
+      working = false;
     }
     conversation = m.conversation;
     start = m.start;
@@ -898,13 +903,14 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         if (readForShown(m, { windowId, conversation }) && agent) page(m);
         return true;
       case "conv-card":
-        if (m.windowId === windowId) {
+        // Read for the conversation shown: one for the conversation before (or after: its `conv` comes first) is dropped.
+        if (readForShown(m, { windowId, conversation })) {
           // The card is taller than the text box it replaces: a reader at the end stays there.
           const stuck = atEnd();
           card = m.card;
           screen = m.screen;
           working = m.working;
-          waiting.show(card, screen, agent);
+          waiting.show(card, screen, agent, m.conversation);
           // A dialog is up: the desk's draft and its Replace are for later.
           if (asked()) draftEl.hidden = true;
           paintSlot();
