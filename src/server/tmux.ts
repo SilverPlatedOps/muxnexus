@@ -297,6 +297,53 @@ export function interruptedAfter(tail: string, since: number): boolean {
 }
 
 /**
+ * `interruptedAfter` for a Codex rollout: the thread's last turn event is a
+ * `turn_aborted` no older than the stamp. A `task_started` after it is a new
+ * turn, a `task_complete` one that finished; anything else written after it
+ * (a token count, the note Codex leaves the model) says nothing about the turn.
+ */
+export function abortedAfter(tail: string, since: number): boolean {
+  const rows = tail.split("\n");
+  for (let i = rows.length - 1; i >= 0; i--) {
+    let row: { type?: string; timestamp?: string; payload?: { type?: string } };
+    try {
+      row = JSON.parse(rows[i]);
+    } catch {
+      continue;
+    }
+    if (row.type !== "event_msg") continue;
+    const event = row.payload?.type;
+    if (event === "task_started" || event === "task_complete") return false;
+    if (event === "turn_aborted") return Date.parse(row.timestamp ?? "") >= since * 1000;
+  }
+  return false;
+}
+
+/** The end of a conversation file, as much as `interruptedAfter` is shown. */
+export async function transcriptTail(path: string): Promise<string> {
+  const file = Bun.file(path);
+  return file.slice(Math.max(0, file.size - TRANSCRIPT_TAIL_BYTES)).text();
+}
+
+/**
+ * A window agent's state, believed as the sidebar believes it: no hook fires
+ * when a turn is interrupted, so a `running` or `input` stamp is `done` once
+ * the agent's own conversation file records the interrupt since the stamp was
+ * set (Esc mid-turn, or on a permission prompt). A stamp with no time, or a
+ * file that can't be read, is taken as it stands.
+ */
+export async function believedState(info: WindowAgentInfo): Promise<AgentState | undefined> {
+  const path = info.kind === "claude" ? info.conversation?.transcriptPath : info.thread?.path;
+  if (!info.state || info.state === "done" || info.since === undefined || !path) return info.state;
+  try {
+    const tail = await transcriptTail(path);
+    return (info.kind === "claude" ? interruptedAfter : abortedAfter)(tail, info.since) ? "done" : info.state;
+  } catch {
+    return info.state;
+  }
+}
+
+/**
  * Whether a rung bell still means "nobody has looked".
  *
  * `links` is every winlink pointing at one window: the base session's and each
@@ -607,9 +654,7 @@ export class Tmux {
       const transcript = pane.session ? parseSession(pane.session)?.transcriptPath : undefined;
       if (!stamp || stamp.state === "done" || !transcript) return pane;
       try {
-        const file = Bun.file(transcript);
-        const tail = await file.slice(Math.max(0, file.size - TRANSCRIPT_TAIL_BYTES)).text();
-        return { ...pane, interrupted: interruptedAfter(tail, stamp.since) };
+        return { ...pane, interrupted: interruptedAfter(await transcriptTail(transcript), stamp.since) };
       } catch {
         return pane;
       }

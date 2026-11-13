@@ -3,7 +3,7 @@
 
 import type { AgentKind } from "../../shared/chat";
 import type { ConvError, GenericKey } from "../../shared/conversation";
-import type { Tmux, WindowAgentInfo } from "../tmux";
+import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
 import type { PaneRead } from "./pane";
 import { readPage } from "./reader";
@@ -87,9 +87,9 @@ export async function sendText(
   if (r.draft === "text") {
     if (!replace) return { ok: false, draft: r.draftText ?? "" };
     // Claude's C-c interrupts a running turn instead, and text streaming under a draft shows no sign of work: the
-    // stamp must say the turn is done. `input` with the prompt on screen is stale, or a turn going on after a
-    // "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
-    if (r.working || info.state !== "done") return refuse("working");
+    // stamp must say the turn is done, or the transcript that it was interrupted since. `input` with the prompt on
+    // screen otherwise is a turn going on after a "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
+    if (r.working || (await believedState(info)) !== "done") return refuse("working");
     if (Date.now() - (lastClear.get(windowId) ?? 0) < CLEAR_AGAIN_MS) return refuse("prompt-changed");
     lastClear.set(windowId, Date.now());
     await tmux.sendKeys(pane, adapterFor(info.kind).clearDraft);
@@ -156,7 +156,8 @@ export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "capturePane" | "s
   const r = await readNow(tmux, info.kind, info.paneId);
   // Escape answers a dialog: the card or Screen does that.
   if (r.dialog || r.unrecognised) return refuse("waiting");
-  if (!r.working && info.state !== "running") return { ok: true };
+  // A stamp left `running` by an interrupt (no hook fires for Esc) has nothing to stop: Escape would reach an idle prompt.
+  if (!r.working && (await believedState(info)) !== "running") return { ok: true };
   if (Date.now() - (lastStop.get(windowId) ?? 0) < STOP_AGAIN_MS) return { ok: true };
   lastStop.set(windowId, Date.now());
   await tmux.sendKeys(info.paneId, ["Escape"]);

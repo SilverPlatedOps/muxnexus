@@ -5,7 +5,7 @@ import { stat } from "node:fs/promises";
 import type { AgentKind } from "../../shared/chat";
 import type { Card, GenericKey } from "../../shared/conversation";
 import type { ServerMessage } from "../../shared/protocol";
-import type { Tmux, WindowAgentInfo } from "../tmux";
+import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
 import { answer, conversationOf, pendingQuestionMulti, pressKey, screenPane, sendText, stop } from "./actions";
 import { linksIn, readPage, readSince, searchFile } from "./reader";
@@ -112,8 +112,10 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
   async function card(ws: HubSocket, sub: Sub, info: WindowAgentInfo | null) {
     let card: Card | null = null;
     let screen = false;
-    let working = info?.state === "running";
-    if (info?.state === "input") {
+    // Not the raw stamp: an interrupt leaves it `running` (or `input`, Esc on a prompt) with no hook to move it.
+    const state = info ? await believedState(info) : undefined;
+    let working = state === "running";
+    if (info && state === "input") {
       const read = await tmux.capturePane(info.paneId).then((ansi) => adapterFor(info.kind).readPane(ansi)).catch(() => null);
       card = read?.dialog ?? null;
       working ||= read?.working ?? false;

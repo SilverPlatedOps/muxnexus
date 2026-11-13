@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  abortedAfter,
+  believedState,
   guardStamp,
   interruptedAfter,
   parseStamp,
@@ -7,6 +12,7 @@ import {
   unreadWindow,
   windowStates,
   worstState,
+  type WindowAgentInfo,
 } from "../src/server/tmux";
 import { FirstSeen } from "../src/server/timing";
 import {
@@ -128,6 +134,71 @@ describe("interruptedAfter", () => {
   test("a cut-off first line and an empty tail are no evidence", () => {
     expect(interruptedAfter('rupted by user]"}}\n' + assistant("2026-09-25T09:35:40Z"), since)).toBe(false);
     expect(interruptedAfter("", since)).toBe(false);
+  });
+});
+
+describe("abortedAfter", () => {
+  // Shaped like Codex's rollout rows; only the fields read here.
+  const event = (at: string, type: string) => JSON.stringify({ timestamp: at, type: "event_msg", payload: { type } });
+  const said = (at: string, role: string, text: string) =>
+    JSON.stringify({ timestamp: at, type: "response_item", payload: { type: "message", role, content: [{ type: "input_text", text }] } });
+  const since = Date.parse("2026-09-25T09:35:25Z") / 1000;
+
+  test("Esc mid-turn: the turn's last event is turn_aborted, whatever is written after it", () => {
+    const tail = [event("2026-09-25T09:35:30Z", "task_started"), said("2026-09-25T09:35:59Z", "developer", "<turn_aborted>\n…</turn_aborted>"),
+      event("2026-09-25T09:35:59Z", "turn_aborted"), event("2026-09-25T09:36:00Z", "token_count")];
+    expect(abortedAfter(tail.join("\n") + "\n", since)).toBe(true);
+  });
+
+  test("a turn started or finished after the abort is the last word", () => {
+    expect(abortedAfter([event("2026-09-25T09:35:59Z", "turn_aborted"), event("2026-09-25T09:36:10Z", "task_started")].join("\n"), since)).toBe(false);
+    expect(abortedAfter([event("2026-09-25T09:35:59Z", "turn_aborted"), event("2026-09-25T09:36:10Z", "task_complete")].join("\n"), since)).toBe(false);
+  });
+
+  test("an abort older than the stamp, a cut-off line and an empty tail are no evidence", () => {
+    expect(abortedAfter(event("2026-09-25T09:35:59Z", "turn_aborted"), Date.parse("2026-09-25T09:36:10Z") / 1000)).toBe(false);
+    expect(abortedAfter('"turn_aborted"}}\n' + event("2026-09-25T09:35:30Z", "task_started"), since)).toBe(false);
+    expect(abortedAfter("", since)).toBe(false);
+  });
+});
+
+describe("believedState", () => {
+  const dir = mkdtempSync(join(tmpdir(), "believed-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const file = (name: string, rows: object[]) => {
+    const path = join(dir, name);
+    writeFileSync(path, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    return path;
+  };
+  const since = Date.parse("2026-09-25T09:35:25Z") / 1000;
+  const interrupted = file("claude.jsonl", [
+    { type: "assistant", timestamp: "2026-09-25T09:35:40Z", message: { content: [{ type: "text", text: "ok" }] } },
+    { type: "user", timestamp: "2026-09-25T09:35:59Z", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } },
+  ]);
+  const aborted = file("codex.jsonl", [{ timestamp: "2026-09-25T09:35:59Z", type: "event_msg", payload: { type: "turn_aborted" } }]);
+  /** `at` null: a stamp with no time. */
+  const claude = (state: AgentState, path: string, at: number | null = since): WindowAgentInfo =>
+    ({ paneId: "%1", kind: "claude", state, ...(at === null ? {} : { since: at }), conversation: { sessionId: "s", transcriptPath: path } });
+  const codex = (state: AgentState, path: string): WindowAgentInfo => ({ paneId: "%2", kind: "codex", state, since, thread: { id: "t", path } });
+
+  test("a running or waiting stamp the conversation file shows interrupted since is done", async () => {
+    expect(await believedState(claude("running", interrupted))).toBe("done");
+    // Esc on a permission prompt: the stamp still says input.
+    expect(await believedState(claude("input", interrupted))).toBe("done");
+    expect(await believedState(codex("running", aborted))).toBe("done");
+  });
+
+  test("without that evidence the stamp is believed", async () => {
+    // The interrupt came before the stamp: a new turn since.
+    expect(await believedState(claude("running", interrupted, Date.parse("2026-09-25T09:36:10Z") / 1000))).toBe("running");
+    // A stamp with no time, a file that isn't there, a done stamp, no stamp.
+    expect(await believedState(claude("running", interrupted, null))).toBe("running");
+    expect(await believedState(claude("running", join(dir, "missing.jsonl")))).toBe("running");
+    expect(await believedState(claude("done", interrupted))).toBe("done");
+    expect(await believedState({ paneId: "%3", kind: "codex", daemon: true })).toBeUndefined();
+    // Each agent's own evidence: Claude's interrupt line means nothing in a Codex rollout, and the other way round.
+    expect(await believedState(codex("running", interrupted))).toBe("running");
+    expect(await believedState(claude("running", aborted))).toBe("running");
   });
 });
 

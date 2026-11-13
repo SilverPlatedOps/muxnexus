@@ -34,6 +34,25 @@ const q = (question: string, multiSelect: boolean) => ({ question, header: quest
 const SINGLE = transcript("single", [q("Pick a colour", false), q("Pick a size", false)]);
 const MULTI_LATER = transcript("multi-later", [q("Pick a colour", false), q("Pick fruits", true)]);
 
+/** A conversation file holding `rows`. */
+function rowsFile(name: string, rows: object[]): string {
+  const path = join(dir, `${name}.jsonl`);
+  writeFileSync(path, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  return path;
+}
+/** When the stamps below were set: before the interrupts in these files. */
+const SINCE = Date.parse("2026-11-13T10:00:00Z") / 1000;
+// Esc fires no hook: the stamp stays `running` (or `input`), and only the conversation file says the turn ended.
+const INTERRUPTED = rowsFile("interrupted", [
+  { type: "user", uuid: "u1", timestamp: "2026-11-13T10:00:00.500Z", message: { role: "user", content: "count to fifty" } },
+  { type: "assistant", uuid: "a1", timestamp: "2026-11-13T10:00:02.000Z", message: { content: [{ type: "text", text: "1, 2, 3" }] } },
+  { type: "user", uuid: "u2", timestamp: "2026-11-13T10:00:03.000Z", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } },
+]);
+const ABORTED = rowsFile("aborted", [
+  { timestamp: "2026-11-13T10:00:00.500Z", type: "event_msg", payload: { type: "task_started" } },
+  { timestamp: "2026-11-13T10:00:03.000Z", type: "event_msg", payload: { type: "turn_aborted", reason: "interrupted" } },
+]);
+
 const claudeAgent = (over: Partial<WindowAgentInfo> = {}): WindowAgentInfo => ({
   paneId: "%1", kind: "claude", state: "done", conversation: { sessionId: "sess-1", transcriptPath: SINGLE }, ...over,
 });
@@ -107,13 +126,32 @@ describe("send", () => {
     // The pane shows the turn running (queued messages wait on it).
     const busy = fakeTmux(claudeAgent(), [raw("claude-queued")]);
     expect(await sendText(busy, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
-    // Text streaming under a draft shows no sign of work on the pane: the stamp says so.
-    const stamped = fakeTmux(claudeAgent({ state: "running" }), [raw("claude-idle-draft")]);
+    // Text streaming under a draft shows no sign of work on the pane: the stamp says so, and the transcript holds no interrupt since.
+    const stamped = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
     expect(await sendText(stamped, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
     // After "No, and tell Claude…" no tool runs, so the stamp stays `input` while the reply streams.
     const steered = fakeTmux(claudeAgent({ state: "input" }), [raw("claude-idle-draft")]);
     expect(await sendText(steered, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
     expect([...busy.writes(), ...stamped.writes(), ...steered.writes()]).toEqual([]);
+  });
+
+  test("after an interrupt the stamp still says running, but the transcript says done: the draft can be replaced", async () => {
+    const claude = fakeTmux(claudeAgent({ state: "running", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
+      [raw("claude-idle-draft"), raw("claude-idle-empty")]);
+    expect(await sendText(claude, "@20", "sess-1", "from the phone", true)).toEqual({ ok: true });
+    expect(claude.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "from the phone"], ["sendKeys", "%1", ["Enter"]]]);
+    // Esc on a permission prompt leaves the stamp at `input`, with the same line in the transcript.
+    const waiting = fakeTmux(claudeAgent({ state: "input", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
+      [raw("claude-idle-draft"), raw("claude-idle-empty")]);
+    expect(await sendText(waiting, "@21", "sess-1", "x", true)).toEqual({ ok: true });
+    const codex = fakeTmux(codexAgent({ state: "running", since: SINCE, thread: { id: "thread-1", path: ABORTED } }), [raw("codex-idle-draft"), raw("codex-idle-empty")]);
+    expect(await sendText(codex, "@22", "thread-1", "x", true)).toEqual({ ok: true });
+    expect(codex.writes()[0]).toEqual(["sendKeys", "%2", ["C-c"]]);
+    // An interrupt from before the stamp is an earlier turn's: this one runs.
+    const later = fakeTmux(claudeAgent({ state: "running", since: SINCE + 60, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
+      [raw("claude-idle-draft")]);
+    expect(await sendText(later, "@23", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
+    expect(later.writes()).toEqual([]);
   });
 
   test("a clear that doesn't take sends nothing more, and a second C-c never follows", async () => {
@@ -340,8 +378,8 @@ describe("stop and keys", () => {
       expect(tmux.writes()).toEqual([]);
     }
     expect(await stop(fakeTmux(null, [raw("claude-working")]), "@10")).toEqual({ ok: false, error: "no-agent" });
-    // Working on the pane, or only by the stamp (Claude streaming under a desk draft shows nothing).
-    for (const [windowId, agent, pane] of [["@11", claudeAgent(), "claude-working"], ["@12", codexAgent(), "codex-working"], ["@13", claudeAgent({ state: "running" }), "claude-idle-draft"]] as const) {
+    // Working on the pane, or only by the stamp (Claude streaming under a desk draft shows nothing; no interrupt in its transcript since).
+    for (const [windowId, agent, pane] of [["@11", claudeAgent(), "claude-working"], ["@12", codexAgent(), "codex-working"], ["@13", claudeAgent({ state: "running", since: SINCE }), "claude-idle-draft"]] as const) {
       const tmux = fakeTmux(agent, [raw(pane)]);
       expect(await stop(tmux, windowId)).toEqual({ ok: true });
       expect(tmux.writes()).toEqual([["sendKeys", agent.paneId, ["Escape"]]]);
@@ -349,11 +387,22 @@ describe("stop and keys", () => {
   });
 
   test("a double tap on Stop sends one Escape: two would be Esc Esc", async () => {
-    const first = fakeTmux(claudeAgent({ state: "running" }), [raw("claude-idle-draft")]);
-    const second = fakeTmux(claudeAgent({ state: "running" }), [raw("claude-idle-draft")]);
+    const first = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
+    const second = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
     expect(await stop(first, "@14")).toEqual({ ok: true });
     expect(await stop(second, "@14")).toEqual({ ok: true });
     expect([...first.writes(), ...second.writes()]).toEqual([["sendKeys", "%1", ["Escape"]]]);
+  });
+
+  test("after an interrupt the stamp still says running: Stop has nothing to stop, and no Escape reaches the idle prompt", async () => {
+    for (const [windowId, agent, pane] of [
+      ["@15", claudeAgent({ state: "running", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }), "claude-idle-draft"],
+      ["@16", codexAgent({ state: "running", since: SINCE, thread: { id: "thread-1", path: ABORTED } }), "codex-idle-draft"],
+    ] as const) {
+      const tmux = fakeTmux(agent, [raw(pane)]);
+      expect(await stop(tmux, windowId)).toEqual({ ok: true });
+      expect(tmux.writes()).toEqual([]);
+    }
   });
 
   test("pressKey accepts only the generic keys", async () => {

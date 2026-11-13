@@ -167,6 +167,38 @@ describe("the conversation hub", () => {
     }
   });
 
+  test("an interrupt fires no hook: the transcript says the turn is over, so no working line, no Stop, no card", async () => {
+    // The fixture transcripts end with an interrupt (Claude's line, Codex's turn_aborted) on 2026-01-01; the stamps are older.
+    const since = Date.parse("2026-01-01T09:00:00Z") / 1000;
+    for (const [agent, fixture] of [
+      [{ ...claude(transcript(), "running"), since }, "claude-idle-draft"],
+      // Esc on a permission prompt: the stamp stays `input`, and the pane would still read as the prompt for a moment.
+      [{ ...claude(transcript(), "input"), since }, "claude-bash-permission"],
+      [{ kind: "codex", state: "running", since, thread: { id: "thread-1", path: transcript("codex-turns.jsonl") } }, "codex-idle-empty"],
+    ] as const) {
+      const { state, tmux } = fakeTmux(agent as Partial<WindowAgentInfo>, pane(fixture));
+      const hub = createConversationHub({ tmux, pollMs: 1000 });
+      const ws = socket();
+      try {
+        await hub.open(ws, "@1");
+        expect({ fixture, ...ws.last("conv-card") }).toEqual({ fixture, t: "conv-card", windowId: "@1", card: null, screen: false, working: false });
+        expect(state.captures).toBe(0);
+      } finally {
+        hub.stop();
+      }
+    }
+    // A stamp set after the interrupt is a new turn: it runs.
+    const { tmux } = fakeTmux({ ...claude(transcript(), "running"), since: Date.parse("2026-01-02T00:00:00Z") / 1000 }, pane("claude-idle-draft"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: false, working: true });
+    } finally {
+      hub.stop();
+    }
+  });
+
   test("the pane is read only while the stamp says waiting", async () => {
     const { state, tmux } = fakeTmux(claude(transcript(), "running"), pane("claude-bash-permission"));
     const hub = createConversationHub({ tmux, pollMs: 30 });
