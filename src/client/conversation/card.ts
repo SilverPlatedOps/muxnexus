@@ -24,8 +24,8 @@ type ScreenResult = Extract<ServerMessage, { t: "conv-screen-result" }>;
 const ANSWER_GIVE_UP_MS = 15_000;
 /** An answer the agent took, on a dialog that is still up this long after: tappable again (its keys didn't land). */
 const ANSWERED_HOLD_MS = 4000;
-/** After a key, the screen is read again this soon, so the key's effect shows. */
-const KEY_REFRESH_MS = 400;
+/** A key with no answer by then is given up, so the keys come back whatever happened to it. */
+const KEY_GIVE_UP_MS = 10_000;
 /** Screen's view padding (style.css `.conv-screen-view`), top and bottom. */
 const VIEW_PAD = 16;
 /** CSI and OSC sequences, to tell a blank row from one with text. */
@@ -279,6 +279,7 @@ const KEYS: { label: string; key: GenericKey; name: string }[] = [
 
 export interface ScreenDeps {
   send(m: ClientMessage): void;
+  toast(m: string): void;
   /** The tab whose pane Screen shows; null while none is. */
   windowId(): string | null;
 }
@@ -308,21 +309,34 @@ export function createScreen(deps: ScreenDeps): ScreenView {
   const note = el("div", "conv-screen-note");
   view.append(host, note);
   const keys = el("div", "conv-screen-keys");
-  for (const k of KEYS) {
+  const keyButtons = KEYS.map((k) => {
     const b = button("conv-screen-key", k.label);
     b.setAttribute("aria-label", `Press ${k.name}`);
     b.onclick = () => press(k.key);
-    keys.append(b);
-  }
+    return b;
+  });
+  keys.append(...keyButtons);
   root.append(bar, view, keys);
 
   let mode: "closed" | "open" | "fixed" = "closed";
   /** `blind`: made while Screen had no size (a chat over the page), so xterm measured nothing: made again once it has one. */
   let term: { t: Terminal; off: () => void; blind: boolean } | null = null;
-  /** The capture asked for last: an older one's answer is not drawn. */
+  /** The capture asked for last (a read, or a key's screen after it): an older one's answer is not drawn. */
   let latest: string | null = null;
   let seq = 0;
-  let keyTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The screen drawn's token, which a key pressed on it carries; null until one is drawn. */
+  let token: string | null = null;
+  /** A key out: the keys stay off until its answer, so each key is pressed on the screen the one before left. */
+  let keyOut: { req: string; timer: ReturnType<typeof setTimeout> } | null = null;
+
+  function paintKeys() {
+    for (const b of keyButtons) b.disabled = token === null || keyOut !== null;
+  }
+
+  function dropKey() {
+    if (keyOut) clearTimeout(keyOut.timer);
+    keyOut = null;
+  }
 
   function dropTerm() {
     term?.off();
@@ -342,12 +356,15 @@ export function createScreen(deps: ScreenDeps): ScreenView {
     deps.send({ t: "conv-screen", req: latest, windowId });
   }
 
+  /** A key, on the screen drawn: refused by the server if that has changed since. Its answer is the screen after it. */
   function press(key: GenericKey) {
     const windowId = deps.windowId();
-    if (!windowId) return;
-    deps.send({ t: "conv-key", windowId, key });
-    clearTimeout(keyTimer);
-    keyTimer = setTimeout(refresh, KEY_REFRESH_MS);
+    if (mode === "closed" || !windowId || token === null || keyOut) return;
+    const req = `key-${++seq}`;
+    latest = req;
+    keyOut = { req, timer: setTimeout(() => { keyOut = null; paintKeys(); }, KEY_GIVE_UP_MS) };
+    deps.send({ t: "conv-key", req, windowId, token, key });
+    paintKeys();
   }
 
   /** A terminal of the pane's size, made once Screen is on the page (xterm measures its cells when opened). */
@@ -380,6 +397,7 @@ export function createScreen(deps: ScreenDeps): ScreenView {
     return t;
   }
 
+  paintKeys();
   refreshBtn.onclick = refresh;
   // A terminal made while hidden is drawn at the wrong cell size: read the pane again, to make it anew, once it shows.
   new ResizeObserver(() => { if (term?.blind && view.clientWidth > 0) refresh(); }).observe(view);
@@ -389,7 +407,9 @@ export function createScreen(deps: ScreenDeps): ScreenView {
     mode = "closed";
     root.hidden = true;
     latest = null;
-    clearTimeout(keyTimer);
+    token = null;
+    dropKey();
+    paintKeys();
     dropTerm();
   }
 
@@ -404,9 +424,17 @@ export function createScreen(deps: ScreenDeps): ScreenView {
     close,
     state: () => mode,
     result(m) {
-      if (mode === "closed" || m.req !== latest) return;
+      if (keyOut?.req === m.req) {
+        dropKey();
+        if (m.error) deps.toast("Not pressed: the screen had changed. Here it is now");
+      }
+      if (mode === "closed" || m.req !== latest) return paintKeys();
       latest = null;
+      token = m.token || null;
+      paintKeys();
       if (!m.ansi || m.cols <= 0 || m.rows <= 0) {
+        token = null;
+        paintKeys();
         dropTerm();
         note.textContent = "Couldn't read the screen";
         note.hidden = false;

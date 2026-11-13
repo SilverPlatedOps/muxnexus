@@ -6,7 +6,7 @@ import type { ConvError, GenericKey } from "../../shared/conversation";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
 import { QUEUED } from "./claude";
-import type { PaneRead } from "./pane";
+import { fingerprint, paneLines, type PaneRead } from "./pane";
 import { readPage } from "./reader";
 
 export type { KeyPlan } from "./adapter";
@@ -204,15 +204,74 @@ export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "capturePane" | "s
   return { ok: true };
 }
 
+// --- Screen ---
+
+type ScreenTmux = Pick<Tmux, "agentOfWindow" | "activePane" | "capturePane" | "paneSize">;
+
+/** What Screen shows of a tab: its pane's capture and size, and the token a key pressed on it carries back. */
+export interface ScreenShot { ansi: string; cols: number; rows: number; token: string }
+
+/** Settling: read every `SETTLE_MS` until two reads agree, for at most `SETTLE_CAP_MS`. */
+const SETTLE_MS = 150;
+const SETTLE_CAP_MS = 1000;
+
 /** The pane Screen shows and its keys reach: the agent's, or for a tab with none, the window's active pane. */
-export async function screenPane(tmux: Pick<Tmux, "agentOfWindow" | "activePane">, windowId: string): Promise<string> {
-  return (await tmux.agentOfWindow(windowId))?.paneId ?? (await tmux.activePane(windowId));
+async function screenTarget(tmux: Pick<Tmux, "agentOfWindow" | "activePane">, windowId: string): Promise<{ info: WindowAgentInfo | null; pane: string }> {
+  const info = await tmux.agentOfWindow(windowId);
+  return { info, pane: info?.paneId ?? (await tmux.activePane(windowId)) };
 }
 
-/** One of Screen's keys, as pressed at the desk: any tab, any screen. */
-export async function pressKey(tmux: Pick<Tmux, "agentOfWindow" | "activePane" | "sendKeys">, windowId: string, key: GenericKey): Promise<void> {
+/**
+ * What a Screen key is bound to, worked out afresh before each key (nothing
+ * is kept): the tab, the pane Screen shows, the conversation it holds ("" for
+ * none) and the screen's text, with what the agent redraws on its own made
+ * steady. Shell tabs too: a key is refused while their screen keeps changing.
+ */
+export function screenToken(windowId: string, pane: string, info: WindowAgentInfo | null, ansi: string): string {
+  const texts = paneLines(ansi).map((l) => l.text.trimEnd());
+  const rows = info ? adapterFor(info.kind).steady(texts) : texts;
+  return fingerprint([windowId, pane, (info && conversationOf(info)) ?? "", ...rows]);
+}
+
+/** The tab's screen now, as Screen shows it. */
+export async function screenNow(tmux: ScreenTmux, windowId: string): Promise<ScreenShot> {
+  const { info, pane } = await screenTarget(tmux, windowId);
+  const [ansi, size] = await Promise.all([tmux.capturePane(pane), tmux.paneSize(pane)]);
+  return { ansi, ...size, token: screenToken(windowId, pane, info, ansi) };
+}
+
+/**
+ * The screen once it has settled after a key: two reads in a row that agree
+ * (by token, so a statusline tick doesn't count), or the last after about a
+ * second for a screen that never stops (a spinner). The next key is pressed
+ * on this, so Down, Down, Enter never races the agent's redraw.
+ */
+async function settled(tmux: ScreenTmux, windowId: string): Promise<ScreenShot> {
+  const deadline = Date.now() + SETTLE_CAP_MS;
+  await Bun.sleep(SETTLE_MS);
+  let last = await screenNow(tmux, windowId);
+  for (;;) {
+    await Bun.sleep(SETTLE_MS);
+    const next = await screenNow(tmux, windowId);
+    if (next.token === last.token || Date.now() >= deadline) return next;
+    last = next;
+  }
+}
+
+/**
+ * One of Screen's keys, pressed only while the tab shows what the user saw
+ * (`token`, from the screen they pressed it on): read again right before the
+ * key, any change since (a desk key, another pane, another conversation) and
+ * it is refused. Either way the answer is the screen after, settled.
+ */
+export async function pressKey(
+  tmux: ScreenTmux & Pick<Tmux, "sendKeys">, windowId: string, token: string, key: GenericKey,
+): Promise<{ screen: ScreenShot; error?: ConvError }> {
   if (!GENERIC_KEYS.includes(key)) throw new Error(`not a generic key: ${JSON.stringify(key)}`);
-  await tmux.sendKeys(await screenPane(tmux, windowId), [key]);
+  const { info, pane } = await screenTarget(tmux, windowId);
+  if (screenToken(windowId, pane, info, await tmux.capturePane(pane)) !== token) return { screen: await settled(tmux, windowId), error: "prompt-changed" };
+  await tmux.sendKeys(pane, [key]);
+  return { screen: await settled(tmux, windowId) };
 }
 
 /**

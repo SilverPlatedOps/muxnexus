@@ -20,6 +20,11 @@ export interface ConvAdapter {
   keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null;
   /** The keys that empty the prompt. Sent only to an idle prompt that holds text. */
   clearDraft: string[];
+  /**
+   * The screen's rows (escapes stripped) with what the agent redraws on its own, unasked, made steady: what a
+   * Screen key's token is worked out from, so a timer's redraw is no change while anything else is.
+   */
+  steady(texts: string[]): string[];
 }
 
 const ADAPTERS: Record<AgentKind, ConvAdapter> = { claude: claudeAdapter, codex: codexAdapter };

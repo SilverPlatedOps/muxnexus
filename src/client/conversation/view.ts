@@ -167,7 +167,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const newBtn = button("conv-new", "New messages ↓");
   newBtn.hidden = true;
   /** The tab's terminal, read-only, over the list: from `⋯`, the card's offer, or in place of a tab with no agent. */
-  const screenView = createScreen({ send: (m) => deps.send(m), windowId: () => windowId });
+  const screenView = createScreen({ send: (m) => deps.send(m), toast: (m) => deps.toast(m), windowId: () => windowId });
   const backBtn = button("conv-new conv-back", "Back to latest ↓");
   backBtn.hidden = true;
 

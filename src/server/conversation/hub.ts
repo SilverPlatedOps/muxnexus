@@ -7,7 +7,7 @@ import type { Card, GenericKey } from "../../shared/conversation";
 import type { ServerMessage } from "../../shared/protocol";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
-import { answer, conversationOf, pendingQuestionMulti, pressKey, screenPane, sendText, stop } from "./actions";
+import { answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "./actions";
 import { linksIn, readPage, readSince, searchFile } from "./reader";
 
 /**
@@ -182,6 +182,12 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
   }
   const lastAnswer = new Map<string, { fingerprint: string; at: number }>();
 
+  /** A screen that couldn't be read: answered empty (no token, so no key can follow), and the reason sent to show. */
+  function unreadScreen(ws: HubSocket, req: string, e: unknown) {
+    send(ws, { t: "conv-screen-result", req, ansi: "", cols: 0, rows: 0, token: "" });
+    send(ws, { t: "error", message: errorText(e) });
+  }
+
   /** An action that threw: its request is still answered, and the reason sent to show. */
   function failed(ws: HubSocket, req: string, e: unknown) {
     send(ws, { t: "conv-result", req, ok: false });
@@ -270,17 +276,20 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
 
     async screen(ws: HubSocket, req: string, windowId: string) {
       try {
-        const pane = await screenPane(tmux, windowId);
-        const [ansi, size] = await Promise.all([tmux.capturePane(pane), tmux.paneSize(pane)]);
-        send(ws, { t: "conv-screen-result", req, ansi, ...size });
+        send(ws, { t: "conv-screen-result", req, ...(await screenNow(tmux, windowId)) });
       } catch (e) {
-        send(ws, { t: "conv-screen-result", req, ansi: "", cols: 0, rows: 0 });
-        send(ws, { t: "error", message: errorText(e) });
+        unreadScreen(ws, req, e);
       }
     },
 
-    async key(ws: HubSocket, windowId: string, key: GenericKey) {
-      await inLane(windowId, () => pressKey(tmux, windowId, key)).catch((e) => send(ws, { t: "error", message: errorText(e) }));
+    /** A Screen key, pressed only on the screen `token` was read from: answered with the screen after it, refused or not. */
+    async key(ws: HubSocket, req: string, windowId: string, token: string, key: GenericKey) {
+      try {
+        const r = await inLane(windowId, () => pressKey(tmux, windowId, token, key));
+        send(ws, { t: "conv-screen-result", req, ...r.screen, ...(r.error ? { error: r.error } : {}) });
+      } catch (e) {
+        unreadScreen(ws, req, e);
+      }
     },
 
     /** Stops the timer; for the server's own stop. */

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapterFor } from "../src/server/conversation/adapter";
-import { answer, cleanText, conversationOf, pendingQuestionMulti, pressKey, sendText, stop } from "../src/server/conversation/actions";
+import { answer, cleanText, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "../src/server/conversation/actions";
 import type { GenericKey } from "../src/shared/conversation";
 import type { WindowAgentInfo } from "../src/server/tmux";
 
@@ -75,6 +75,7 @@ function fakeTmux(agent: WindowAgentInfo | null | (WindowAgentInfo | null)[], pa
     async capturePane(paneId: string) { calls.push(["capturePane", paneId]); return panes[Math.min(next++, panes.length - 1)]!; },
     async pasteInto(paneId: string, text: string) { calls.push(["pasteInto", paneId, text]); },
     async sendKeys(paneId: string, keys: string[]) { calls.push(["sendKeys", paneId, keys]); },
+    async paneSize(paneId: string) { calls.push(["paneSize", paneId]); return { cols: 120, rows: 40 }; },
   };
 }
 
@@ -511,18 +512,106 @@ describe("stop and keys", () => {
     }
   });
 
-  test("pressKey accepts only the generic keys", async () => {
+  test("a Screen key reaches the screen the user saw, and the answer is the screen after it", async () => {
     const keys: GenericKey[] = ["1", "2", "3", "4", "5", "Enter", "Escape", "Up", "Down", "Tab"];
-    const tmux = fakeTmux(claudeAgent(), [""]);
-    for (const key of keys) await pressKey(tmux, "@1", key);
-    expect(tmux.writes()).toEqual(keys.map((k) => ["sendKeys", "%1", [k]]));
+    for (const key of keys) {
+      // A layout no card reads: what Screen is for.
+      const tmux = fakeTmux(claudeAgent(), [raw("claude-bash-permission-tip")]);
+      const seen = await screenNow(tmux, "@1");
+      expect(seen).toMatchObject({ ansi: raw("claude-bash-permission-tip"), cols: 120, rows: 40 });
+      const r = await pressKey(tmux, "@1", seen.token, key);
+      expect(r).toEqual({ screen: seen });
+      expect(tmux.writes()).toEqual([["sendKeys", "%1", [key]]]);
+    }
     const other = fakeTmux(claudeAgent(), [""]);
-    for (const bad of ["C-c", "6", "enter", "Enter Enter", "", "y"]) await expect(pressKey(other, "@1", bad as GenericKey)).rejects.toThrow();
+    const { token } = await screenNow(other, "@1");
+    for (const bad of ["C-c", "6", "enter", "Enter Enter", "", "y"]) await expect(pressKey(other, "@1", token, bad as GenericKey)).rejects.toThrow();
     expect(other.writes()).toEqual([]);
     // A tab with no agent (a shell): the window's active pane.
-    const shell = fakeTmux(null, [""]);
-    await pressKey(shell, "@3", "Enter");
-    expect(shell.calls).toEqual([["agentOfWindow", "@3"], ["activePane", "@3"], ["sendKeys", "%9", ["Enter"]]]);
+    const shell = fakeTmux(null, ["$ \n"]);
+    const prompt = await screenNow(shell, "@3");
+    shell.calls.length = 0;
+    await pressKey(shell, "@3", prompt.token, "Enter");
+    expect(shell.calls.slice(0, 4)).toEqual([["agentOfWindow", "@3"], ["activePane", "@3"], ["capturePane", "%9"], ["sendKeys", "%9", ["Enter"]]]);
+  }, 10_000);
+
+  test("a Screen key is refused, with the screen as it is now, once the screen it was pressed on has gone", async () => {
+    /** The token for `before`, then a key pressed with it while the tab shows `after`. */
+    async function press(before: Parameters<typeof fakeTmux>, after: Parameters<typeof fakeTmux>, key: GenericKey = "1") {
+      const seen = await screenNow(fakeTmux(...before), "@1");
+      const now = fakeTmux(...after);
+      const r = await pressKey(now, "@1", seen.token, key);
+      return { r, now };
+    }
+    // A desk key moved the dialog on: the next question, or the prompt back.
+    for (const [from, to] of [["claude-question", "claude-question-2"], ["claude-bash-permission-tip", "claude-idle-empty"], ["codex-approval", "codex-idle-empty"]]) {
+      const agent = from.startsWith("codex") ? codexAgent() : claudeAgent();
+      const { r, now } = await press([agent, [raw(from)]], [agent, [raw(to)]]);
+      expect(r).toEqual({ screen: await screenNow(fakeTmux(agent, [raw(to)]), "@1"), error: "prompt-changed" });
+      expect(now.writes()).toEqual([]);
+    }
+    // The highlight moved at the desk (the same rows otherwise): Enter would choose another row.
+    const moved = await press([claudeAgent(), [raw("claude-bash-no-card")]], [claudeAgent(), [noCardAt(3)]], "Enter");
+    expect(moved.r.error).toBe("prompt-changed");
+    expect(moved.now.writes()).toEqual([]);
+    // Another conversation in the tab (`/clear`), the same screen: refused.
+    const cleared = await press([claudeAgent(), [raw("claude-idle-empty")]], [claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } }), [raw("claude-idle-empty")]]);
+    expect(cleared.r.error).toBe("prompt-changed");
+    expect(cleared.now.writes()).toEqual([]);
+    // Another agent's pane in a split window, or for a shell tab another active pane, the same text: refused.
+    const split = await press([claudeAgent(), [raw("claude-idle-empty")]], [claudeAgent({ paneId: "%4" }), [raw("claude-idle-empty")]]);
+    expect(split.r.error).toBe("prompt-changed");
+    const shellSeen = await screenNow(fakeTmux(null, ["$ \n"]), "@3");
+    const shell = fakeTmux(null, ["$ \n"]);
+    shell.activePane = async (windowId: string) => { shell.calls.push(["activePane", windowId]); return "%8"; };
+    expect((await pressKey(shell, "@3", shellSeen.token, "Enter")).error).toBe("prompt-changed");
+    // A token for another tab.
+    const elsewhere = await screenNow(fakeTmux(claudeAgent(), [raw("claude-idle-empty")]), "@2");
+    const here = fakeTmux(claudeAgent(), [raw("claude-idle-empty")]);
+    expect((await pressKey(here, "@1", elsewhere.token, "Enter")).error).toBe("prompt-changed");
+    expect([...split.now.writes(), ...shell.writes(), ...here.writes()]).toEqual([]);
+  }, 10_000);
+
+  test("the statusline redrawn on its timer is no change; any other row under the prompt is", async () => {
+    // Measured on Claude Code 2.1.323 with a two-row statusline refreshed every 5 s: over 75 s idle only the meter
+    // row's countdowns moved (`2h22` to `2h21`, `19h02` to `19h01`, then `19h` on the hour).
+    const idle = raw("claude-idle-statusline");
+    const ticked = idle.replace("2h22", "2h21").replace("19h02", "19h").replace("41%", "42%").replace("▸5173 ", "▸51734");
+    expect(ticked).not.toBe(idle);
+    const keyAfter = async (now: string) => {
+      const seen = await screenNow(fakeTmux(claudeAgent(), [idle]), "@1");
+      const tmux = fakeTmux(claudeAgent(), [now]);
+      return { r: await pressKey(tmux, "@1", seen.token, "Up"), writes: tmux.writes() };
+    };
+    expect((await keyAfter(ticked)).writes).toEqual([["sendKeys", "%1", ["Up"]]]);
+    // The mode switched at the desk, words typed into the prompt, a notice drawn under it: refused.
+    for (const now of [
+      idle.replace("manual", "accept"),
+      idle.replace("\x1b[2mTry\x1b[0m \x1b[2m\"how\x1b[0m", "hi \x1b[2m\"how\x1b[0m"),
+      idle.replace(/(agents\x1b\[39m)\n/, "$1\n                  update available\n"),
+    ]) {
+      expect(now).not.toBe(idle);
+      const { r, writes } = await keyAfter(now);
+      expect(r.error).toBe("prompt-changed");
+      expect(writes).toEqual([]);
+    }
+  });
+
+  test("the screen after a key is taken once it settles: two reads alike, or at most about a second", async () => {
+    // The key's redraw comes in a moment: the reply waits for two reads in a row that agree.
+    const settling = fakeTmux(null, ["$ \n", "$ \n", "$ l\n", "$ ls\n", "$ ls\n"]);
+    const { token } = await screenNow(settling, "@3");
+    const r = await pressKey(settling, "@3", token, "Enter");
+    expect(r.screen.ansi).toBe("$ ls\n");
+    // A screen that never stops changing (a spinner, a clock) is sent as it is after about a second.
+    const spinning = fakeTmux(null, Array.from({ length: 40 }, (_, k) => `$ ${k}\n`));
+    spinning.capturePane = (() => { let k = 0; return async () => `$ ${k++}\n`; })();
+    const first = await screenNow(spinning, "@3");
+    const t0 = Date.now();
+    const busy = await pressKey(spinning, "@3", first.token, "Enter");
+    expect(busy.error).toBe("prompt-changed");
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(900);
+    expect(Date.now() - t0).toBeLessThan(1600);
   });
 
   test("conversationOf names Claude's session and Codex's thread", () => {

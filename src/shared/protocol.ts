@@ -278,8 +278,12 @@ export type ClientMessage =
   | { t: "conv-stop"; windowId: string; req?: string }
   /** What the tab's terminal shows now: answered with `conv-screen-result`. */
   | { t: "conv-screen"; req: string; windowId: string }
-  /** One of Screen's keys, pressed in the tab. */
-  | { t: "conv-key"; windowId: string; key: GenericKey }
+  /**
+   * One of Screen's keys, pressed in the tab only while it shows the screen
+   * `token` came with (a `conv-screen-result`'s): answered with
+   * `conv-screen-result` for `req`, the screen after it.
+   */
+  | { t: "conv-key"; req: string; windowId: string; token: string; key: GenericKey }
   | { t: "ping" };
 
 /** An agent already running in a tab, joining a chat. */
@@ -578,6 +582,11 @@ export type ServerMessage =
   | { t: "conv-links-result"; req: string; links: { url: string; pr: boolean }[] }
   /** How a send, an answer or a stop went. A failure with neither `error` nor `draft` threw: an `error` message says why. */
   | { t: "conv-result"; req: string; ok: boolean; error?: ConvError; draft?: string }
-  /** A capture of the tab's pane with its colours, and the pane's size; empty and 0 × 0 when it couldn't be read. */
-  | { t: "conv-screen-result"; req: string; ansi: string; cols: number; rows: number }
+  /**
+   * A capture of the tab's pane with its colours, the pane's size, and the
+   * token a key pressed on it carries; empty, 0 × 0 and no token when it
+   * couldn't be read. For a `conv-key`: the screen after it, settled, and
+   * `error` when the key wasn't pressed (the screen had changed).
+   */
+  | { t: "conv-screen-result"; req: string; ansi: string; cols: number; rows: number; token: string; error?: ConvError }
   | { t: "error"; message: string };

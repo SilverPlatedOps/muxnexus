@@ -357,6 +357,35 @@ describe("the conversation hub", () => {
     }
   });
 
+  test("a Screen key carries the screen's token back: pressed while it matches, refused with the screen as it is once it doesn't", async () => {
+    const { state, tmux } = fakeTmux(claude(transcript()), pane("claude-bash-permission-tip"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.screen(ws, "p1", "@1");
+      const seen = ws.last("conv-screen-result")!;
+      expect(seen).toMatchObject({ req: "p1", ansi: pane("claude-bash-permission-tip"), cols: 80, rows: 24 });
+      expect(seen.token).toMatch(/^[0-9a-f]{40}$/);
+      await hub.key(ws, "k1", "@1", seen.token, "Down");
+      expect(state.writes).toEqual(["keys %1 Down"]);
+      expect(ws.last("conv-screen-result")).toEqual({ ...seen, req: "k1" });
+      // Answered at the desk meanwhile: the key is not pressed, and the screen as it is now comes back.
+      state.screen = pane("claude-idle-empty");
+      await hub.key(ws, "k2", "@1", seen.token, "Enter");
+      expect(state.writes).toEqual(["keys %1 Down"]);
+      const refused = ws.last("conv-screen-result")!;
+      expect(refused).toMatchObject({ req: "k2", ansi: pane("claude-idle-empty"), error: "prompt-changed" });
+      expect(refused.token).not.toBe(seen.token);
+      // A screen that can't be read is answered empty, with no token to press a key on.
+      tmux.capturePane = async () => { throw new Error("no such pane"); };
+      await hub.key(ws, "k3", "@1", refused.token, "Enter");
+      expect(ws.last("conv-screen-result")).toEqual({ t: "conv-screen-result", req: "k3", ansi: "", cols: 0, rows: 0, token: "" });
+      expect(ws.last("error")).toEqual({ t: "error", message: "no such pane" });
+    } finally {
+      hub.stop();
+    }
+  });
+
   test("Stop answers with a result", async () => {
     const { tmux } = fakeTmux(claude(transcript()), pane("claude-bash-permission"));
     const hub = createConversationHub({ tmux, pollMs: 1000 });
@@ -491,6 +520,9 @@ describe("conversations over the socket", () => {
     expect(results.find((r) => r.req === "a")).toMatchObject({ ok: false, error: "prompt-changed" });
     const screen = await waitFor(() => c.last("conv-screen-result"), 3000, "conv-screen-result");
     expect(screen).toMatchObject({ req: "p", cols: 100, rows: 30 });
+    // A key on that screen: pressed, answered with the screen after it, and nothing attached or resized.
+    c.send({ t: "conv-key", req: "k", windowId: tab.windowId, token: screen.token, key: "Enter" });
+    expect(await waitFor(() => all(c.messages, "conv-screen-result").find((r) => r.req === "k"), 3000, "the key's screen")).toMatchObject({ cols: 100, rows: 30 });
     expect(typeof screen.ansi).toBe("string");
     expect((await tmux.run(["list-clients"])).trim()).toBe("");
     expect(await size()).toBe(before);
@@ -506,7 +538,10 @@ describe("conversations over the socket", () => {
     };
     await refused({ t: "conv-open" }, "invalid conv-open");
     await refused({ t: "conv-open", windowId: "1" }, "invalid conv-open");
-    await refused({ t: "conv-key", windowId: "@1", key: "C-c" }, "invalid conv-key");
+    await refused({ t: "conv-key", req: "k", windowId: "@1", token: "f", key: "C-c" }, "invalid conv-key");
+    // A key with no token (no screen it was pressed on), or no request to answer.
+    await refused({ t: "conv-key", req: "k", windowId: "@1", key: "Enter" }, "invalid conv-key");
+    await refused({ t: "conv-key", windowId: "@1", token: "f", key: "Enter" }, "invalid conv-key");
     await refused({ t: "conv-answer", req: "r", windowId: "@1", conversation: "sess-1", fingerprint: "f", option: 1.5 }, "invalid conv-answer");
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x".repeat(100_001) }, "invalid conv-send");
     await refused({ t: "conv-more", windowId: "@1", before: -1 }, "invalid conv-more");

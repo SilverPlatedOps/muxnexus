@@ -1102,8 +1102,8 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-screen" });
           return await conv.screen(ws, m.req, m.windowId);
         case "conv-key":
-          if (!isWindowId(m.windowId) || !GENERIC_KEYS.includes(m.key)) return send(ws, { t: "error", message: "invalid conv-key" });
-          return await conv.key(ws, m.windowId, m.key);
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.token) || !GENERIC_KEYS.includes(m.key)) return send(ws, { t: "error", message: "invalid conv-key" });
+          return await conv.key(ws, m.req, m.windowId, m.token, m.key);
         default:
           return send(ws, { t: "error", message: `unknown message type: ${String((m as { t?: unknown }).t)}` });
       }

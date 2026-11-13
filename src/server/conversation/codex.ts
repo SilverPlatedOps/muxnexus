@@ -196,4 +196,5 @@ function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
 }
 
 // C-c empties the composer, and a running turn carries on (unlike Claude's).
-export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"] };
+// Steady as it is: over 75 s on 0.167.1 nothing on an idle composer or an approval changed on its own.
+export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady: (texts) => texts };
