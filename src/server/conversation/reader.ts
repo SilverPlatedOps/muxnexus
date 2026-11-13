@@ -195,6 +195,29 @@ async function callsOf(fh: FileHandle, kind: AgentKind, items: Item[], before: n
   return { calls, bytes: counter.n };
 }
 
+/** What a result whose call couldn't be found is listed as. */
+export const EARLIER_STEP = "Output of an earlier step";
+
+/**
+ * The page's items with each result whose call is further back than the page
+ * turned into the step it completes, where the result is (`calls`: those found;
+ * one not found is a step of its own, its call unknown). In place, every row
+ * above it is older than its result and every row below newer, so the page
+ * read before this one's start later goes above it in order; `start` stays
+ * the page's own. Its call's row, should a later page bring it, is the same
+ * item and is not listed twice.
+ */
+function placed(items: Item[], calls: Item[]): Item[] {
+  const steps = new Set(items.flatMap((i) => (i.kind === "step" ? [i.id] : [])));
+  const found = new Map(calls.flatMap((c) => (c.kind === "step" ? [[c.id, c] as const] : [])));
+  return items.map((i) => {
+    if (i.kind !== "step-result" || steps.has(i.id)) return i;
+    const result = { ok: i.ok, output: i.output, at: i.at };
+    steps.add(i.id);
+    return { ...(found.get(i.id) ?? { id: i.id, kind: "step", at: i.at, tool: "", summary: EARLIER_STEP, input: "" }), result };
+  });
+}
+
 export async function readPage(kind: AgentKind, path: string, opts: { before?: number; around?: number; limit?: number }): Promise<Page> {
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const fh = await open(path, "r");
@@ -207,10 +230,9 @@ export async function readPage(kind: AgentKind, path: string, opts: { before?: n
       const after = await forwardFrom(fh, kind, mid, size, half);
       const before = await backFrom(fh, kind, mid, size, half);
       const items = [...before.items, ...after.items];
-      // A search hit in a result whose call is further back than the page: the call comes too, first (it is older
-      // than every row the page holds), so the hit shows as the step it completes. `start` stays the page's own.
+      // A search hit in a result whose call is further back than the page shows as the step it completes, there.
       const { calls, bytes } = await callsOf(fh, kind, items, before.start);
-      return { items: [...calls, ...items], start: before.start, end: after.end, bytesRead: (before.bytesRead ?? 0) + (after.bytesRead ?? 0) + bytes };
+      return { items: placed(items, calls), start: before.start, end: after.end, bytesRead: (before.bytesRead ?? 0) + (after.bytesRead ?? 0) + bytes };
     }
     const end = Math.min(opts.before ?? size, size);
     return await backFrom(fh, kind, end, size, limit);

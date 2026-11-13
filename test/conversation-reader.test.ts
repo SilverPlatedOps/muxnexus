@@ -59,14 +59,31 @@ test("an around page holding a result holds its call too, however far back the c
   const at = rows.slice(0, 42).join("").length;
   const page = await readPage("claude", p, { around: at, limit: 10 });
   const ids = page.items.map((i) => `${i.kind}:${i.id}`);
-  expect(ids).toContain("step-result:t_far");
-  // The call comes first, ahead of the rows the page holds (it is older than all of them); the page still starts where it did.
-  expect(ids[0]).toBe("step:t_far");
-  expect(page.items[0]).toMatchObject({ kind: "step", summary: "Ran make all" });
+  // The result shows as the step it completes, where the result is: every row above it is older than the result,
+  // every row below newer, and a page read before the page's start later goes above it in order. The page still
+  // starts where it did.
+  expect(ids).toEqual([...[36, 37, 38, 39, 40].map((n) => `agent:r${n}`), "step:t_far", ...[50, 51, 52, 53].map((n) => `agent:r${n}`)]);
+  expect(page.items[5]).toMatchObject({ kind: "step", summary: "Ran make all", input: expect.stringContaining("make all"), result: { ok: true, output: "build done: needle here", at: "2026-01-01T10:09:00.000Z" } });
   const text = await Bun.file(p).text();
   expect(page.start).toBeGreaterThan(text.indexOf(call) + call.length);
   // The search finds the result row; the hit names the step it completes.
   expect((await searchFile("claude", p, "needle")).hits).toEqual([expect.objectContaining({ id: "t_far", offset: at })]);
+});
+
+test("a result whose call is too far back to find shows as a step of its own, not dropped", async () => {
+  // More than the 8 MiB the page looks back for a call: the agent wrote this much while the call ran.
+  const call = JSON.stringify({ type: "assistant", uuid: "c1", timestamp: "2026-01-01T10:00:00.000Z", message: { content: [{ type: "tool_use", id: "t_gone", name: "Bash", input: { command: "make all" } }] } }) + "\n";
+  const result = JSON.stringify({ type: "user", uuid: "c2", timestamp: "2026-01-01T11:00:00.000Z", message: { content: [{ type: "tool_result", tool_use_id: "t_gone", content: "build done: needle here" }] } }) + "\n";
+  const pad = "x".repeat(1000);
+  const filler = Array.from({ length: Math.ceil((9 * 1024 * 1024) / agent(0, pad).length) }, (_, i) => agent(i + 1, pad));
+  const p = file("gone-call.jsonl", [call, ...filler, result, agent(99999)].join(""));
+  const at = Bun.file(p).size - result.length - agent(99999).length;
+  const page = await readPage("claude", p, { around: at, limit: 10 });
+  const found = page.items.find((i) => i.id === "t_gone");
+  expect(found).toMatchObject({ kind: "step", result: { ok: true, output: "build done: needle here", at: "2026-01-01T11:00:00.000Z" } });
+  expect(page.items.some((i) => i.kind === "step-result")).toBe(false);
+  // It says what it is: the output of a step from earlier on.
+  expect(found).toMatchObject({ summary: "Output of an earlier step" });
 });
 
 test("a 20 MB transcript's last page reads less than 1 MB", async () => {

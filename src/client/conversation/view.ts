@@ -15,7 +15,7 @@ import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { SAFE_LINK } from "../live-markdown";
 import {
-  clipAround, composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, pageFor, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
+  clipAround, composedAs, type Composed, CONV_ERROR, hitShown, linkRows, mergeItems, pageFor, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
 } from "./model";
 
 /**
@@ -423,11 +423,14 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     searchMore.disabled = false;
   }
 
-  /** Shows the item a search hit for `find` names: scrolled to if it is on screen, else the page around it replaces the list. */
+  /**
+   * Shows the item a search hit for `find` names: scrolled to if it is on screen with the match, else the page around
+   * it replaces the list (a step listed without the result the match is in, too).
+   */
   function goTo(id: string, offset: number, find: string) {
     if (!windowId) return;
     closeSheet();
-    if (drawn.has(id)) {
+    if (hitShown(drawn.get(id)?.item, find)) {
       reveal(id, find);
       return;
     }
@@ -508,7 +511,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
 
   function stepBody(it: Step, find?: string): HTMLElement {
     const box = el("div", "conv-step-body");
-    box.append(el("div", "conv-step-label", "Input"), stepPre(it.input, find));
+    // A step listed from its result alone (its call too far back to read) has no input to show.
+    if (it.input) box.append(el("div", "conv-step-label", "Input"), stepPre(it.input, find));
     if (it.result) {
       box.append(el("div", "conv-step-label", it.result.ok ? "Output" : "Output · failed"));
       box.append(it.result.output ? stepPre(it.result.output, find) : el("pre", "conv-pre", "(no output)"));

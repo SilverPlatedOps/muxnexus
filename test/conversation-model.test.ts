@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  answerMessage, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  answerMessage, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -269,6 +269,17 @@ test("a card counts only for the tab and conversation shown now", () => {
   // A card read for the conversation before (a /clear meanwhile), or for none.
   expect(readForShown({ windowId: "@1", conversation: "B" }, shown)).toBe(false);
   expect(readForShown({ windowId: "@1", conversation: null }, shown)).toBe(false);
+});
+
+test("a hit in a step's result that isn't loaded yet is fetched, though the step is listed", () => {
+  const call: ConvItem = { id: "t1", kind: "step", at: "2026-01-01T10:00:00.000Z", tool: "Bash", summary: "Ran make all", input: '{"command":"make all"}' };
+  // The call is listed, its result (where the match is) on a page not loaded: the page around the hit is read.
+  expect(hitShown(call, "needle")).toBe(false);
+  expect(hitShown(undefined, "needle")).toBe(false);
+  // The match is in what is listed: shown at once.
+  expect(hitShown(call, "MAKE ALL")).toBe(true);
+  expect(hitShown({ ...call, result: { ok: true, output: "build done: needle here", at: "2026-01-01T10:09:00.000Z" } }, "needle")).toBe(true);
+  expect(hitShown({ id: "a1", kind: "agent", at: "", text: "the needle" }, "needle")).toBe(true);
 });
 
 test("a page is taken only for the request it answers: two search jumps each get their own", () => {

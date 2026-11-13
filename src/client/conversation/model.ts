@@ -132,6 +132,20 @@ export function readForShown(read: { windowId: string; conversation: string | nu
   return read.windowId === shown.windowId && read.conversation === shown.conversation;
 }
 
+/**
+ * Whether a search hit for `find` in `item` (the item listed under the hit's
+ * id, if any) shows once it is opened: not for a step listed without its
+ * result when the match is in neither its line nor its input, so in the
+ * result, on a page not loaded (the page around the hit is read instead).
+ * Matched as the server matches: ignoring case.
+ */
+export function hitShown(item: ConvItem | undefined, find: string): boolean {
+  if (!item) return false;
+  if (item.kind !== "step" || item.result) return true;
+  const q = find.toLowerCase();
+  return item.summary.toLowerCase().includes(q) || item.input.toLowerCase().includes(q);
+}
+
 /** The page requests out: an older page (`more`) and the page around a search hit (`around`), by request id. */
 export interface PagesOut { more: string | null; around: string | null; start: number }
 
