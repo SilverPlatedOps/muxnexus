@@ -834,6 +834,11 @@ describe("stop and keys", () => {
     expect(claude).toContain(spinner);
     const ticked = "\x1b[38;2;255;153;51m✽\x1b[39m \x1b[38;2;255;161;64mManif\x1b[38;2;255;183;101me\x1b[38;2;255;161;64msting…\x1b[38;2;255;153;51m \x1b[38;2;153;153;153m(1m 7s · ↑\x1b[39m \x1b[38;2;153;153;153m1.2k tokens)\x1b[39m";
     expect(await keyAfter(claudeAgent(), claude, claude.replace(spinner, ticked))).toEqual(pressed);
+    // While it thinks (measured over two turns): `(2s · thinking)`, then `(9s · still thinking)`, then the tokens.
+    const thinking = spinner.replace("(6s · ↓\x1b[39m \x1b[38;2;153;153;153m25 tokens)", "(2s · thinking)");
+    expect(thinking).not.toBe(spinner);
+    expect(await keyAfter(claudeAgent(), claude.replace(spinner, thinking), claude.replace(spinner, thinking.replace("(2s · thinking)", "(9s · still thinking)")))).toEqual(pressed);
+    expect(await keyAfter(claudeAgent(), claude.replace(spinner, thinking), claude.replace(spinner, ticked))).toEqual(pressed);
     // Codex 0.167.1: the elapsed time, and the bullet's colour pulsing.
     const codex = raw("codex-working");
     const working = "\x1b[1m\x1b[38;2;128;128;128m•\x1b[0m \x1b[2mWorking\x1b[0m \x1b[2m(7s • \x1b[0;1mesc\x1b[0;2m to interrupt)\x1b[0m";

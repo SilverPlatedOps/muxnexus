@@ -463,13 +463,14 @@ function steady(lines: PaneLine[]): string[] {
 /**
  * Claude's own working row, `✽ Improvising… (12s · ↓ 102 tokens)`, as a
  * Screen key's token sees it, or null for any other row. Measured on 2.1.323
- * a second apart: the glyph cycles (✽ ✳ ✢ · ✶), one letter of the verb
- * shimmers (its colour), the elapsed time and the count move on, and the
- * arrow turns with the stream. Those read steady; the verb and every other
- * word still count, so a dialog drawn over it is still a change.
+ * every 250 ms over three turns: the glyph cycles (✽ ✳ ✢ · ✶ ✻), one letter
+ * of the verb shimmers (its colour), the elapsed time moves on, and after it
+ * comes `thinking`, `still thinking`, or the count of tokens streamed with an
+ * arrow. Exactly those read steady; the verb and any other words still count,
+ * so a dialog drawn over it is still a change.
  */
 function spinning(text: string): string | null {
-  const m = /^\S (\S[^…]*)… \((?:\d+[hms] ?)+(?: · [↑↓] [\d.]+k? tokens)?\)$/u.exec(text);
+  const m = /^\S (\S[^…]*)… \((?:\d+[hms] ?)+(?: · (?:thinking|still thinking|[↑↓] [\d.]+k? tokens))?\)$/u.exec(text);
   return m ? `\u0001working ${m[1]}` : null;
 }
 
