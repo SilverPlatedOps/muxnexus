@@ -133,6 +133,9 @@ const PERMISSION_FOOTER = "Esc to cancel · Tab to amend";
 const PERMISSION_FIELD_FOOTER = "Esc to cancel";
 const QUESTION_FOOTER = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
 const QUESTION_FIELD_FOOTER = "Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in Vim · Esc to cancel";
+/** A call with one question: no tabs to move between. */
+const ONE_QUESTION_FOOTER = "Enter to select · ↑/↓ to navigate · Esc to cancel";
+const ONE_QUESTION_FIELD_FOOTER = "Enter to select · ↑/↓ to navigate · ctrl+g to edit in Vim · Esc to cancel";
 const QUESTION_OTHER = "Type something.";
 const PLAN_FOOTER = "ctrl+g to edit in Vim · ";
 const PLAN_FEEDBACK = "Tell Claude what to change";
@@ -267,15 +270,37 @@ function tabBar(line: PaneLine): Tab[] | null {
   return tabs.filter((x) => x.lit).length === 1 ? tabs : null;
 }
 
+const CHIP = /^ ☐ ([^☐☒✔←→]+)$/u;
+
+/** ` ☐ Fruit`, highlighted, under the dialog's rule: the header of a call's one question, in place of the tab bar. */
+function isChip(lines: PaneLine[], texts: string[], row: number): boolean {
+  const t = texts[row]!;
+  return CHIP.test(t) && lines[row]!.highlight[1] === true && row > 0 && rule(texts[row - 1]!);
+}
+
+/** Where the questions' header row is, and which question of how many shows: the tab bar's lit tab, or the one chip. */
+function questionHeader(lines: PaneLine[], texts: string[], last: number, field: boolean): { bar: number; at: number; of: number } | null {
+  const footer = texts[last]!.trim();
+  if (footer === (field ? QUESTION_FIELD_FOOTER : QUESTION_FOOTER)) {
+    const bar = findRowBack(texts, isTabBar, last);
+    const tabs = bar < 0 ? null : tabBar(lines[bar]!);
+    if (!tabs) return null;
+    const questions = tabs.slice(0, -1);
+    return { bar, at: questions.findIndex((x) => x.lit) + 1, of: questions.length };
+  }
+  if (footer === (field ? ONE_QUESTION_FIELD_FOOTER : ONE_QUESTION_FOOTER)) {
+    const bar = findRowBack(texts, (t) => CHIP.test(t), last);
+    return bar >= 0 && isChip(lines, texts, bar) ? { bar, at: 1, of: 1 } : null;
+  }
+  return null;
+}
+
 /** With `field`, the question with "Type something." focused: the card as it read before, for its fingerprint. */
 function question(lines: PaneLine[], texts: string[], field = false): Card | null {
   const last = lastFilled(texts);
-  if (last < 0 || texts[last]!.trim() !== (field ? QUESTION_FIELD_FOOTER : QUESTION_FOOTER)) return null;
-  const bar = findRowBack(texts, isTabBar, last);
-  const tabs = bar < 0 ? null : tabBar(lines[bar]!);
-  if (!tabs) return null;
-  const questions = tabs.slice(0, -1);
-  const at = questions.findIndex((x) => x.lit) + 1;
+  const header = last < 0 ? null : questionHeader(lines, texts, last, field);
+  if (!header) return null;
+  const { bar, at, of } = header;
   const first = findRow(texts, option, bar + 1, last);
   if (at === 0 || first < 0) return null;
   const title = block(texts, bar + 1, first, 0);
@@ -295,7 +320,6 @@ function question(lines: PaneLine[], texts: string[], field = false): Card | nul
   if (rules.length !== 1 || rules[0] !== chat.row - 1) return null;
   // Multi-select rows carry a checkbox: not a card in this version (Decision 4).
   if (labels.some((l) => /^\[.\] /u.test(l))) return null;
-  const of = questions.length;
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: o === chat, takesText: o === other }));
   return {
     kind: "question", title, options, fingerprint: fingerprint([`${at}/${of}`, title, ...options.map((o) => o.label)]), question: { at, of },

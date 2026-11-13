@@ -112,6 +112,40 @@ test("single-select questions are cards, numbered by the highlighted tab", () =>
   expect(claude("question-2").dialog!.options.map((o) => o.label)).toEqual(["small", "large", "Type something.", "Chat about this"]);
 });
 
+test("a call with one single-select question has no tab bar: its header chip and the arrow footer make the same card", () => {
+  // Claude Code 2.1.323: ` ☐ Fruit` highlighted where the tab bar would be, and `↑/↓ to navigate`; a digit submits at once.
+  expect(claude("question-single")).toEqual({
+    dialog: {
+      kind: "question",
+      title: "Pick a fruit",
+      options: [
+        { index: 1, label: "Apple" },
+        { index: 2, label: "Pear" },
+        { index: 3, label: "Type something.", takesText: true },
+        { index: 4, label: "Chat about this", secondary: true },
+      ],
+      fingerprint: anyPrint,
+      selected: 1,
+      question: { at: 1, of: 1 },
+    },
+    unrecognised: false,
+    draft: "unknown",
+    working: false,
+  });
+  // In plan mode, under the plan file's name: the same dialog.
+  expect(claude("question-single-plan").dialog!.fingerprint).toBe(claude("question-single").dialog!.fingerprint);
+});
+
+test("a header chip is one highlighted header under a rule, with the one-question footer", () => {
+  const read = (ansi: string) => adapterFor("claude").readPane(ansi);
+  const single = raw("claude-question-single");
+  expect(read(single.replace("\x1b[48;5;153m ☐ Fruit ", "\x1b[49m ☐ Fruit ")).dialog).toBeNull();
+  expect(read(single.replace(" ☐ Fruit ", " ☐ Fruit ☐ Size ")).dialog).toBeNull();
+  expect(read(withFooter(single, QUESTION_FOOTER)).dialog).toBeNull();
+  // And the tab bar keeps its own footer.
+  expect(read(withFooter(raw("claude-question"), ONE_QUESTION_FOOTER)).dialog).toBeNull();
+});
+
 test("the review step is a card of its own, with the answers as detail", () => {
   expect(claude("question-review").dialog).toEqual({
     kind: "question",
@@ -132,6 +166,7 @@ const withFooter = (ansi: string, footer: string) => {
   return rows.join("\n");
 };
 const QUESTION_FOOTER = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
+const ONE_QUESTION_FOOTER = "Enter to select · ↑/↓ to navigate · Esc to cancel";
 
 test("a multi-select question is not a card", () => {
   expect(claude("question-multi")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
@@ -155,6 +190,7 @@ test("a focused field is read as the dialog it belongs to, before and after the 
     ["plan-change-card", ["plan-change-field", "plan-change-text"]],
     ["question", ["question-other-field", "question-other-text"]],
     ["question-2", ["question-typing"]],
+    ["question-single-plan", ["question-single-field", "question-single-text"]],
     ["plan", ["plan-feedback"]],
   ] as const) {
     for (const name of fields) expect(claude(name)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false, field: { fingerprint: card(cardName) } });

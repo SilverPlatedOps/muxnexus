@@ -1,0 +1,40 @@
+$ claude --model haiku --permission-mode default --setting-sources project,lo
+cal
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.323[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m5.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mMax[39m
+[38;5;174m ▝▝[39m   [38;5;174m▝▝[39m   [38;5;246m/private/tmp/claude-501/c10lab[39m
+
+
+[38;5;246m[48;5;237m❯ [38;5;231mNote this link for later: https://github.com/example-org/widgets/pull/42 . Reply with just OK.[39m
+
+[38;5;231m[49m⏺[39m OK
+
+[38;5;246m✻[39m [38;5;246mSautéed for 2s · done 9:47 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the Bash tool to run exactly: touch probe1.txt[39m
+
+[38;5;75m[49m⏺[39m [1mBash[0m(touch probe1.txt)
+[38;5;246m  ⎿[39m [38;5;246m Done[39m
+
+[38;5;231m⏺[39m I ran [38;5;153mtouch probe1.txt[39m in the working directory. It finished with no output, so the empty file should now exist there.
+
+[38;5;246m✻[39m [38;5;246mWorked for 4s · done 9:48 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the AskUserQuestion tool to ask me exactly one single-select question: "Pick a fruit" with options Apple and [39m
+  [38;5;231mPear. Nothing else.[39m
+[38;5;246m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Fruit [39m[49m
+
+[1m[38;5;231mPick a fruit[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mApple[39m
+     [38;5;246mApple[39m
+  [38;5;246m2.[39m Pear
+     [38;5;246mPear[39m
+  [38;5;246m3.[39m [38;5;246mType[39m [38;5;246msomething.[39m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m
+
+

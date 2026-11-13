@@ -294,12 +294,20 @@ describe("answer", () => {
     const question = fakeTmux(claudeAgent(), [raw("claude-question"), raw("claude-question-other-field"), raw("claude-question-other-text")]);
     expect(await answer(question, "@1", "sess-1", print("claude", "question"), 4, "purple")).toEqual({ ok: true });
     expect(question.writes()).toEqual([["sendKeys", "%1", ["4"]], ["pasteInto", "%1", "purple"], ["sendKeys", "%1", ["Enter"]]]);
+
+    // A call with one question: the same keys, and Enter submits it at once (no review step).
+    const single = fakeTmux(claudeAgent(), [raw("claude-question-single-plan"), raw("claude-question-single-field"), raw("claude-question-single-text")]);
+    expect(await answer(single, "@1", "sess-1", print("claude", "question-single-plan"), 3, "kiwi")).toEqual({ ok: true });
+    expect(single.writes()).toEqual([["sendKeys", "%1", ["3"]], ["pasteInto", "%1", "kiwi"], ["sendKeys", "%1", ["Enter"]]]);
   });
 
   test("each question is one digit; the review screen is answered with the user's pick", async () => {
     const first = fakeTmux(claudeAgent(), [raw("claude-question")]);
     expect(await answer(first, "@1", "sess-1", print("claude", "question"), 2)).toEqual({ ok: true });
     expect(first.writes()).toEqual([["sendKeys", "%1", ["2"]]]);
+    const single = fakeTmux(claudeAgent(), [raw("claude-question-single")]);
+    expect(await answer(single, "@1", "sess-1", print("claude", "question-single"), 2)).toEqual({ ok: true });
+    expect(single.writes()).toEqual([["sendKeys", "%1", ["2"]]]);
     for (const option of [1, 2]) {
       const review = fakeTmux(claudeAgent(), [raw("claude-question-review")]);
       expect(await answer(review, "@1", "sess-1", print("claude", "question-review"), option)).toEqual({ ok: true });
