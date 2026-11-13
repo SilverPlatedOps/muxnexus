@@ -186,13 +186,16 @@ export async function answer(
 }
 
 /**
- * Interrupts the agent (Escape) while it works and no dialog is up. The pane
- * can't always tell (Claude streaming text under a draft shows nothing), so a
- * `running` stamp counts too. Nothing to stop, or a stop just sent, is ok.
+ * Interrupts the agent (Escape) while it works and no dialog is up, if the
+ * tab still holds `conversation`. The pane can't always tell (Claude
+ * streaming text under a draft shows nothing), so a `running` stamp counts
+ * too. Nothing to stop, or a stop just sent, is ok.
  */
-export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "capturePane" | "sendKeys">, windowId: string): Promise<{ ok: true } | Refusal> {
+export async function stop(tmux: Pick<Tmux, "agentOfWindow" | "capturePane" | "sendKeys">, windowId: string, conversation: string): Promise<{ ok: true } | Refusal> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
+  // A tap meant for the conversation before a /clear, a resume or a new agent would stop the one there now.
+  if (conversationOf(info) !== conversation) return refuse("another-conversation");
   const r = await readNow(tmux, info.kind, info.paneId);
   // Escape answers a dialog: the card or Screen does that.
   if (r.dialog || r.unrecognised) return refuse("waiting");

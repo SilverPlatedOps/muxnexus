@@ -1096,8 +1096,8 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isToken(m.fingerprint) || !Number.isInteger(m.option) || m.option < 0 || m.option > 99 || (m.text !== undefined && !isText(m.text))) return send(ws, { t: "error", message: "invalid conv-answer" });
           return await conv.answer(ws, m.req, m.windowId, m.conversation, m.fingerprint, m.option, m.text);
         case "conv-stop":
-          if (!isWindowId(m.windowId) || (m.req !== undefined && !isReq(m.req))) return send(ws, { t: "error", message: "invalid conv-stop" });
-          return await conv.interrupt(ws, m.req ?? "", m.windowId);
+          if (!isWindowId(m.windowId) || !isToken(m.conversation) || (m.req !== undefined && !isReq(m.req))) return send(ws, { t: "error", message: "invalid conv-stop" });
+          return await conv.interrupt(ws, m.req ?? "", m.windowId, m.conversation);
         case "conv-screen":
           if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-screen" });
           return await conv.screen(ws, m.req, m.windowId);

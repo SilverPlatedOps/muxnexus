@@ -391,11 +391,13 @@ describe("the conversation hub", () => {
     const hub = createConversationHub({ tmux, pollMs: 1000 });
     const ws = socket();
     try {
-      await hub.interrupt(ws, "x", "@1");
-      await hub.interrupt(ws, "", "@1");
+      await hub.interrupt(ws, "x", "@1", "sess-1");
+      await hub.interrupt(ws, "", "@1", "sess-1");
+      await hub.interrupt(ws, "y", "@1", "sess-0");
       expect(ws.all("conv-result")).toEqual([
         { t: "conv-result", req: "x", ok: false, error: "waiting" },
         { t: "conv-result", req: "", ok: false, error: "waiting" },
+        { t: "conv-result", req: "y", ok: false, error: "another-conversation" },
       ]);
     } finally {
       hub.stop();
@@ -545,6 +547,8 @@ describe("conversations over the socket", () => {
     await refused({ t: "conv-answer", req: "r", windowId: "@1", conversation: "sess-1", fingerprint: "f", option: 1.5 }, "invalid conv-answer");
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x".repeat(100_001) }, "invalid conv-send");
     await refused({ t: "conv-more", windowId: "@1", before: -1 }, "invalid conv-more");
+    // A Stop names the conversation it was meant for.
+    await refused({ t: "conv-stop", req: "s", windowId: "@1" }, "invalid conv-stop");
     await refused({ t: "conv-search", windowId: "@1", query: "x" }, "invalid conv-search");
     c.ws.close();
   });

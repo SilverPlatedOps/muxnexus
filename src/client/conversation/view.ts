@@ -619,7 +619,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     compose.hidden = asked() || agent === null;
     input.disabled = !conversation;
     input.placeholder = conversation || agent === undefined ? "Message" : "Nothing to send to yet";
-    stopBtn.hidden = !working || asked();
+    // A Stop names the conversation it is for: with none to name there is nothing to bind it to.
+    stopBtn.hidden = !working || asked() || !conversation;
     stopBtn.disabled = stopping !== null;
     sendBtn.disabled = !conversation || pending !== null || input.value.trim() === "";
   }
@@ -684,9 +685,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   });
   sendBtn.onclick = () => send(input.value);
   stopBtn.onclick = () => {
-    if (!windowId || stopping) return;
+    if (!windowId || !conversation || stopping) return;
     stopping = `stop-${++seq}`;
-    deps.send({ t: "conv-stop", windowId, req: stopping });
+    deps.send({ t: "conv-stop", windowId, conversation, req: stopping });
     paintSlot();
   };
 

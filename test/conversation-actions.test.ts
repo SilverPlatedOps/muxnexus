@@ -475,29 +475,44 @@ describe("stop and keys", () => {
     // Idle, by pane and stamp: nothing to stop.
     for (const [agent, pane] of [[claudeAgent(), "claude-idle-empty"], [codexAgent(), "codex-idle-empty"]] as const) {
       const tmux = fakeTmux(agent, [raw(pane)]);
-      expect(await stop(tmux, "@10")).toEqual({ ok: true });
+      expect(await stop(tmux, "@10", conversationOf(agent)!)).toEqual({ ok: true });
       expect(tmux.writes()).toEqual([]);
     }
     // A dialog is up, even with the stamp saying running: Escape would answer it.
     for (const pane of ["claude-bash-permission", "claude-trust", "claude-bash-no-field"]) {
       const tmux = fakeTmux(claudeAgent({ state: "running" }), [raw(pane)]);
-      expect(await stop(tmux, "@10")).toEqual({ ok: false, error: "waiting" });
+      expect(await stop(tmux, "@10", "sess-1")).toEqual({ ok: false, error: "waiting" });
       expect(tmux.writes()).toEqual([]);
     }
-    expect(await stop(fakeTmux(null, [raw("claude-working")]), "@10")).toEqual({ ok: false, error: "no-agent" });
+    expect(await stop(fakeTmux(null, [raw("claude-working")]), "@10", "sess-1")).toEqual({ ok: false, error: "no-agent" });
     // Working on the pane, or only by the stamp (Claude streaming under a desk draft shows nothing; no interrupt in its transcript since).
     for (const [windowId, agent, pane] of [["@11", claudeAgent(), "claude-working"], ["@12", codexAgent(), "codex-working"], ["@13", claudeAgent({ state: "running", since: SINCE }), "claude-idle-draft"]] as const) {
       const tmux = fakeTmux(agent, [raw(pane)]);
-      expect(await stop(tmux, windowId)).toEqual({ ok: true });
+      expect(await stop(tmux, windowId, conversationOf(agent)!)).toEqual({ ok: true });
       expect(tmux.writes()).toEqual([["sendKeys", agent.paneId, ["Escape"]]]);
+    }
+  });
+
+  test("a Stop for another conversation is refused before any Escape", async () => {
+    // A delayed tap meant for the conversation before a /clear, a resume or a new agent in the tab.
+    for (const [agent, conversation] of [
+      [claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } }), "sess-1"],
+      [codexAgent({ thread: { id: "thread-2" } }), "thread-1"],
+      // A tab whose conversation can't be named can't be checked: refused too.
+      [codexAgent({ thread: undefined, fresh: true }), "thread-1"],
+    ] as const) {
+      const tmux = fakeTmux(agent, [raw(agent.kind === "claude" ? "claude-working" : "codex-working")]);
+      expect(await stop(tmux, "@17", conversation)).toEqual({ ok: false, error: "another-conversation" });
+      expect(tmux.writes()).toEqual([]);
+      expect(tmux.calls).toEqual([["agentOfWindow", "@17"]]);
     }
   });
 
   test("a double tap on Stop sends one Escape: two would be Esc Esc", async () => {
     const first = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
     const second = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
-    expect(await stop(first, "@14")).toEqual({ ok: true });
-    expect(await stop(second, "@14")).toEqual({ ok: true });
+    expect(await stop(first, "@14", "sess-1")).toEqual({ ok: true });
+    expect(await stop(second, "@14", "sess-1")).toEqual({ ok: true });
     expect([...first.writes(), ...second.writes()]).toEqual([["sendKeys", "%1", ["Escape"]]]);
   });
 
@@ -507,7 +522,7 @@ describe("stop and keys", () => {
       ["@16", codexAgent({ state: "running", since: SINCE, thread: { id: "thread-1", path: ABORTED } }), "codex-idle-draft"],
     ] as const) {
       const tmux = fakeTmux(agent, [raw(pane)]);
-      expect(await stop(tmux, windowId)).toEqual({ ok: true });
+      expect(await stop(tmux, windowId, conversationOf(agent)!)).toEqual({ ok: true });
       expect(tmux.writes()).toEqual([]);
     }
   });

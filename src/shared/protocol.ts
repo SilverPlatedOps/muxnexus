@@ -274,8 +274,12 @@ export type ClientMessage =
    * takes words. Answered with `conv-result`.
    */
   | { t: "conv-answer"; req: string; windowId: string; conversation: string; fingerprint: string; option: number; text?: string }
-  /** Interrupt the agent. Always answered with `conv-result` for `req` ("" when absent): refused with `waiting` while a dialog is up. */
-  | { t: "conv-stop"; windowId: string; req?: string }
+  /**
+   * Interrupt the agent, if the tab still holds `conversation` (the `conv`'s).
+   * Always answered with `conv-result` for `req` ("" when absent): refused
+   * with `waiting` while a dialog is up.
+   */
+  | { t: "conv-stop"; windowId: string; conversation: string; req?: string }
   /** What the tab's terminal shows now: answered with `conv-screen-result`. */
   | { t: "conv-screen"; req: string; windowId: string }
   /**
