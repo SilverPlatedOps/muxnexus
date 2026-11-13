@@ -48,6 +48,15 @@ const INTERRUPTED = rowsFile("interrupted", [
   { type: "assistant", uuid: "a1", timestamp: "2026-11-13T10:00:02.000Z", message: { content: [{ type: "text", text: "1, 2, 3" }] } },
   { type: "user", uuid: "u2", timestamp: "2026-11-13T10:00:03.000Z", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } },
 ]);
+// "No, and tell Claude what to do differently" on a permission: the refusal, with the user's words, is the last row.
+const STEERED = rowsFile("steered", [
+  { type: "user", uuid: "u1", timestamp: "2026-11-13T10:00:00.500Z", message: { role: "user", content: "make the file" } },
+  { type: "assistant", uuid: "a1", timestamp: "2026-11-13T10:00:02.000Z", message: { content: [{ type: "tool_use", id: "toolu_s", name: "Bash", input: { command: "touch note.txt" } }] } },
+  {
+    type: "user", uuid: "u2", timestamp: "2026-11-13T10:00:05.000Z", toolDenialKind: "user-rejected",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_s", is_error: true, content: "The user doesn't want to proceed with this tool use. To tell you how to proceed, the user said:\nuse the other folder" }] },
+  },
+]);
 const ABORTED = rowsFile("aborted", [
   { timestamp: "2026-11-13T10:00:00.500Z", type: "event_msg", payload: { type: "task_started" } },
   { timestamp: "2026-11-13T10:00:03.000Z", type: "event_msg", payload: { type: "turn_aborted", reason: "interrupted" } },
@@ -207,8 +216,9 @@ describe("send", () => {
     // Text streaming under a draft shows no sign of work on the pane: the stamp says so, and the transcript holds no interrupt since.
     const stamped = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
     expect(await sendText(stamped, "@6", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
-    // After "No, and tell Claude…" no tool runs, so the stamp stays `input` while the reply streams.
-    const steered = fakeTmux(claudeAgent({ state: "input" }), [raw("claude-idle-draft")]);
+    // After "No, and tell Claude…" no tool runs, so the stamp stays `input` while the reply streams. The transcript ends
+    // in the refusal carrying the user's words, which is no interrupt: the turn goes on.
+    const steered = fakeTmux(claudeAgent({ state: "input", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: STEERED } }), [raw("claude-idle-draft")]);
     expect(await sendText(steered, "@6", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     expect([...busy.writes(), ...stamped.writes(), ...steered.writes()]).toEqual([]);
   });

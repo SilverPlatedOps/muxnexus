@@ -635,7 +635,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       }
       const line = el("div", `chat-line${r.me ? " me" : ""}${r.turnStart ? " turn" : ""}`);
       const shape = r.me ? el("span", "chat-shape", r.shape) : agentMark(chat.members.find((m) => m.handle === r.from)?.kind ?? "", r.shape);
-      const who = btn("chat-who", r.me ? "you" : r.from, r.me ? undefined : `${r.from}: open its terminal beside the chat`);
+      const who = btn("chat-who", r.me ? "you" : r.from, r.me ? undefined : `${r.from}: ${host.conversationMode ? "open its conversation" : "open its terminal beside the chat"}`);
       if (r.colour) who.style.color = r.colour;
       if (!r.me) who.onclick = () => openSide(r.from);
       const body = el("div", "chat-body");
@@ -1001,7 +1001,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       r.dataset.handle = m.handle;
       const shape = agentMark(m.kind, m.shape);
       const glyph = el("span", `glyph ${live?.state === "input" ? "input" : live?.state === "running" ? "running" : live?.online ? "seen" : "none"}`, live?.state === "input" ? "●" : live?.state === "running" ? "" : live?.online ? "○" : "·");
-      const name = btn("chat-member-name", m.handle, "Open its terminal beside the chat");
+      // In conversation mode the member's tab opens as its conversation, not a terminal beside the chat.
+      const name = btn("chat-member-name", m.handle, host.conversationMode ? "Open its conversation" : "Open its terminal beside the chat");
       name.style.color = memberColour(m) ?? "";
       name.onclick = () => { closeMenu(); openSide(m.handle); };
       const meta = el("span", `chat-member-meta${st.alarm ? " alarm" : ""}`, pickOnly ? [m.kind === "codex" ? "Codex" : "Claude", live?.session ?? m.session, m.role].filter(Boolean).join(" · ") : `${[m.kind === "codex" ? "Codex" : "Claude", live?.session ?? m.session, m.role].filter(Boolean).join(" · ")} · ${st.text}`);

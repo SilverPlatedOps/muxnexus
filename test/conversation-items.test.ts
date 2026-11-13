@@ -86,6 +86,13 @@ test("codex: the instructions and notes it injects are never the user's; a room'
   const user = (text: string) => ({ timestamp: "2026-01-01T10:00:09.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
   expect(one("codex", user("# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nbe brief\n</INSTRUCTIONS>"))).toEqual([]);
   expect(one("codex", user("<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>"))).toEqual([]);
+  // An automation's wake-up, and what the Codex app adds about the page or block in view (Codex labels them
+  // `user.heartbeat` and `additional_content.*` in the row's own metadata, never `user.text`).
+  expect(one("codex", user("<heartbeat>\n<automation_id>nightly</automation_id>\n<current_time_iso>2026-01-01T10:00:00Z</current_time_iso>\n<instructions>check the build</instructions>\n</heartbeat>"))).toEqual([]);
+  expect(one("codex", user("<external_codex_apps_open_page>The page open is: Notes</external_codex_apps_open_page>"))).toEqual([]);
+  expect(one("codex", user("<external_codex_apps_writing_block_edits>One block was edited.</external_codex_apps_writing_block_edits>"))).toEqual([]);
+  // The user's own words that merely mention one are theirs.
+  expect(one("codex", user("what does <heartbeat> mean?"))).toMatchObject([{ kind: "you" }]);
   expect(one("codex", user("[muxnexus · ops · #4 · from @claude (Claude) · peer, not the user]\nplease review"))).toMatchObject([{ kind: "peer", from: "claude", text: "please review" }]);
 });
 

@@ -11,8 +11,11 @@ import {
 
 type Out = (ConvItem | StepResult)[];
 
-/** Context the harness injects as a user message (instructions, the note after an interrupt); never the user's words. */
-const INJECTED = /^\s*(?:<(?:environment_context|user_instructions|turn_aborted)>|# AGENTS\.md instructions)/;
+/**
+ * Context the harness injects as a user message (instructions, the note after an interrupt, an automation's
+ * heartbeat, what the Codex app adds about the page in view); never the user's words.
+ */
+const INJECTED = /^\s*(?:<(?:environment_context|user_instructions|turn_aborted|heartbeat|external_codex_apps_[a-z_]+)>|# AGENTS\.md instructions)/;
 
 /** The command inside an `exec` call's JS-ish input: `exec_command({cmd:"…"})`. */
 function execCommand(input: string): string {
