@@ -216,11 +216,11 @@ describe("the conversation hub", () => {
     try {
       await hub.links(ws, "r1", "@9");
       await hub.search(ws, "r2", "@9", "x");
-      await hub.more(ws, "@9", 100);
-      await hub.around(ws, "@9", 100);
+      await hub.more(ws, "m1", "@9", 100);
+      await hub.around(ws, "a1", "@9", 100);
       expect(ws.last("conv-links-result")).toEqual({ t: "conv-links-result", req: "r1", windowId: "@9", conversation: null, links: [] });
       expect(ws.last("conv-search-result")).toEqual({ t: "conv-search-result", req: "r2", windowId: "@9", conversation: null, hits: [] });
-      expect(ws.all("conv-page")).toEqual([0, 1].map(() => ({ t: "conv-page", windowId: "@9", conversation: null, items: [], start: 0, end: 0 })));
+      expect(ws.all("conv-page")).toEqual(["m1", "a1"].map((req) => ({ t: "conv-page", req, windowId: "@9", conversation: null, items: [], start: 0, end: 0 })));
     } finally {
       hub.stop();
     }
@@ -234,13 +234,15 @@ describe("the conversation hub", () => {
     try {
       await hub.open(ws, "@1");
       const { end } = ws.last("conv")!;
-      await hub.more(ws, "@1", end);
-      await hub.around(ws, "@1", 0);
+      await hub.more(ws, "m1", "@1", end);
+      await hub.around(ws, "a1", "@1", 0);
       await hub.search(ws, "s1", "@1", "the");
       await hub.links(ws, "l1", "@1");
       for (const m of [...ws.all("conv-page"), ws.last("conv-search-result")!, ws.last("conv-links-result")!]) {
         expect(m).toMatchObject({ windowId: "@1", conversation: "sess-1" });
       }
+      // Each page names the request it answers.
+      expect(ws.all("conv-page").map((p) => p.req)).toEqual(["m1", "a1"]);
       // The open conversation is what's read while it is open, whatever the tab holds by then: the client, which
       // still shows it, keeps the answer; the next poll sends the new conversation, and the client drops what follows for the old one.
       state.agent = claude(transcript(), "done", "sess-2");
@@ -606,7 +608,10 @@ describe("conversations over the socket", () => {
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x".repeat(100_001) }, "invalid conv-send");
     // Replace names the draft it clears (the fingerprint it was shown with), not just yes.
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x", replace: true }, "invalid conv-send");
-    await refused({ t: "conv-more", windowId: "@1", before: -1 }, "invalid conv-more");
+    await refused({ t: "conv-more", req: "m", windowId: "@1", before: -1 }, "invalid conv-more");
+    // A page request names itself, so its answer can't be taken for another's.
+    await refused({ t: "conv-more", windowId: "@1", before: 10 }, "invalid conv-more");
+    await refused({ t: "conv-around", windowId: "@1", offset: 10 }, "invalid conv-around");
     // A Stop names the conversation it was meant for.
     await refused({ t: "conv-stop", req: "s", windowId: "@1" }, "invalid conv-stop");
     await refused({ t: "conv-search", windowId: "@1", query: "x" }, "invalid conv-search");

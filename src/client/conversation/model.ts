@@ -132,6 +132,20 @@ export function readForShown(read: { windowId: string; conversation: string | nu
   return read.windowId === shown.windowId && read.conversation === shown.conversation;
 }
 
+/** The page requests out: an older page (`more`) and the page around a search hit (`around`), by request id. */
+export interface PagesOut { more: string | null; around: string | null; start: number }
+
+/**
+ * Which request a `conv-page` answers, by the id it echoes: only one still
+ * out counts. A jump tapped after another replaces it, so the first jump's
+ * page, coming late, is dropped rather than shown for the second's target.
+ */
+export function pageFor(m: { req: string; start: number; end: number }, out: PagesOut): "more" | "around" | null {
+  if (out.around !== null && m.req === out.around) return "around";
+  if (out.more !== null && m.req === out.more) return "more";
+  return null;
+}
+
 /**
  * A step's text as its body shows it: cut to `max` characters from the start,
  * or, when `query` (a search's, matched as the server matches it: ignoring

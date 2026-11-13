@@ -223,16 +223,16 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     },
 
     // A request waits on its answer: one that can't look the tab up or read its file is still answered, with nothing found.
-    async more(ws: HubSocket, windowId: string, before: number) {
+    async more(ws: HubSocket, req: string, windowId: string, before: number) {
       const { conversation, file } = await fileOf(ws, windowId);
       const page = file ? await readPage(file.kind, file.path, { before }).catch(() => null) : null;
-      send(ws, { t: "conv-page", windowId, conversation, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
+      send(ws, { t: "conv-page", req, windowId, conversation, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
     },
 
-    async around(ws: HubSocket, windowId: string, offset: number) {
+    async around(ws: HubSocket, req: string, windowId: string, offset: number) {
       const { conversation, file } = await fileOf(ws, windowId);
       const page = file ? await readPage(file.kind, file.path, { around: offset }).catch(() => null) : null;
-      send(ws, { t: "conv-page", windowId, conversation, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
+      send(ws, { t: "conv-page", req, windowId, conversation, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
     },
 
     async search(ws: HubSocket, req: string, windowId: string, query: string, cursor?: number) {

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  answerMessage, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  answerMessage, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -269,6 +269,19 @@ test("a card counts only for the tab and conversation shown now", () => {
   // A card read for the conversation before (a /clear meanwhile), or for none.
   expect(readForShown({ windowId: "@1", conversation: "B" }, shown)).toBe(false);
   expect(readForShown({ windowId: "@1", conversation: null }, shown)).toBe(false);
+});
+
+test("a page is taken only for the request it answers: two search jumps each get their own", () => {
+  // Hit 1 tapped, then hit 2 before hit 1's page came: only hit 2's page is wanted, for hit 2.
+  const out = { more: null, around: "around-2", start: 5000 };
+  expect(pageFor({ req: "around-1", start: 100, end: 900 }, out)).toBeNull();
+  expect(pageFor({ req: "around-2", start: 2000, end: 2600 }, out)).toBe("around");
+  // An older page out while a jump is too: each answer goes to its own request, wherever its page ends.
+  const both = { more: "more-3", around: "around-4", start: 5000 };
+  expect(pageFor({ req: "more-3", start: 4000, end: 5000 }, both)).toBe("more");
+  expect(pageFor({ req: "around-4", start: 4400, end: 5000 }, both)).toBe("around");
+  expect(pageFor({ req: "more-1", start: 4000, end: 5000 }, both)).toBeNull();
+  expect(pageFor({ req: "more-3", start: 0, end: 0 }, { more: null, around: null, start: 5000 })).toBeNull();
 });
 
 test("a page, search or links answer counts only for the tab and conversation shown now", () => {

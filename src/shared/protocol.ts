@@ -255,10 +255,10 @@ export type ClientMessage =
    */
   | { t: "conv-open"; windowId: string }
   | { t: "conv-close" }
-  /** Older items, before byte `before` (the `start` of what the socket holds): answered with `conv-page`. */
-  | { t: "conv-more"; windowId: string; before: number }
-  /** The items around byte `offset` (a search hit's): answered with `conv-page`. */
-  | { t: "conv-around"; windowId: string; offset: number }
+  /** Older items, before byte `before` (the `start` of what the socket holds): answered with `conv-page` for `req`. */
+  | { t: "conv-more"; req: string; windowId: string; before: number }
+  /** The items around byte `offset` (a search hit's): answered with `conv-page` for `req`. */
+  | { t: "conv-around"; req: string; windowId: string; offset: number }
   /** Newest first, from `cursor` (a previous result's `next`): answered with `conv-search-result`. */
   | { t: "conv-search"; req: string; windowId: string; query: string; cursor?: number }
   | { t: "conv-links"; req: string; windowId: string }
@@ -573,12 +573,12 @@ export type ServerMessage =
   /** What the agent wrote since, to append; a `step-result` completes a step already shown. */
   | { t: "conv-items"; windowId: string; items: (ConvItem | StepResult)[] }
   /**
-   * The answer to `conv-more` or `conv-around`: the rows from byte `start` to
-   * byte `end` of `conversation`'s file (the one it was read for: an answer
-   * for a conversation no longer shown is dropped). An around page's `end`
-   * says whether it meets what the socket holds.
+   * The answer to the `conv-more` or `conv-around` `req` names: the rows from
+   * byte `start` to byte `end` of `conversation`'s file (the one it was read
+   * for: an answer for a conversation no longer shown is dropped). An around
+   * page's `end` says whether it meets what the socket holds.
    */
-  | { t: "conv-page"; windowId: string; conversation: string | null; items: (ConvItem | StepResult)[]; start: number; end: number }
+  | { t: "conv-page"; req: string; windowId: string; conversation: string | null; items: (ConvItem | StepResult)[]; start: number; end: number }
   /**
    * The dialog the agent waits on, or none: sent on open and whenever it changes.
    * `conversation`: the one the pane was read for (as for `conv-page`): a card

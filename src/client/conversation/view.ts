@@ -15,7 +15,7 @@ import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { SAFE_LINK } from "../live-markdown";
 import {
-  clipAround, composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
+  clipAround, composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, pageFor, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
 } from "./model";
 
 /**
@@ -124,11 +124,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let orphans: StepResult[] = [];
   /** Byte offset of the oldest row shown: an older page is asked for before it. */
   let start = 0;
-  /** A `conv-more` is out: one at a time. */
-  let asking = false;
+  /** The `conv-more` out, by its request id: one at a time. */
+  let asking: string | null = null;
   let retryAt = 0;
-  /** A `conv-around` is out for this item (a search hit for `find`): its page replaces the list instead of joining it. */
-  let aroundFor: { id: string; find: string } | null = null;
+  /** The `conv-around` out (its id) for this item (a search hit for `find`): its page replaces the list instead of joining it. */
+  let aroundFor: { req: string; id: string; find: string } | null = null;
   /** The list shows a page found by search, not the newest: new items are not appended, and Back to latest is offered. */
   let detached = false;
   let card: Card | null = null;
@@ -431,8 +431,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       reveal(id, find);
       return;
     }
-    aroundFor = { id, find };
-    deps.send({ t: "conv-around", windowId, offset });
+    // A jump tapped while another is out replaces it: the earlier one's page, if it comes, is dropped.
+    const req = `around-${++seq}`;
+    aroundFor = { req, id, find };
+    deps.send({ t: "conv-around", req, windowId, offset });
   }
 
   let hitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -607,8 +609,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     empty.hidden = none || !(agent === undefined || items.length === 0);
     empty.textContent = agent === undefined ? "Loading…" : "Nothing said yet";
     older.hidden = none || agent === undefined || (start === 0 && items.length === 0);
-    older.disabled = asking || start === 0;
-    older.textContent = asking ? "Loading earlier messages…" : start > 0 ? "Show earlier messages" : "Start of the conversation";
+    older.disabled = asking !== null || start === 0;
+    older.textContent = asking !== null ? "Loading earlier messages…" : start > 0 ? "Show earlier messages" : "Start of the conversation";
   }
 
   function paintWorking() {
@@ -621,13 +623,13 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
 
   /** The page before what is shown, when the reader is near the top or the list doesn't fill the screen. */
   function fill(force = false) {
-    if (!windowId || !agent || asking || start <= 0 || Date.now() < retryAt) return;
+    if (!windowId || !agent || asking !== null || start <= 0 || Date.now() < retryAt) return;
     // Hidden, everything reads 0 and "near the top": it would page through the whole file.
     if (body.clientHeight === 0) return;
     if (!force && body.scrollTop > NEAR_TOP && body.scrollHeight > body.clientHeight) return;
-    asking = true;
+    asking = `more-${++seq}`;
     paintBody();
-    deps.send({ t: "conv-more", windowId, before: start });
+    deps.send({ t: "conv-more", req: asking, windowId, before: start });
   }
 
   body.addEventListener("scroll", () => {
@@ -794,7 +796,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     }
     conversation = m.conversation;
     start = m.start;
-    asking = false;
+    asking = null;
     retryAt = 0;
     orphans = [];
     attached();
@@ -832,7 +834,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       return;
     }
     orphans = [];
-    asking = false;
+    asking = null;
     retryAt = 0;
     detached = true;
     paintItems(mergeItems([], m.items, "append"), "all");
@@ -846,14 +848,16 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
 
   function page(m: Extract<ServerMessage, { t: "conv-page" }>) {
-    // An older page that was already out ends where the list begins; any other page is the one asked for around a hit.
-    if (aroundFor && !(asking && m.end === start)) {
-      const want = aroundFor;
+    // Each page names the request it answers: one no longer out (a jump replaced by a later tap) is dropped.
+    const which = pageFor(m, { more: asking, around: aroundFor?.req ?? null, start });
+    if (which === "around") {
+      const want = aroundFor!;
       aroundFor = null;
       around(m, want);
       return;
     }
-    asking = false;
+    if (which !== "more") return;
+    asking = null;
     // Only the page that ends where the shown items begin; anything else (a failed read) is dropped.
     if (m.end !== start || m.start > start) {
       retryAt = Date.now() + RETRY_MS;
@@ -955,7 +959,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       items = [];
       orphans = [];
       start = 0;
-      asking = false;
+      asking = null;
       retryAt = 0;
       attached();
       resetSheet();

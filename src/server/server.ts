@@ -1078,11 +1078,11 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "conv-close":
           return conv.close(ws);
         case "conv-more":
-          if (!isWindowId(m.windowId) || !isOffset(m.before)) return send(ws, { t: "error", message: "invalid conv-more" });
-          return await conv.more(ws, m.windowId, m.before);
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isOffset(m.before)) return send(ws, { t: "error", message: "invalid conv-more" });
+          return await conv.more(ws, m.req, m.windowId, m.before);
         case "conv-around":
-          if (!isWindowId(m.windowId) || !isOffset(m.offset)) return send(ws, { t: "error", message: "invalid conv-around" });
-          return await conv.around(ws, m.windowId, m.offset);
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isOffset(m.offset)) return send(ws, { t: "error", message: "invalid conv-around" });
+          return await conv.around(ws, m.req, m.windowId, m.offset);
         case "conv-search":
           if (!isReq(m.req) || !isWindowId(m.windowId) || typeof m.query !== "string" || m.query.length > SEARCH_LIMITS.query || (m.cursor !== undefined && !isOffset(m.cursor))) return send(ws, { t: "error", message: "invalid conv-search" });
           return await conv.search(ws, m.req, m.windowId, m.query, m.cursor);
