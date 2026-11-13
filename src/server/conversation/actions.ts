@@ -6,7 +6,7 @@ import type { ConvError, GenericKey } from "../../shared/conversation";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor, type KeyPlan } from "./adapter";
 import { QUEUED } from "./claude";
-import { fingerprint, paneLines, type PaneRead } from "./pane";
+import { fingerprint, paneLines, rowKey, type PaneRead } from "./pane";
 import { readPage } from "./reader";
 
 export type { KeyPlan } from "./adapter";
@@ -281,12 +281,13 @@ async function screenTarget(tmux: Pick<Tmux, "agentOfWindow" | "activePane">, wi
 /**
  * What a Screen key is bound to, worked out afresh before each key (nothing
  * is kept): the tab, the pane Screen shows, the conversation it holds ("" for
- * none) and the screen's text, with what the agent redraws on its own made
- * steady. Shell tabs too: a key is refused while their screen keeps changing.
+ * none) and the screen's text and how it is drawn, with what the agent
+ * redraws on its own made steady. Shell tabs too: a key is refused while
+ * their screen keeps changing.
  */
 export function screenToken(windowId: string, pane: string, info: WindowAgentInfo | null, ansi: string): string {
-  const texts = paneLines(ansi).map((l) => l.text.trimEnd());
-  const rows = info ? adapterFor(info.kind).steady(texts) : texts;
+  const lines = paneLines(ansi);
+  const rows = info ? adapterFor(info.kind).steady(lines) : lines.map(rowKey);
   return fingerprint([windowId, pane, (info && conversationOf(info)) ?? "", ...rows]);
 }
 

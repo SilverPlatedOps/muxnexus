@@ -6,7 +6,7 @@ import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, hashId, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
   allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, lastFilled, lasting, nextFilled, optionRow,
-  paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
+  paneLines, rowKey, scanOptions, UNREADABLE, type PaneLine, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -200,4 +200,4 @@ function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
 
 // C-c empties the composer, and a running turn carries on (unlike Claude's).
 // Steady as it is: over 75 s on 0.167.1 nothing on an idle composer or an approval changed on its own.
-export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady: (texts) => texts };
+export const codexAdapter: ConvAdapter = { kind: "codex", rowItems, readPane, keysFor, clearDraft: ["C-c"], steady: (lines) => lines.map(rowKey) };

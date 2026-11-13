@@ -6,7 +6,7 @@ import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
   allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
-  optionRow, paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
+  optionRow, paneLines, rowKey, scanOptions, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
 type Out = (ConvItem | StepResult)[];
@@ -406,16 +406,17 @@ const TICKING = /[\d█▉▊▋▌▍▎▏▓▒░]/u;
 /**
  * Under the prompt box, the statusline a timer redraws: measured on 2.1.323
  * with a two-row statusline refreshed every 5 s, its countdowns moved each
- * minute (`2h22`, `2h21`; `19h02`, `19h01`, then `19h`), and nothing else did.
- * There each such word reads `#` and spacing is one space, so a meter's tick
- * is no change, while a word that comes or goes (a mode, a notice) still is.
- * Above the box, the prompt and the rest of the screen, and any dialog (none
- * draws a statusline), are as they are.
+ * minute (`2h22`, `2h21`; `19h02`, `19h01`, then `19h`), and nothing else did
+ * (its colours neither). There each such word reads `#` and spacing is one
+ * space, so a meter's tick is no change, while a word that comes or goes (a
+ * mode, a notice) still is. Above the box, the prompt and the rest of the
+ * screen, and any dialog (none draws a statusline), are as they are, drawn as
+ * they are: a highlight or a dim placeholder is part of what a key acts on.
  */
-function steady(texts: string[]): string[] {
+function steady(lines: PaneLine[]): string[] {
+  const texts = lines.map((l) => l.text.trimEnd());
   const box = inputBox(texts);
-  if (!box) return texts;
-  return texts.map((t, i) => (i <= box.bottom ? t : t.split(/\s+/u).map((w) => (TICKING.test(w) ? "#" : w)).join(" ")));
+  return lines.map((l, i) => (box && i > box.bottom ? texts[i]!.split(/\s+/u).map((w) => (TICKING.test(w) ? "#" : w)).join(" ") : rowKey(l)));
 }
 
 export const claudeAdapter: ConvAdapter = {

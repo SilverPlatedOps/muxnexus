@@ -5,7 +5,7 @@ import type { AgentKind } from "../../shared/chat";
 import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import { claudeAdapter } from "./claude";
 import { codexAdapter } from "./codex";
-import type { PaneRead } from "./pane";
+import type { PaneLine, PaneRead } from "./pane";
 
 /** What answering takes: keys, optionally the user's text pasted then Enter, optionally a follow-up message once the pane is idle again. */
 export interface KeyPlan { keys: string[]; text?: "paste-then-enter"; followUp?: boolean }
@@ -21,10 +21,10 @@ export interface ConvAdapter {
   /** The keys that empty the prompt. Sent only to an idle prompt that holds text. */
   clearDraft: string[];
   /**
-   * The screen's rows (escapes stripped) with what the agent redraws on its own, unasked, made steady: what a
-   * Screen key's token is worked out from, so a timer's redraw is no change while anything else is.
+   * The screen's rows as a Screen key's token sees them (`rowKey`: text and attributes), with what the agent
+   * redraws on its own, unasked, made steady: a timer's redraw is no change while anything else is.
    */
-  steady(texts: string[]): string[];
+  steady(lines: PaneLine[]): string[];
 }
 
 const ADAPTERS: Record<AgentKind, ConvAdapter> = { claude: claudeAdapter, codex: codexAdapter };

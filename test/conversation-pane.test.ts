@@ -16,6 +16,12 @@ test("escapes are stripped; a colour argument of 2 is not dim, SGR 2 is until 22
   expect(line!.dim).toEqual([false, true, false, true, false, false]);
 });
 
+test("each character's style: dim, bold, reverse and both colours, a blank only what shows on it", () => {
+  const [line] = paneLines("\x1b[1;38;5;153mA\x1b[22m \x1b[2;7mB\x1b[0;31;48;2;1;2;3m C\x1b[38:2::9:8:7mD\x1b[0m");
+  expect(line!.text).toBe("A B CD");
+  expect(line!.style).toEqual(["Bf5;153", "", "drf5;153", "b2;1;2;3", "f31b2;1;2;3", "f2;9;8;7b2;1;2;3"]);
+});
+
 test("dim and highlight carry from one row to the next, as tmux writes them", () => {
   const lines = paneLines("\x1b[2ma\nb\x1b[0m\n\x1b[48;2;1;2;3mc\x1b[49md");
   expect(lines.map((l) => l.text)).toEqual(["a", "b", "cd"]);

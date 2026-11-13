@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapterFor } from "../src/server/conversation/adapter";
 import { answer, cleanText, conversationOf, draftFingerprint, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "../src/server/conversation/actions";
+import { paneLines } from "../src/server/conversation/pane";
 import type { GenericKey } from "../src/shared/conversation";
 import type { WindowAgentInfo } from "../src/server/tmux";
 
@@ -623,6 +624,40 @@ describe("stop and keys", () => {
     expect((await pressKey(here, "@1", elsewhere.token, "Enter")).error).toBe("prompt-changed");
     expect([...split.now.writes(), ...shell.writes(), ...here.writes()]).toEqual([]);
   }, 10_000);
+
+  test("a Screen key is refused when only how the screen is drawn changed: a placeholder became words, a highlight moved", async () => {
+    /** A key pressed with the token for `before` while the tab shows `now`, which has the same text. */
+    const keyAfter = async (agent: WindowAgentInfo | null, before: string, now: string) => {
+      expect(now).not.toBe(before);
+      expect(paneLines(now).map((l) => l.text)).toEqual(paneLines(before).map((l) => l.text));
+      const seen = await screenNow(fakeTmux(agent, [before]), "@1");
+      const tmux = fakeTmux(agent, [now]);
+      const r = await pressKey(tmux, "@1", seen.token, "Enter");
+      return { error: r.error, writes: tmux.writes() };
+    };
+    const refused = { error: "prompt-changed" as const, writes: [] };
+    // Codex's dim placeholder, then the same words typed at the desk: Enter would send them.
+    const placeholder = raw("codex-idle-empty");
+    expect(await keyAfter(codexAgent(), placeholder, placeholder.replace("\x1b[2mAsk Codex to do anything\x1b[0m", "Ask Codex to do anything"))).toEqual(refused);
+    // A question's tab bar with the highlight moved to the next tab: Enter would answer another question.
+    const tabs = raw("claude-question");
+    const lit = "\x1b[38;2;0;0;0m\x1b[48;2;153;204;255m";
+    expect(await keyAfter(claudeAgent(), tabs, tabs.replace(`${lit} ☐ Colour \x1b[39m\x1b[49m ☐ Size  ✔`, ` ☐ Colour ${lit} ☐ Size \x1b[39m\x1b[49m ✔`))).toEqual(refused);
+    // A shell's menu whose selection is reverse video, and bold and colour alone.
+    expect(await keyAfter(null, "\x1b[7m one \x1b[0m two \n", " one \x1b[7m two \x1b[0m\n")).toEqual(refused);
+    expect(await keyAfter(null, "pick one\n", "pick \x1b[1mone\x1b[0m\n")).toEqual(refused);
+    expect(await keyAfter(null, "pick \x1b[38;5;2mone\x1b[39m\n", "pick \x1b[38;5;1mone\x1b[39m\n")).toEqual(refused);
+  });
+
+  test("a space's colour is not drawn, so it is no change: Claude redraws its footer with and without it", async () => {
+    // Claude Code 2.1.323, a working turn a second apart: the same footer, its spaces coloured or not.
+    const one = "  \x1b[38;5;246m⏸ manual mode on · esc to interrupt\x1b[39m\n";
+    const two = "  \x1b[38;5;246m⏸\x1b[39m \x1b[38;5;246mmanual\x1b[39m \x1b[38;5;246mmode\x1b[39m \x1b[38;5;246mon\x1b[39m \x1b[38;5;246m·\x1b[39m \x1b[38;5;246mesc\x1b[39m \x1b[38;5;246mto\x1b[39m \x1b[38;5;246minterrupt\x1b[39m\n";
+    const seen = await screenNow(fakeTmux(null, [one]), "@1");
+    const tmux = fakeTmux(null, [two]);
+    expect((await pressKey(tmux, "@1", seen.token, "Up")).error).toBeUndefined();
+    expect(tmux.writes()).toEqual([["sendKeys", "%9", ["Up"]]]);
+  });
 
   test("the statusline redrawn on its timer is no change; any other row under the prompt is", async () => {
     // Measured on Claude Code 2.1.323 with a two-row statusline refreshed every 5 s: over 75 s idle only the meter

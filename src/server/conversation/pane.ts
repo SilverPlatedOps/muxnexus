@@ -30,11 +30,18 @@ export interface PaneRead {
 /** Nothing on screen can be trusted. */
 export const UNREADABLE: PaneRead = { dialog: null, unrecognised: true, draft: "unknown", working: false };
 
-/** One screen row without its escapes, and per character whether it was drawn dim or highlighted (a background colour or reverse video). */
+/**
+ * One screen row without its escapes, and per character whether it was drawn
+ * dim or highlighted (a background colour or reverse video), and how it was
+ * drawn as far as that tells one input state from another (`style`: dim,
+ * bold, reverse, and the foreground and background colours; for a blank only
+ * what shows on one, reverse and the background).
+ */
 export interface PaneLine {
   text: string;
   dim: boolean[];
   highlight: boolean[];
+  style: string[];
 }
 
 /**
@@ -44,10 +51,8 @@ export interface PaneLine {
  */
 export function paneLines(ansi: string): PaneLine[] {
   const lines: PaneLine[] = [];
-  let cur: PaneLine = { text: "", dim: [], highlight: [] };
-  let dim = false;
-  let bg = false;
-  let reverse = false;
+  let cur: PaneLine = { text: "", dim: [], highlight: [], style: [] };
+  let a: Attrs = { dim: false, bold: false, reverse: false, fg: "", bg: "" };
   for (let i = 0; i < ansi.length; i++) {
     const ch = ansi[i]!;
     if (ch === "\x1b") {
@@ -55,7 +60,7 @@ export function paneLines(ansi: string): PaneLine[] {
       if (next === "[") {
         let j = i + 2;
         while (j < ansi.length && !/[@-~]/.test(ansi[j]!)) j++;
-        if (ansi[j] === "m") ({ dim, bg, reverse } = sgr(ansi.slice(i + 2, j), { dim, bg, reverse }));
+        if (ansi[j] === "m") a = sgr(ansi.slice(i + 2, j), a);
         i = j;
       } else if (next === "]" || next === "P" || next === "_" || next === "^") {
         // A string ends at BEL or ST (ESC \).
@@ -71,19 +76,23 @@ export function paneLines(ansi: string): PaneLine[] {
     }
     if (ch === "\n") {
       lines.push(cur);
-      cur = { text: "", dim: [], highlight: [] };
+      cur = { text: "", dim: [], highlight: [], style: [] };
       continue;
     }
     if (ch < " " || ch === "\x7f") continue;
     cur.text += ch;
-    cur.dim.push(dim);
-    cur.highlight.push(bg || reverse);
+    cur.dim.push(a.dim);
+    cur.highlight.push(a.bg !== "" || a.reverse);
+    // A blank's colour and weight don't show (Claude redraws its footer with its spaces coloured, then not).
+    const shows = /\s/u.test(ch) ? `${a.reverse ? "r" : ""}${a.bg ? `b${a.bg}` : ""}` : `${a.dim ? "d" : ""}${a.bold ? "B" : ""}${a.reverse ? "r" : ""}${a.fg ? `f${a.fg}` : ""}${a.bg ? `b${a.bg}` : ""}`;
+    cur.style.push(shows);
   }
   lines.push(cur);
   return lines;
 }
 
-interface Attrs { dim: boolean; bg: boolean; reverse: boolean }
+/** The SGR attributes in force; a colour as its code (`31`, `5;153`, `2;r;g;b`), "" for the default. */
+interface Attrs { dim: boolean; bold: boolean; reverse: boolean; fg: string; bg: string }
 
 function sgr(body: string, a: Attrs): Attrs {
   const out = { ...a };
@@ -91,20 +100,48 @@ function sgr(body: string, a: Attrs): Attrs {
   for (let k = 0; k < params.length; k++) {
     const p = params[k]!;
     const code = p === "" ? 0 : Number(p.split(":")[0]);
-    if (code === 0) { out.dim = false; out.bg = false; out.reverse = false; }
+    if (code === 0) Object.assign(out, { dim: false, bold: false, reverse: false, fg: "", bg: "" });
+    else if (code === 1) out.bold = true;
     else if (code === 2) out.dim = true;
-    else if (code === 22) out.dim = false;
+    else if (code === 22) { out.dim = false; out.bold = false; }
     else if (code === 7) out.reverse = true;
     else if (code === 27) out.reverse = false;
-    else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) out.bg = true;
-    else if (code === 49) out.bg = false;
+    else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) out.fg = String(code);
+    else if (code === 39) out.fg = "";
+    else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) out.bg = String(code);
+    else if (code === 49) out.bg = "";
     if (code === 38 || code === 48 || code === 58) {
-      if (code === 48) out.bg = true;
-      // Extended colours: `38;5;n` or `38;2;r;g;b`, whose arguments are not codes (`38;2;2;2;2` is not dim).
-      if (!p.includes(":")) k += params[k + 1] === "5" ? 2 : params[k + 1] === "2" ? 4 : 0;
+      // Extended colours: `38;5;n` or `38;2;r;g;b` (or with colons), whose arguments are not codes (`38;2;2;2;2` is not dim).
+      let colour: string;
+      if (p.includes(":")) colour = p.split(":").slice(1).filter((x) => x !== "").join(";");
+      else {
+        const n = params[k + 1] === "5" ? 2 : params[k + 1] === "2" ? 4 : 0;
+        colour = params.slice(k + 1, k + 1 + n).join(";");
+        k += n;
+      }
+      if (code === 38) out.fg = colour || "x";
+      else if (code === 48) out.bg = colour || "x";
     }
   }
   return out;
+}
+
+/**
+ * A row as a Screen key's token sees it: its text and how each character is
+ * drawn (`PaneLine.style`, run-length coded), so a placeholder turned into
+ * words, or a highlight moved, is a change even with the text the same.
+ */
+export function rowKey(line: PaneLine): string {
+  let end = line.text.length;
+  while (end > 0 && /\s/u.test(line.text[end - 1]!) && line.style[end - 1] === "") end--;
+  const runs: string[] = [];
+  for (let i = 0; i < end; ) {
+    let j = i;
+    while (j < end && line.style[j] === line.style[i]) j++;
+    runs.push(`${j - i}${line.style[i] ? `:${line.style[i]}` : ""}`);
+    i = j;
+  }
+  return `${line.text.slice(0, end)}\u0000${runs.join(" ")}`;
 }
 
 /** True when every visible character of `line` from `from` on is dim (blank counts as dim). */
