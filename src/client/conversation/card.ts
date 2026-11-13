@@ -369,6 +369,8 @@ export function createScreen(deps: ScreenDeps): ScreenView {
   }
 
   refreshBtn.onclick = refresh;
+  // A terminal made while hidden is drawn at the wrong cell size: read the pane again, to make it anew, once it shows.
+  new ResizeObserver(() => { if (term?.blind && view.clientWidth > 0) refresh(); }).observe(view);
   closeBtn.onclick = () => close();
 
   function close() {

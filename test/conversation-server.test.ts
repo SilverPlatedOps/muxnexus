@@ -96,12 +96,13 @@ describe("the conversation hub", () => {
         expect(next.card?.kind ?? (next.screen ? "screen" : "none")).toBe(label);
         return next;
       };
-      // A dialog no layout matches; a field taking words; a waiting stamp over a plain prompt (stale): Screen, no card.
+      // A dialog no layout matches; a field taking words: Screen, no card.
       expect((await shows("claude-trust", "screen")).card).toBeNull();
       await shows("claude-bash-permission", "permission");
       await shows("claude-bash-no-field", "screen");
       await shows("claude-plan", "plan");
-      await shows("claude-idle-empty", "screen");
+      // A waiting stamp over the plain prompt box is stale (an interrupted turn fires no hook): the text box, not Screen.
+      expect(await shows("claude-idle-empty", "none")).toMatchObject({ card: null, screen: false, working: false });
       // Waiting, by the stamp, over an agent at work (an answer the hook hasn't caught up with): no Screen, Stop instead.
       expect(await shows("claude-working", "none")).toMatchObject({ card: null, screen: false, working: true });
       await shows("codex-approval", "screen"); // a Codex dialog on a Claude tab is nothing Claude's reader knows
@@ -110,7 +111,30 @@ describe("the conversation hub", () => {
     }
   });
 
-  test("a Codex tab stamped waiting over its working composer shows no Screen; over an idle one it does", async () => {
+  test("a waiting stamp over a readable idle prompt shows the text box, not Screen", async () => {
+    // Esc or a plain No ends the turn with no hook, so the stamp stays "input" over the prompt box.
+    for (const [agent, fixture, expected] of [
+      [claude(transcript()), "claude-idle-empty", { card: null, screen: false, working: false }],
+      [claude(transcript()), "claude-idle-draft", { card: null, screen: false, working: false }],
+      [{ kind: "codex", state: "input", thread: { id: "thread-1", path: transcript("codex-turns.jsonl") } }, "codex-idle-empty", { card: null, screen: false, working: false }],
+      // A dialog is still a card, and a screen no reader knows still Screen.
+      [claude(transcript()), "claude-bash-permission", { screen: false, card: expect.objectContaining({ kind: "permission" }) }],
+      [claude(transcript()), "claude-trust", { card: null, screen: true }],
+      [claude(transcript()), "claude-question-multi", { card: null, screen: true }],
+    ] as const) {
+      const { tmux } = fakeTmux(agent as Partial<WindowAgentInfo>, pane(fixture));
+      const hub = createConversationHub({ tmux, pollMs: 1000 });
+      const ws = socket();
+      try {
+        await hub.open(ws, "@1");
+        expect({ fixture, ...ws.last("conv-card") }).toMatchObject({ fixture, ...expected });
+      } finally {
+        hub.stop();
+      }
+    }
+  });
+
+  test("a Codex tab stamped waiting over its working or idle composer shows no Screen", async () => {
     const { state, tmux } = fakeTmux({ kind: "codex", state: "input", thread: { id: "thread-1", path: transcript("codex-turns.jsonl") } }, pane("codex-working"));
     const hub = createConversationHub({ tmux, pollMs: 30 });
     const ws = socket();
@@ -119,7 +143,7 @@ describe("the conversation hub", () => {
       expect(ws.last("conv-card")).toEqual({ t: "conv-card", windowId: "@1", card: null, screen: false, working: true });
       state.screen = pane("codex-idle-empty");
       await waitFor(() => ws.all("conv-card").length === 2, 1000, "the idle composer");
-      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: true, working: false });
+      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: false, working: false });
       state.screen = pane("codex-approval");
       await waitFor(() => ws.all("conv-card").length === 3, 1000, "the approval");
       expect(ws.last("conv-card")!.card?.kind).toBe("approval");
