@@ -16,6 +16,8 @@ export interface PaneRead {
   unrecognised: boolean;
   /** Whether the prompt holds text; "unknown" when there is no prompt to read or it's ambiguous. */
   draft: "empty" | "text" | "unknown";
+  /** An empty prompt whose only text is the agent's hint that messages wait to go (Claude's "Press up to edit queued messages"). */
+  queued?: boolean;
   /** The prompt's text as shown, whenever `draft` is "text". */
   draftText?: string;
   /** The prompt's rows as drawn (`rowKey`), whenever `draft` is "unknown" with a prompt on screen: what tells two drafts that can't be read apart. */

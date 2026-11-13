@@ -322,8 +322,9 @@ test("Claude's prompt: dim text is a placeholder, anything else is the user's dr
   expect(claude("idle-draft")).toMatchObject({ draft: "text", draftText: "hello draft" });
   expect(claude("idle-multiline-draft")).toMatchObject({ draft: "text", draftText: "draft one\ndraft two" });
   expect(claude("idle-pasted")).toMatchObject({ draft: "text", draftText: "[Pasted text #1 +39 lines]" });
-  // Dim, but it stands for messages waiting to be sent: never treated as an empty prompt.
-  expect(claude("queued")).toMatchObject({ draft: "text", draftText: "Press up to edit queued messages" });
+  // Dim, and it stands for messages waiting to be sent: the prompt itself is empty (a message typed now is queued too).
+  expect(claude("queued")).toMatchObject({ draft: "empty", queued: true });
+  expect(claude("queued")).not.toHaveProperty("draftText");
   expect(claude("bash-permission")).toMatchObject({ draft: "unknown" });
   expect(claude("trust")).toMatchObject({ draft: "unknown" });
 });

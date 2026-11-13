@@ -127,7 +127,7 @@ function rowItems(row: any): Out {
 // check its words go into that field and nowhere else.
 
 /** Claude's dim hint in an empty prompt while messages wait to go. */
-export const QUEUED = "Press up to edit queued messages";
+const QUEUED = "Press up to edit queued messages";
 /** `✽ Frosting… (9s · ↓ 82 tokens)`; the glyph cycles. Idle reads `✻ Baked for 24s · done …`. */
 const SPINNER = /^\S \S.*… \(\d/u;
 const PERMISSION_FOOTER = "Esc to cancel · Tab to amend";
@@ -164,11 +164,11 @@ function inputBox(texts: string[]): Box | null {
   return { top, bottom };
 }
 
-function draftIn(lines: PaneLine[], texts: string[], box: Box): Pick<PaneRead, "draft" | "draftText"> {
+function draftIn(lines: PaneLine[], texts: string[], box: Box): Pick<PaneRead, "draft" | "draftText" | "queued"> {
   const rest = texts[box.top + 1]!.slice(2);
   const more = texts.slice(box.top + 2, box.bottom).map((t) => t.slice(2));
-  // Dim, but it stands for messages waiting to go: never an empty prompt.
-  if (more.length === 0 && rest.trim() === QUEUED) return { draft: "text", draftText: QUEUED };
+  // The hint for messages waiting to go, dim: the prompt itself is empty, and a message typed now is queued too.
+  if (more.length === 0 && rest.trim() === QUEUED && allDim(lines[box.top + 1]!, 2)) return { draft: "empty", queued: true };
   if (more.length === 0 && allDim(lines[box.top + 1]!, 2)) return { draft: "empty" };
   return { draft: "text", draftText: [rest, ...more].join("\n").replace(/\n+$/, "") };
 }

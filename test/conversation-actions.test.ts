@@ -96,6 +96,8 @@ function fakeTmux(agent: WindowAgentInfo | null | (WindowAgentInfo | null)[], pa
 
 /** The prompt after a paste of "hello draft". */
 const PASTED = { claude: raw("claude-idle-draft"), codex: raw("codex-idle-draft") };
+/** Claude at work (a message queued) with "hello draft" typed in its box. */
+const WORKING_DRAFT = raw("claude-queued").replace(/\x1b\[2m\x1b\[39mPress.*messages\x1b\[0m/u, "\x1b[39mhello draft");
 /** `n` characters of `w0 w1 w2 …`: the words pasted in the lab captures. */
 function spaced(n: number): string {
   let s = "";
@@ -290,10 +292,26 @@ describe("send", () => {
     expect(adapterFor("codex").clearDraft).toEqual(["C-c"]);
   });
 
+  test("a second message while Claude works goes in like the first: the queued-message hint is no draft", async () => {
+    // Claude Code 2.1.322 with a message queued: the empty box reads "Press up to edit queued messages", dim.
+    const queued = raw("claude-queued");
+    // The words typed over the hint, as Claude draws them in the box.
+    const typed = WORKING_DRAFT;
+    const tmux = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [queued, typed]);
+    expect(await sendText(tmux, "@32", "sess-1", "hello draft", null)).toEqual({ ok: true });
+    expect(tmux.writes()).toEqual([["pasteInto", "%1", "hello draft"], ["sendKeys", "%1", ["Enter"]]]);
+    expect(adapterFor("claude").readPane(queued)).toMatchObject({ draft: "empty", queued: true, working: true });
+    expect(adapterFor("claude").readPane(typed)).toMatchObject({ draft: "text", draftText: "hello draft" });
+    // The hint alone after the paste is not the words: no Enter.
+    const hint = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [queued]);
+    expect(await sendText(hint, "@33", "sess-1", "hello draft", null)).toEqual({ ok: false, error: "unsent" });
+    expect(hint.writes()).toEqual([["pasteInto", "%1", "hello draft"]]);
+  });
+
   test("a draft is not replaced unless the turn is done: the clear would interrupt it", async () => {
     // The pane shows the turn running (queued messages wait on it).
-    const busy = fakeTmux(claudeAgent(), [raw("claude-queued")]);
-    expect(await sendText(busy, "@6", "sess-1", "x", shownDraft("claude", raw("claude-queued")))).toEqual({ ok: false, error: "working" });
+    const busy = fakeTmux(claudeAgent(), [WORKING_DRAFT]);
+    expect(await sendText(busy, "@6", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     // Text streaming under a draft shows no sign of work on the pane: the stamp says so, and the transcript holds no interrupt since.
     const stamped = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
     expect(await sendText(stamped, "@6", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
@@ -333,8 +351,8 @@ describe("send", () => {
     expect(await sendText(replace, "@30", "sess-1", "hello draft", DRAFT.claude)).toEqual({ ok: true });
     expect(replace.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "hello draft"], ["sendKeys", "%1", ["Enter"]]]);
     // While the pane still shows it working (the Escape not taken yet), or for a stamp newer than the Stop, it runs.
-    const busy = fakeTmux(agent, [raw("claude-queued")]);
-    expect(await sendText(busy, "@30", "sess-1", "x", shownDraft("claude", raw("claude-queued")))).toEqual({ ok: false, error: "working" });
+    const busy = fakeTmux(agent, [WORKING_DRAFT]);
+    expect(await sendText(busy, "@30", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     const next = fakeTmux(claudeAgent({ state: "running", since: Math.floor(Date.now() / 1000) + 1 }), [raw("claude-idle-draft")]);
     expect(await sendText(next, "@30", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     // Another tab's Stop says nothing about this one.
