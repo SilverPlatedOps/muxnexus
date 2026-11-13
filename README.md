@@ -396,8 +396,8 @@ pane can be closed or zoomed to full width. It needs a screen wider than a phone
 
 On a touch screen each agent tab opens as a **conversation**, not a terminal:
 what you asked, what the agent said and what it ran, read from Claude Code's or
-Codex's own transcript. The page never attaches to tmux, so the desk's terminal
-keeps its size however long you read.
+Codex's own transcript. A conversation never attaches to tmux, so the desk's
+terminal keeps its size however long you read.
 
 - **Send** types your message into the agent as if you were at the desk, line
   breaks and all. If the desk's prompt already holds unsent text, you're shown it
