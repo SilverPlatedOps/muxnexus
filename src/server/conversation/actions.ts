@@ -106,13 +106,23 @@ async function submit(tmux: ConvTmux, windowId: string, kind: AgentKind, pane: s
 }
 
 /**
+ * The desk's draft as read, for a Replace to name: its text's fingerprint,
+ * or "unknown" for one that can't be read (the user was told so, and a
+ * second unreadable edit since would be cleared unseen).
+ */
+export function draftFingerprint(r: PaneRead): string {
+  return r.draft === "text" ? fingerprint(["text", r.draftText ?? ""]) : "unknown";
+}
+
+/**
  * Sends `text` as the user's next message to the conversation the phone
  * showed: pasted, then Enter. A draft at the desk is returned for the user to
- * decide on, and with `replace` cleared first.
+ * decide on, and with `replace` (the fingerprint of the draft they were
+ * shown) cleared first.
  */
 export async function sendText(
-  tmux: ConvTmux, windowId: string, conversation: string, text: string, replace: boolean,
-): Promise<{ ok: true } | Refusal | { ok: false; draft: string }> {
+  tmux: ConvTmux, windowId: string, conversation: string, text: string, replace: string | null,
+): Promise<{ ok: true } | Refusal | { ok: false; draft: string; draftFingerprint: string }> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
   if (conversationOf(info) !== conversation) return refuse("another-conversation");
@@ -124,7 +134,9 @@ export async function sendText(
   if (r.dialog || r.unrecognised) return refuse("waiting");
   // A prompt whose text can't be read is asked about as if it held some (empty: none to show), and cleared the same way.
   if (r.draft !== "empty") {
-    if (!replace) return { ok: false, draft: r.draftText ?? "" };
+    // Replace clears only the draft the user saw: one changed at the desk since is shown instead, and kept.
+    const shown = draftFingerprint(r);
+    if (replace !== shown) return { ok: false, draft: r.draftText ?? "", draftFingerprint: shown };
     // Claude's C-c interrupts a running turn instead, and text streaming under a draft shows no sign of work: the
     // stamp must say the turn is done, or the transcript that it was interrupted since. `input` with the prompt on
     // screen otherwise is a turn going on after a "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
@@ -178,7 +190,7 @@ export async function answer(
   }
   if (plan.followUp) {
     if (!(await readUntil(tmux, info.kind, pane, idle, FOLLOW_UP_MS, FOLLOW_UP_POLL_MS))) return refuse("prompt-changed");
-    const sent = await sendText(tmux, windowId, conversation, words, false);
+    const sent = await sendText(tmux, windowId, conversation, words, null);
     // A draft back in the composer is the desk's: the words are not added to it.
     if (!sent.ok) return "error" in sent ? sent : refuse("prompt-changed");
   }

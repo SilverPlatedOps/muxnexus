@@ -377,7 +377,7 @@ describe("the conversation hub", () => {
       state.screen = state.entered = pane("claude-idle-empty");
       state.pasted = pane("claude-idle-draft");
       state.slowPaste = 50;
-      await Promise.all([hub.send(ws, "s1", "@1", "sess-1", "one", false), hub.send(ws, "s2", "@1", "sess-1", "two", false)]);
+      await Promise.all([hub.send(ws, "s1", "@1", "sess-1", "one", null), hub.send(ws, "s2", "@1", "sess-1", "two", null)]);
       expect(state.writes).toEqual(["paste %1 one", "keys %1 Enter", "paste %1 two", "keys %1 Enter"]);
       expect(ws.all("conv-result").filter((r) => r.req.startsWith("s"))).toEqual([
         { t: "conv-result", req: "s1", ok: true },
@@ -577,6 +577,8 @@ describe("conversations over the socket", () => {
     await refused({ t: "conv-key", windowId: "@1", token: "f", key: "Enter" }, "invalid conv-key");
     await refused({ t: "conv-answer", req: "r", windowId: "@1", conversation: "sess-1", fingerprint: "f", option: 1.5 }, "invalid conv-answer");
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x".repeat(100_001) }, "invalid conv-send");
+    // Replace names the draft it clears (the fingerprint it was shown with), not just yes.
+    await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x", replace: true }, "invalid conv-send");
     await refused({ t: "conv-more", windowId: "@1", before: -1 }, "invalid conv-more");
     // A Stop names the conversation it was meant for.
     await refused({ t: "conv-stop", req: "s", windowId: "@1" }, "invalid conv-stop");

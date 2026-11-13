@@ -263,11 +263,13 @@ export type ClientMessage =
   | { t: "conv-search"; req: string; windowId: string; query: string; cursor?: number }
   | { t: "conv-links"; req: string; windowId: string }
   /**
-   * `text` as the user's next message to `conversation` (the `conv`'s): answered
-   * with `conv-result`. One with `draft` means the desk's prompt holds that text;
-   * sent again with `replace`, it is cleared first.
+   * `text` as the user's next message to `conversation` (the one it was
+   * written for): answered with `conv-result`. One with `draft` means the
+   * desk's prompt holds that text; sent again with `replace` set to that
+   * result's `draftFingerprint`, the draft is cleared first, if it is still
+   * the one shown (else the new draft comes back).
    */
-  | { t: "conv-send"; req: string; windowId: string; conversation: string; text: string; replace?: boolean }
+  | { t: "conv-send"; req: string; windowId: string; conversation: string; text: string; replace?: string }
   /**
    * Choose option `option` (a `CardOption.index`) of the card read as
    * `fingerprint`, in `conversation` (the `conv`'s); `text` for an option that
@@ -587,8 +589,12 @@ export type ServerMessage =
   | { t: "conv-search-result"; req: string; windowId: string; conversation: string | null; hits: { id: string; offset: number; snippet: string }[]; next?: number }
   /** Every URL in `conversation` once, pull requests first. */
   | { t: "conv-links-result"; req: string; windowId: string; conversation: string | null; links: { url: string; pr: boolean }[] }
-  /** How a send, an answer or a stop went. A failure with neither `error` nor `draft` threw: an `error` message says why. */
-  | { t: "conv-result"; req: string; ok: boolean; error?: ConvError; draft?: string }
+  /**
+   * How a send, an answer or a stop went. A failure with neither `error` nor
+   * `draft` threw: an `error` message says why. `draftFingerprint` names the
+   * draft as read, for a Replace.
+   */
+  | { t: "conv-result"; req: string; ok: boolean; error?: ConvError; draft?: string; draftFingerprint?: string }
   /**
    * A capture of the tab's pane with its colours, the pane's size, and the
    * token a key pressed on it carries; empty, 0 × 0 and no token when it

@@ -674,8 +674,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     sendTo(text, how.send);
   }
 
-  /** `text` as a message to conversation `to`: the one it was written for, never just whichever the tab shows. */
-  function sendTo(text: string, to: string, replace = false) {
+  /**
+   * `text` as a message to conversation `to`: the one it was written for, never just whichever the tab shows.
+   * `replace`: the desk's draft to clear first, as the server fingerprinted it when it was shown.
+   */
+  function sendTo(text: string, to: string, replace?: string) {
     if (!windowId || pending || asked() || text.trim() === "") return;
     if (text.length > MAX_TEXT) {
       deps.toast(`Too long to send: ${text.length} characters, ${MAX_TEXT} at most`);
@@ -689,7 +692,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     }, SEND_GIVE_UP_MS);
     pending = { req, text, to, timer };
     draftEl.hidden = true;
-    deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace ? { replace: true } : {}) });
+    deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace !== undefined ? { replace } : {}) });
     paintSlot();
   }
 
@@ -702,11 +705,14 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     send(input.value);
   };
 
-  /** The desk's prompt holds text: show it, and let the user replace it or keep it. The words stay for conversation `to`. */
-  function showDraft(draft: string, text: string, to: string) {
+  /**
+   * The desk's prompt holds text: show it, and let the user replace it or keep it. The words stay for conversation
+   * `to`, and Replace clears only this draft (`print`): one changed at the desk since comes back to be shown instead.
+   */
+  function showDraft(draft: string, text: string, to: string, print: string) {
     const replace = button("conv-draft-replace", "Replace it");
     const cancel = button("conv-draft-cancel", "Cancel");
-    replace.onclick = () => sendTo(text, to, true);
+    replace.onclick = () => sendTo(text, to, print);
     cancel.onclick = () => { draftEl.hidden = true; };
     const buttons = el("div", "conv-draft-buttons");
     buttons.append(replace, cancel);
@@ -838,7 +844,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       dropPending();
       if (m.ok) {
         if (input.value === sent.text) setTyped("");
-      } else if (m.draft !== undefined) showDraft(m.draft, sent.text, sent.to);
+      } else if (m.draft !== undefined) showDraft(m.draft, sent.text, sent.to, m.draftFingerprint ?? "unknown");
       else if (m.error) deps.toast(CONV_ERROR[m.error]);
       // Neither: the action threw, and an `error` message says why.
       paintSlot();

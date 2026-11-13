@@ -245,7 +245,8 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       send(ws, { t: "conv-links-result", req, windowId, conversation, links });
     },
 
-    async send(ws: HubSocket, req: string, windowId: string, conversation: string, text: string, replace: boolean) {
+    /** `replace`: the fingerprint of the desk's draft the user agreed to replace, or null. */
+    async send(ws: HubSocket, req: string, windowId: string, conversation: string, text: string, replace: string | null) {
       try {
         const r = await inLane(windowId, () => sendText(tmux, windowId, conversation, text, replace));
         send(ws, { t: "conv-result", req, ...r });

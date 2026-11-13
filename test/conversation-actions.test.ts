@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapterFor } from "../src/server/conversation/adapter";
-import { answer, cleanText, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "../src/server/conversation/actions";
+import { answer, cleanText, conversationOf, draftFingerprint, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "../src/server/conversation/actions";
 import type { GenericKey } from "../src/shared/conversation";
 import type { WindowAgentInfo } from "../src/server/tmux";
 
@@ -82,6 +82,10 @@ function fakeTmux(agent: WindowAgentInfo | null | (WindowAgentInfo | null)[], pa
 /** The prompt after a paste: holding text (the words aren't matched, as Claude wraps and folds them). */
 const PASTED = { claude: raw("claude-idle-draft"), codex: raw("codex-idle-draft") };
 
+/** The fingerprint of the desk's draft as `name` shows it: what a Replace carries back. */
+const shownDraft = (kind: "claude" | "codex", ansi: string) => draftFingerprint(adapterFor(kind).readPane(ansi));
+const DRAFT = { claude: shownDraft("claude", raw("claude-idle-draft")), lines: shownDraft("claude", raw("claude-idle-multiline-draft")), codex: shownDraft("codex", raw("codex-idle-draft")) };
+
 const print = (kind: "claude" | "codex", name: string) => adapterFor(kind).readPane(raw(`${kind}-${name}`)).dialog!.fingerprint;
 
 /** The permission card with the highlight moved from row 1 to row `to`, as a desk keypress would leave it. */
@@ -108,7 +112,7 @@ function notePanes(note: "lines" | "blank"): string[] {
 describe("send", () => {
   test("send pastes then presses Enter", async () => {
     const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), PASTED.claude]);
-    expect(await sendText(tmux, "@1", "sess-1", "line one\nline two", false)).toEqual({ ok: true });
+    expect(await sendText(tmux, "@1", "sess-1", "line one\nline two", null)).toEqual({ ok: true });
     expect(tmux.writes()).toEqual([["pasteInto", "%1", "line one\nline two"], ["sendKeys", "%1", ["Enter"]]]);
     // The conversation is checked before the pane is read, and the pane before anything is written; after the
     // paste, both again, the pane last, right before Enter.
@@ -118,12 +122,12 @@ describe("send", () => {
     ]);
 
     const codex = fakeTmux(codexAgent(), [raw("codex-idle-empty"), PASTED.codex]);
-    expect(await sendText(codex, "@2", "thread-1", "hello", false)).toEqual({ ok: true });
+    expect(await sendText(codex, "@2", "thread-1", "hello", null)).toEqual({ ok: true });
     expect(codex.writes()).toEqual([["pasteInto", "%2", "hello"], ["sendKeys", "%2", ["Enter"]]]);
 
     // Claude mid-turn: its prompt takes the words while it works, and Enter queues them.
     const busy = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-working"), PASTED.claude]);
-    expect(await sendText(busy, "@1", "sess-1", "and then this", false)).toEqual({ ok: true });
+    expect(await sendText(busy, "@1", "sess-1", "and then this", null)).toEqual({ ok: true });
     expect(busy.writes()).toEqual([["pasteInto", "%1", "and then this"], ["sendKeys", "%1", ["Enter"]]]);
   });
 
@@ -140,34 +144,51 @@ describe("send", () => {
     const hint = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-working"), raw("claude-queued")]);
     const all = [dialog, codexDialog, other, moved, gone, never, hint];
     const t0 = Date.now();
-    const results = await Promise.all(all.map((tmux, k) => sendText(tmux, "@1", k === 1 ? "thread-1" : "sess-1", "words", false)));
+    const results = await Promise.all(all.map((tmux, k) => sendText(tmux, "@1", k === 1 ? "thread-1" : "sess-1", "words", null)));
     expect(results).toEqual(all.map(() => ({ ok: false, error: "unsent" })));
     for (const tmux of all) expect(tmux.writes()).toEqual([["pasteInto", tmux === codexDialog ? "%2" : "%1", "words"]]);
     // A dialog or another conversation is refused at once; words that never show, after the redraw delay.
     expect(Date.now() - t0).toBeGreaterThanOrEqual(1900);
     const quick = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), raw("claude-bash-permission")]);
     const q0 = Date.now();
-    expect(await sendText(quick, "@1", "sess-1", "words", false)).toEqual({ ok: false, error: "unsent" });
+    expect(await sendText(quick, "@1", "sess-1", "words", null)).toEqual({ ok: false, error: "unsent" });
     expect(Date.now() - q0).toBeLessThan(500);
   }, 10_000);
 
   test("a draft at the desk is never overwritten without asking", async () => {
     const ask = fakeTmux(claudeAgent(), [raw("claude-idle-draft")]);
-    expect(await sendText(ask, "@3", "sess-1", "from the phone", false)).toEqual({ ok: false, draft: "hello draft" });
+    expect(await sendText(ask, "@3", "sess-1", "from the phone", null)).toEqual({ ok: false, draft: "hello draft", draftFingerprint: DRAFT.claude });
     expect(ask.writes()).toEqual([]);
 
     // Replace: one key clears the box, the box is read again and must be empty, then the paste.
     const replace = fakeTmux(claudeAgent(), [raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
-    expect(await sendText(replace, "@3", "sess-1", "from the phone", true)).toEqual({ ok: true });
+    expect(await sendText(replace, "@3", "sess-1", "from the phone", DRAFT.claude)).toEqual({ ok: true });
     expect(replace.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "from the phone"], ["sendKeys", "%1", ["Enter"]]]);
 
     const lines = fakeTmux(claudeAgent(), [raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), PASTED.claude]);
-    expect(await sendText(lines, "@4", "sess-1", "x", true)).toEqual({ ok: true });
+    expect(await sendText(lines, "@4", "sess-1", "x", DRAFT.lines)).toEqual({ ok: true });
     expect(lines.writes()[0]).toEqual(["sendKeys", "%1", ["C-c"]]);
 
     const codex = fakeTmux(codexAgent(), [raw("codex-idle-draft"), raw("codex-idle-empty"), PASTED.codex]);
-    expect(await sendText(codex, "@5", "thread-1", "x", true)).toEqual({ ok: true });
+    expect(await sendText(codex, "@5", "thread-1", "x", DRAFT.codex)).toEqual({ ok: true });
     expect(codex.writes()).toEqual([["sendKeys", "%2", ["C-c"]], ["pasteInto", "%2", "x"], ["sendKeys", "%2", ["Enter"]]]);
+  });
+
+  test("Replace clears only the draft the user was shown: one changed at the desk since is shown instead", async () => {
+    // Shown "hello draft"; by the Replace the desk has typed another line.
+    const changed = fakeTmux(claudeAgent(), [raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), PASTED.claude]);
+    expect(await sendText(changed, "@8", "sess-1", "from the phone", DRAFT.claude)).toEqual({ ok: false, draft: "draft one\ndraft two", draftFingerprint: DRAFT.lines });
+    expect(changed.writes()).toEqual([]);
+    // A draft read but now unreadable, or the other way round: shown again, nothing cleared.
+    const unreadable = raw("codex-idle-multiline-draft").replace("  line two", " line two");
+    const toUnknown = fakeTmux(codexAgent(), [unreadable]);
+    expect(await sendText(toUnknown, "@9", "thread-1", "x", DRAFT.codex)).toEqual({ ok: false, draft: "", draftFingerprint: "unknown" });
+    const toText = fakeTmux(codexAgent(), [raw("codex-idle-draft")]);
+    expect(await sendText(toText, "@9", "thread-1", "x", "unknown")).toEqual({ ok: false, draft: "hello draft", draftFingerprint: DRAFT.codex });
+    expect([...toUnknown.writes(), ...toText.writes()]).toEqual([]);
+    // A draft's fingerprint is its text's: another text, another fingerprint.
+    expect(DRAFT.claude).not.toBe(DRAFT.lines);
+    expect(DRAFT.claude).toMatch(/^[0-9a-f]{40}$/);
   });
 
   test("Claude's draft is cleared by one C-c: C-u leaves a multi-line draft's first line", () => {
@@ -182,57 +203,57 @@ describe("send", () => {
   test("a draft is not replaced unless the turn is done: the clear would interrupt it", async () => {
     // The pane shows the turn running (queued messages wait on it).
     const busy = fakeTmux(claudeAgent(), [raw("claude-queued")]);
-    expect(await sendText(busy, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
+    expect(await sendText(busy, "@6", "sess-1", "x", shownDraft("claude", raw("claude-queued")))).toEqual({ ok: false, error: "working" });
     // Text streaming under a draft shows no sign of work on the pane: the stamp says so, and the transcript holds no interrupt since.
     const stamped = fakeTmux(claudeAgent({ state: "running", since: SINCE }), [raw("claude-idle-draft")]);
-    expect(await sendText(stamped, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
+    expect(await sendText(stamped, "@6", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     // After "No, and tell Claude…" no tool runs, so the stamp stays `input` while the reply streams.
     const steered = fakeTmux(claudeAgent({ state: "input" }), [raw("claude-idle-draft")]);
-    expect(await sendText(steered, "@6", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
+    expect(await sendText(steered, "@6", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     expect([...busy.writes(), ...stamped.writes(), ...steered.writes()]).toEqual([]);
   });
 
   test("after an interrupt the stamp still says running, but the transcript says done: the draft can be replaced", async () => {
     const claude = fakeTmux(claudeAgent({ state: "running", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
       [raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
-    expect(await sendText(claude, "@20", "sess-1", "from the phone", true)).toEqual({ ok: true });
+    expect(await sendText(claude, "@20", "sess-1", "from the phone", DRAFT.claude)).toEqual({ ok: true });
     expect(claude.writes()).toEqual([["sendKeys", "%1", ["C-c"]], ["pasteInto", "%1", "from the phone"], ["sendKeys", "%1", ["Enter"]]]);
     // Esc on a permission prompt leaves the stamp at `input`, with the same line in the transcript.
     const waiting = fakeTmux(claudeAgent({ state: "input", since: SINCE, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
       [raw("claude-idle-draft"), raw("claude-idle-empty"), PASTED.claude]);
-    expect(await sendText(waiting, "@21", "sess-1", "x", true)).toEqual({ ok: true });
+    expect(await sendText(waiting, "@21", "sess-1", "x", DRAFT.claude)).toEqual({ ok: true });
     const codex = fakeTmux(codexAgent({ state: "running", since: SINCE, thread: { id: "thread-1", path: ABORTED } }), [raw("codex-idle-draft"), raw("codex-idle-empty"), PASTED.codex]);
-    expect(await sendText(codex, "@22", "thread-1", "x", true)).toEqual({ ok: true });
+    expect(await sendText(codex, "@22", "thread-1", "x", DRAFT.codex)).toEqual({ ok: true });
     expect(codex.writes()[0]).toEqual(["sendKeys", "%2", ["C-c"]]);
     // An interrupt from before the stamp is an earlier turn's: this one runs.
     const later = fakeTmux(claudeAgent({ state: "running", since: SINCE + 60, conversation: { sessionId: "sess-1", transcriptPath: INTERRUPTED } }),
       [raw("claude-idle-draft")]);
-    expect(await sendText(later, "@23", "sess-1", "x", true)).toEqual({ ok: false, error: "working" });
+    expect(await sendText(later, "@23", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "working" });
     expect(later.writes()).toEqual([]);
   });
 
   test("a clear that doesn't take sends nothing more, and a second C-c never follows", async () => {
     const stuck = fakeTmux(claudeAgent(), [raw("claude-idle-draft")]);
-    expect(await sendText(stuck, "@7", "sess-1", "x", true)).toEqual({ ok: false, error: "prompt-changed" });
+    expect(await sendText(stuck, "@7", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "prompt-changed" });
     expect(stuck.writes()).toEqual([["sendKeys", "%1", ["C-c"]]]);
     // Asked again at once: a second C-c would quit Claude.
     const again = fakeTmux(claudeAgent(), [raw("claude-idle-draft")]);
-    expect(await sendText(again, "@7", "sess-1", "x", true)).toEqual({ ok: false, error: "prompt-changed" });
+    expect(await sendText(again, "@7", "sess-1", "x", DRAFT.claude)).toEqual({ ok: false, error: "prompt-changed" });
     expect(again.writes()).toEqual([]);
   });
 
   test("a message for another conversation is refused", async () => {
     const other = fakeTmux(claudeAgent({ conversation: { sessionId: "sess-2", transcriptPath: SINGLE } }), [raw("claude-idle-empty")]);
-    expect(await sendText(other, "@1", "sess-1", "hi", false)).toEqual({ ok: false, error: "another-conversation" });
+    expect(await sendText(other, "@1", "sess-1", "hi", null)).toEqual({ ok: false, error: "another-conversation" });
     expect(other.calls).toEqual([["agentOfWindow", "@1"]]);
     const thread = fakeTmux(codexAgent({ thread: { id: "thread-2" } }), [raw("codex-idle-empty")]);
-    expect(await sendText(thread, "@2", "thread-1", "hi", true)).toEqual({ ok: false, error: "another-conversation" });
+    expect(await sendText(thread, "@2", "thread-1", "hi", "unknown")).toEqual({ ok: false, error: "another-conversation" });
     expect(thread.writes()).toEqual([]);
     // A tab whose conversation can't be named can't be checked: refused too.
     const fresh = fakeTmux(codexAgent({ thread: undefined, fresh: true }), [raw("codex-idle-empty")]);
-    expect(await sendText(fresh, "@2", "thread-1", "hi", false)).toEqual({ ok: false, error: "another-conversation" });
+    expect(await sendText(fresh, "@2", "thread-1", "hi", null)).toEqual({ ok: false, error: "another-conversation" });
     const none = fakeTmux(null, [raw("claude-idle-empty")]);
-    expect(await sendText(none, "@1", "sess-1", "hi", false)).toEqual({ ok: false, error: "no-agent" });
+    expect(await sendText(none, "@1", "sess-1", "hi", null)).toEqual({ ok: false, error: "no-agent" });
     expect([...fresh.writes(), ...none.writes()]).toEqual([]);
   });
 
@@ -241,21 +262,21 @@ describe("send", () => {
     const unreadable = raw("codex-idle-multiline-draft").replace("  line two", " line two");
     expect(adapterFor("codex").readPane(unreadable)).toMatchObject({ dialog: null, unrecognised: false, draft: "unknown" });
     const ask = fakeTmux(codexAgent(), [unreadable]);
-    expect(await sendText(ask, "@24", "thread-1", "x", false)).toEqual({ ok: false, draft: "" });
+    expect(await sendText(ask, "@24", "thread-1", "x", null)).toEqual({ ok: false, draft: "", draftFingerprint: "unknown" });
     expect(ask.writes()).toEqual([]);
     const replace = fakeTmux(codexAgent(), [unreadable, raw("codex-idle-empty"), PASTED.codex]);
-    expect(await sendText(replace, "@25", "thread-1", "x", true)).toEqual({ ok: true });
+    expect(await sendText(replace, "@25", "thread-1", "x", "unknown")).toEqual({ ok: true });
     expect(replace.writes()).toEqual([["sendKeys", "%2", ["C-c"]], ["pasteInto", "%2", "x"], ["sendKeys", "%2", ["Enter"]]]);
     // Not read as empty after the clear: nothing is pasted.
     const stuck = fakeTmux(codexAgent(), [unreadable]);
-    expect(await sendText(stuck, "@26", "thread-1", "x", true)).toEqual({ ok: false, error: "prompt-changed" });
+    expect(await sendText(stuck, "@26", "thread-1", "x", "unknown")).toEqual({ ok: false, error: "prompt-changed" });
     expect(stuck.writes()).toEqual([["sendKeys", "%2", ["C-c"]]]);
   });
 
   test("no text goes into a dialog", async () => {
     for (const [agent, pane] of [[claudeAgent(), "claude-bash-permission"], [claudeAgent(), "claude-trust"], [claudeAgent(), "claude-bash-no-field"], [codexAgent(), "codex-approval"]] as const) {
       const tmux = fakeTmux(agent, [raw(pane)]);
-      expect(await sendText(tmux, "@1", conversationOf(agent)!, "1", true)).toEqual({ ok: false, error: "waiting" });
+      expect(await sendText(tmux, "@1", conversationOf(agent)!, "1", "unknown")).toEqual({ ok: false, error: "waiting" });
       expect(tmux.writes()).toEqual([]);
     }
   });
@@ -266,11 +287,11 @@ describe("send", () => {
     // C1 controls too: \x9b is CSI on its own.
     expect(cleanText("a\x9b201~b\x85c\x80\x9fd é")).toBe("a201~bcd é");
     const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), PASTED.claude]);
-    expect(await sendText(tmux, "@1", "sess-1", "one\x1b[201~\x1b[2Jtwo", false)).toEqual({ ok: true });
+    expect(await sendText(tmux, "@1", "sess-1", "one\x1b[201~\x1b[2Jtwo", null)).toEqual({ ok: true });
     expect(tmux.writes()[0]).toEqual(["pasteInto", "%1", "one[201~[2Jtwo"]);
     // Nothing left to send: nothing is typed, not even Enter.
     const empty = fakeTmux(claudeAgent(), [raw("claude-idle-suggestion")]);
-    expect(await sendText(empty, "@1", "sess-1", "\x1b\x07 \n", false)).toEqual({ ok: true });
+    expect(await sendText(empty, "@1", "sess-1", "\x1b\x07 \n", null)).toEqual({ ok: true });
     expect(empty.writes()).toEqual([]);
   });
 });

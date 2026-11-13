@@ -1090,8 +1090,8 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-links" });
           return await conv.links(ws, m.req, m.windowId);
         case "conv-send":
-          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isText(m.text) || (m.replace !== undefined && typeof m.replace !== "boolean")) return send(ws, { t: "error", message: "invalid conv-send" });
-          return await conv.send(ws, m.req, m.windowId, m.conversation, m.text, m.replace === true);
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isText(m.text) || (m.replace !== undefined && !isToken(m.replace))) return send(ws, { t: "error", message: "invalid conv-send" });
+          return await conv.send(ws, m.req, m.windowId, m.conversation, m.text, m.replace ?? null);
         case "conv-answer":
           if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isToken(m.fingerprint) || !Number.isInteger(m.option) || m.option < 0 || m.option > 99 || (m.text !== undefined && !isText(m.text))) return send(ws, { t: "error", message: "invalid conv-answer" });
           return await conv.answer(ws, m.req, m.windowId, m.conversation, m.fingerprint, m.option, m.text);
