@@ -110,6 +110,19 @@ export function cardTitle(card: Card): string {
   return `Allow ${card.title}: ${first.length > TITLE_DETAIL ? `${first.slice(0, TITLE_DETAIL - 1)}…` : first}?`;
 }
 
+/** How long a dialog not shown before waits before its buttons take a tap. */
+export const CARD_ARM_MS = 400;
+
+/**
+ * When the card read as `fingerprint` starts taking taps: a dialog not on
+ * screen before waits `CARD_ARM_MS`, so a second tap meant for the one before
+ * (Q2 drawn where Q1's options were) answers nothing; the same dialog again
+ * keeps the time it had.
+ */
+export function cardArmedAt(before: { fingerprint: string; at: number } | null, fingerprint: string, now: number): number {
+  return before?.fingerprint === fingerprint ? before.at : now + CARD_ARM_MS;
+}
+
 /**
  * Whether a `takesText` option of `card` may be chosen with no words: a
  * permission's No and a Codex decline say No outright, while a question's or a

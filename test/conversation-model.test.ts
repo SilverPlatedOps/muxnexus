@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
-import { cardButtons, cardTitle, conversationWindow, mergeItems, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
+import { CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, mergeItems, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
 import type { AgentKind } from "../src/shared/chat";
 import type { Card, ConvItem, StepResult } from "../src/shared/conversation";
@@ -166,4 +166,16 @@ test("a No that takes words may go without them; a question's or plan's field ma
   expect(wordsOptional(paneCard("codex", "approval"))).toBe(true);
   expect(wordsOptional(paneCard("claude", "plan"))).toBe(false);
   expect(wordsOptional(paneCard("claude", "question"))).toBe(false);
+});
+
+test("a dialog not shown before takes taps only after a moment", () => {
+  // Q1 answered and Q2 drawn in its place, its options where Q1's were: a second tap meant for Q1 must not answer Q2.
+  const q1 = cardArmedAt(null, "q1", T0);
+  expect(q1).toBe(T0 + CARD_ARM_MS);
+  const q2 = cardArmedAt({ fingerprint: "q1", at: q1 }, "q2", T0 + 1000);
+  expect(q2).toBe(T0 + 1000 + CARD_ARM_MS);
+  expect(T0 + 1000 + 150 < q2).toBe(true);
+  // The same dialog again (its highlight moved, the agent's state changed) keeps the time it had.
+  expect(cardArmedAt({ fingerprint: "q2", at: q2 }, "q2", T0 + 1100)).toBe(q2);
+  expect(CARD_ARM_MS).toBeGreaterThanOrEqual(300);
 });

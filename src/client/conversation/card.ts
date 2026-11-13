@@ -7,7 +7,7 @@ import type { Card, CardOption, GenericKey } from "../../shared/conversation";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { palette } from "../terminal";
 import { appearance, onAppearance } from "../theme";
-import { CONV_ERROR, cardButtons, cardTitle, wordsOptional } from "./model";
+import { CONV_ERROR, cardArmedAt, cardButtons, cardTitle, wordsOptional } from "./model";
 
 /**
  * What the agent waits on, answered from the phone: the waiting card, which
@@ -81,6 +81,9 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
   let answering: { req: string | null; fingerprint: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** The answer was refused as stale: off until the fresh card comes. */
   let stale = false;
+  /** When the card shown starts taking taps (a new dialog waits a moment), and the timer that turns it on then. */
+  let armAt = 0;
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
   let seq = 0;
   /** The field an option's words are being typed in, with its Send. */
   let field: { input: HTMLTextAreaElement; send: HTMLButtonElement } | null = null;
@@ -91,7 +94,7 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
     answering = null;
   }
 
-  const busy = () => answering !== null || stale;
+  const busy = () => answering !== null || stale || Date.now() < armAt;
 
   function paintBusy() {
     root.classList.toggle("busy", busy());
@@ -201,6 +204,12 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
       agentShown = agent;
       stale = false;
       if (answering && answering.fingerprint !== card?.fingerprint) dropAnswer();
+      if (card) {
+        const now = Date.now();
+        armAt = cardArmedAt(shown ? { fingerprint: shown.fingerprint, at: armAt } : null, card.fingerprint, now);
+        clearTimeout(armTimer);
+        if (armAt > now) armTimer = setTimeout(paintBusy, armAt - now + 1);
+      }
       const same = card && shown ? card.fingerprint === shown.fingerprint : !card && !shown && screen === shownScreen;
       shown = card;
       shownScreen = !card && screen;
@@ -240,6 +249,8 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
     reset() {
       dropAnswer();
       stale = false;
+      armAt = 0;
+      clearTimeout(armTimer);
       shown = null;
       shownScreen = false;
       field = null;

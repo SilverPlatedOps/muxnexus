@@ -2439,7 +2439,9 @@ select.na-input:disabled { color: var(--dim); }
 .conv-menu { flex: none; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background: none; border: 0; border-radius: 6px; color: var(--muted); cursor: pointer; }
 .conv-menu:hover, .conv-next:hover:not(:disabled) { background: var(--hover); color: var(--fg-strong); }
 
-.conv-main { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* A sliver of the list stays however tall the card below grows; with Screen open over it, most of the room. */
+.conv-main { position: relative; flex: 1; min-height: 48px; display: flex; flex-direction: column; }
+#conv:has(.conv-screen:not([hidden])) .conv-main { min-height: 60%; }
 .conv-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 14px 12px; }
 .conv-list { display: flex; flex-direction: column; gap: 10px; }
 .conv-empty { padding: 32px 0; color: var(--muted); text-align: center; }
@@ -2482,7 +2484,11 @@ select.na-input:disabled { color: var(--dim); }
   box-shadow: 0 6px 18px var(--shadow-float, rgba(0, 0, 0, 0.45));
 }
 
-.conv-slot { flex: none; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line-soft); background: var(--chrome); }
+.conv-slot {
+  flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line-soft); background: var(--chrome);
+}
+.conv-slot > * { flex: none; }
 .conv-compose { display: flex; align-items: flex-end; gap: 8px; }
 .conv-input {
   flex: 1; min-width: 0; min-height: 44px; max-height: 180px; resize: none; padding: 11px 12px;
@@ -2507,11 +2513,15 @@ select.na-input:disabled { color: var(--dim); }
 
 /* The waiting card, in the text box's place while the agent waits on a dialog.
    Labels run long ("Yes, and always allow access to … from this project"):
-   the buttons wrap and grow from 44px rather than cut them. */
-.conv-card { display: flex; flex-direction: column; gap: 8px; }
+   the buttons wrap and grow from 44px rather than cut them. The card never
+   grows past the room #conv has: the detail gives way first (it scrolls), and
+   on a screen too short even then the card scrolls, so no option is cut off. */
+.conv-slot > .conv-card { flex: 0 1 auto; }
+.conv-card { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.conv-card > * { flex: none; }
 .conv-card-meta { color: var(--muted); font-size: 11px; }
 .conv-card-title { color: var(--fg-strong); font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
-.conv-card-detail { max-height: 40vh; }
+.conv-card > .conv-card-detail { flex: 0 1000 auto; min-height: 3.6em; max-height: none; }
 .conv-card-choices, .conv-card-field { display: flex; flex-direction: column; gap: 8px; }
 .conv-card-buttons { display: flex; flex-direction: column; gap: 8px; }
 .conv-card-buttons.inline { flex-direction: row; flex-wrap: wrap; }
@@ -2523,11 +2533,15 @@ select.na-input:disabled { color: var(--dim); }
 .conv-card-btn.main { background: var(--accent); border-color: var(--accent); color: var(--on-accent, var(--chrome)); font-weight: 700; }
 .conv-card-btn.quiet { background: none; border-color: transparent; color: var(--muted); font-size: 12px; font-weight: 500; }
 .conv-card-buttons.inline .conv-card-btn { flex: none; text-align: center; }
-.conv-card-btn:hover:not(:disabled) { border-color: var(--accent); }
-.conv-card-btn.quiet:hover:not(:disabled) { color: var(--fg); border-color: var(--edge); }
 .conv-card-btn:disabled { opacity: 0.45; cursor: default; }
 .conv-card-field-label { color: var(--muted); font-size: 12px; }
-.conv-card-input { width: 100%; max-height: 30vh; }
+.conv-card-input { flex: none; width: 100%; max-height: 120px; }
+/* A finger leaves :hover where it last tapped: a quiet option must never look like the obvious one. */
+@media (hover: hover) {
+  .conv-card-btn:hover:not(:disabled) { border-color: var(--accent); }
+  .conv-card-btn.quiet:hover:not(:disabled) { color: var(--fg); border-color: var(--edge); }
+  .conv-screen-btn:hover { background: var(--hover); color: var(--fg-strong); }
+}
 
 /* Screen: the tab's terminal as a read-only capture over the conversation, with
    the keys a dialog no card reads still needs. A pane wider than the phone
@@ -2537,7 +2551,6 @@ select.na-input:disabled { color: var(--dim); }
 .conv-screen-title { flex: 1; min-width: 0; color: var(--fg-strong); font-weight: 700; }
 .conv-screen-hint { margin-left: 8px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .conv-screen-btn { flex: none; height: 44px; padding: 0 14px; background: none; border: 1px solid var(--edge); border-radius: 8px; color: var(--fg); font: 600 12px var(--mono); cursor: pointer; }
-.conv-screen-btn:hover { background: var(--hover); color: var(--fg-strong); }
 .conv-screen-view { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 8px; }
 /* Nothing is typed into it: a tap scrolls the view and never focuses xterm. */
 .conv-screen-term { width: max-content; pointer-events: none; }
@@ -2548,6 +2561,15 @@ select.na-input:disabled { color: var(--dim); }
 }
 .conv-screen-key { min-width: 0; height: 44px; padding: 0; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; color: var(--fg-strong); font: 700 13px var(--mono); cursor: pointer; }
 .conv-screen-key:active { background: var(--current); }
+/* A phone on its side has no height to spare: the card may take the list's
+   sliver, Screen takes the card's place while open (its keys answer the same
+   dialog; Close brings the card back), and the keys sit in one row. */
+@media (max-height: 480px) {
+  .conv-main { min-height: 0; }
+  #conv:has(.conv-screen:not([hidden])) .conv-slot { display: none; }
+  .conv-screen-bar { min-height: 44px; padding-top: 0; padding-bottom: 0; }
+  .conv-screen-keys { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+}
 
 /* A finger's menu rows, here as everywhere the conversation view opens one. */
 body.conv-mode .pop-item { height: 44px; }
