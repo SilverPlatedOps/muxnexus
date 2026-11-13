@@ -65,6 +65,12 @@ export interface ChatHost {
   changed(): void;
   toast(message: string): void;
   onPhone(): boolean;
+  /**
+   * The page shows conversations, never terminals: a member's terminal would
+   * attach and resize its window at the desk, so its tab opens as a
+   * conversation instead.
+   */
+  conversationMode: boolean;
   /** Find in this chat: the search, scoped to it. */
   find(): void;
   /** A member's tab as an agent menu sees it, and what its items do; null when the tab is gone. */
@@ -870,6 +876,7 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
       host.toast(m.left ? `${handle} has left` : m.windowId ? `${handle} is offline` : `${handle} has no tab: it didn't start`);
       return;
     }
+    if (host.conversationMode) return expandTo(handle);
     if (sideHandle === handle && sideWindow === m.windowId && sideConn) { sideOn = true; wrap.classList.add("show-side"); setDock("terminal"); paintChat(); sideView?.focus(); return; }
     sideHandle = handle;
     sideWindow = m.windowId ?? null;
@@ -1265,7 +1272,8 @@ export function createChatUI(els: ChatEls, host: ChatHost) {
         if (fresh) remember(c.id, { offered: offered ?? undefined });
         setNotesTab(r.notes === true);
         autosize();
-        if (r.member && showing && !host.onPhone()) openSide(r.member);
+        // Not in conversation mode: that would leave the chat for the member's tab as soon as it opened.
+        if (r.member && showing && !host.onPhone() && !host.conversationMode) openSide(r.member);
         if (r.details) setDock("details");
         else if (dockView === "details") setDock(sideHandle ? "terminal" : null);
       } else {

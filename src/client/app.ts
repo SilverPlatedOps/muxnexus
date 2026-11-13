@@ -1152,6 +1152,7 @@ chatUI = createChatUI({
   changed: () => { paintMain(); updateAttention(); if (terminalOn && !chatUI?.isShowing()) term.fit(); },
   toast: (message) => sidebar.toast(message),
   onPhone,
+  conversationMode: convMode,
   find: () => globalSearch?.open(true),
   agentFor: (windowId) => menus.forWindow(windowId),
   showAgentNote: (windowId) => {
