@@ -408,9 +408,11 @@ its conversation too.
   and its questions with one answer each, and Codex's command approval. Tap an
   answer; **No** takes a note for the agent. A prompt answered or changed at the
   desk before your tap is refused ("This prompt changed: refresh"), never
-  answered.
+  answered. A card is read off the tab's screen, so a prompt that doesn't fit it
+  whole goes through Screen instead: a plan longer than the screen, whose start
+  has scrolled away, or a pane too narrow for an option's line.
 - **Screen** (`⋯ → Screen`, or offered in the card's place) is the tab's terminal,
-  read-only, with keys for 1–5, Enter, Esc, the arrows and Tab. It answers what a
+  read-only, with keys for 1–5, Enter, Esc, ↑ and ↓, and Tab. It answers what a
   card can't.
 - **Links** and **Search** (`⋯`) reach a PR or a phrase anywhere in a long
   conversation, not just the part on screen. **Next waiting** goes to the next
