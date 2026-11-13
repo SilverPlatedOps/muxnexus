@@ -221,14 +221,15 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       send(ws, { t: "conv-page", windowId, items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0 });
     },
 
+    // A request waits on its answer: one that can't look the tab up is still answered, with nothing found.
     async search(ws: HubSocket, req: string, windowId: string, query: string, cursor?: number) {
-      const f = await fileOf(ws, windowId);
+      const f = await fileOf(ws, windowId).catch(() => null);
       const r = f ? await searchFile(f.kind, f.path, query, cursor === undefined ? {} : { cursor }).catch(() => null) : null;
       send(ws, { t: "conv-search-result", req, hits: r?.hits ?? [], ...(r?.next !== undefined ? { next: r.next } : {}) });
     },
 
     async links(ws: HubSocket, req: string, windowId: string) {
-      const f = await fileOf(ws, windowId);
+      const f = await fileOf(ws, windowId).catch(() => null);
       const links = f ? await linksIn(f.kind, f.path).catch(() => []) : [];
       send(ws, { t: "conv-links-result", req, links });
     },

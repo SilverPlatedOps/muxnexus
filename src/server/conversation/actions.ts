@@ -40,9 +40,9 @@ export function conversationOf(info: WindowAgentInfo): string | null {
   return (info.kind === "claude" ? info.conversation?.sessionId : info.thread?.id) ?? null;
 }
 
-/** The text with C0 controls (other than newline and tab) and DEL removed: an ESC could end the bracketed paste early and type the rest as keys. */
+/** The text with C0 controls (other than newline and tab), DEL and C1 controls removed: an ESC (or C1's CSI) could end the bracketed paste early and type the rest as keys. */
 export function cleanText(text: string): string {
-  return text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+  return text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 }
 
 // Every read and write goes to the agent's own pane (`info.paneId`), never the
@@ -82,9 +82,10 @@ export async function sendText(
   if (words.trim() === "") return { ok: true };
   const pane = info.paneId;
   const r = await readNow(tmux, info.kind, pane);
-  // Typed into a dialog, digits would pick its options. A prompt that can't be read is no better.
-  if (r.dialog || r.unrecognised || r.draft === "unknown") return refuse("waiting");
-  if (r.draft === "text") {
+  // Typed into a dialog, digits would pick its options.
+  if (r.dialog || r.unrecognised) return refuse("waiting");
+  // A prompt whose text can't be read is asked about as if it held some (empty: none to show), and cleared the same way.
+  if (r.draft !== "empty") {
     if (!replace) return { ok: false, draft: r.draftText ?? "" };
     // Claude's C-c interrupts a running turn instead, and text streaming under a draft shows no sign of work: the
     // stamp must say the turn is done, or the transcript that it was interrupted since. `input` with the prompt on

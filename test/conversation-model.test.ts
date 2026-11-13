@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
-import { CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, linkRows, mergeItems, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
+import { CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, linkRows, mergeItems, stepLine, stuckToBottom, withLocalActive, wordsOptional, workingLine } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
 import type { AgentKind } from "../src/shared/chat";
 import type { Card, ConvItem, StepResult } from "../src/shared/conversation";
@@ -196,4 +196,19 @@ test("PR links read as owner/repo#number", () => {
   expect(rows[4]!.label.length).toBe(48);
   expect(rows[4]!.label.endsWith("…")).toBe(true);
   expect(rows[5]!.label).toBe("not a url");
+});
+
+test("a step that failed or was denied reads as what was tried, not as done", () => {
+  const step = (summary: string, ok?: boolean): Extract<ConvItem, { kind: "step" }> => ({
+    id: "s", kind: "step", at: "2026-01-01T10:00:00.000Z", tool: "Write", summary, input: "",
+    ...(ok === undefined ? {} : { result: { ok, output: "", at: "2026-01-01T10:00:01.000Z" } }),
+  });
+  expect(stepLine(step("Wrote note.txt", false))).toBe("Write note.txt");
+  expect(stepLine(step("Ran mvn -q test", false))).toBe("Run mvn -q test");
+  expect(stepLine(step("Edited a.ts", false))).toBe("Edit a.ts");
+  expect(stepLine(step("Searched foo", false))).toBe("Search foo");
+  expect(stepLine(step("WebFetch", false))).toBe("WebFetch");
+  // Done, or not done yet: as the server words it.
+  expect(stepLine(step("Wrote note.txt", true))).toBe("Wrote note.txt");
+  expect(stepLine(step("Wrote note.txt"))).toBe("Wrote note.txt");
 });

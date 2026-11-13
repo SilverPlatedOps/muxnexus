@@ -14,7 +14,7 @@ import { sessionLabel, tabLabel } from "../labels";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { SAFE_LINK } from "../live-markdown";
-import { CONV_ERROR, linkRows, mergeItems, stuckToBottom, workingLine } from "./model";
+import { CONV_ERROR, linkRows, mergeItems, stepLine, stuckToBottom, workingLine } from "./model";
 
 /**
  * One tab's agent as a conversation, for a phone or an iPad: what it said and
@@ -200,7 +200,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const input = el("textarea", "conv-input");
   input.rows = 1;
   input.placeholder = "Message";
-  input.setAttribute("enterkeyhint", "send");
+  // No enterkeyhint "send": on touch Enter makes a new line, and Send is the button.
   input.setAttribute("aria-label", "Message the agent");
   const stopBtn = button("conv-stop", "Stop");
   stopBtn.title = "Interrupt the agent (Esc at the desk)";
@@ -470,7 +470,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   function stepEl(it: Step): HTMLElement {
     const d = el("details", `conv-item conv-step ${it.result ? (it.result.ok ? "ok" : "failed") : "pending"}`);
     const line = el("summary", "conv-step-line");
-    line.append(el("span", "conv-step-mark", it.result ? (it.result.ok ? "✓" : "✗") : "·"), el("span", "conv-step-text", it.summary));
+    line.append(el("span", "conv-step-mark", it.result ? (it.result.ok ? "✓" : "✗") : "·"), el("span", "conv-step-text", stepLine(it)));
     const time = it.result ? took(it.at, it.result.at) : "";
     if (time) line.append(el("span", "conv-step-time", time));
     d.append(line);
@@ -661,7 +661,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     cancel.onclick = () => { draftEl.hidden = true; };
     const buttons = el("div", "conv-draft-buttons");
     buttons.append(replace, cancel);
-    draftEl.replaceChildren(el("div", "conv-draft-text", "The desk's prompt already holds this, unsent:"), el("pre", "conv-pre", clip(draft) || " "), buttons);
+    // No text: the prompt couldn't be read, and may hold some.
+    const said = draft
+      ? [el("div", "conv-draft-text", "The desk's prompt already holds this, unsent:"), el("pre", "conv-pre", clip(draft))]
+      : [el("div", "conv-draft-text", "The desk's prompt may hold unsent text that can't be read here.")];
+    draftEl.replaceChildren(...said, buttons);
     draftEl.hidden = false;
   }
 

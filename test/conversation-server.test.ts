@@ -199,6 +199,21 @@ describe("the conversation hub", () => {
     }
   });
 
+  test("links and search are answered even when the tab can't be looked up", async () => {
+    const { tmux } = fakeTmux(null, "");
+    tmux.agentOfWindow = async () => { throw new Error("no server running"); };
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.links(ws, "r1", "@9");
+      await hub.search(ws, "r2", "@9", "x");
+      expect(ws.last("conv-links-result")).toEqual({ t: "conv-links-result", req: "r1", links: [] });
+      expect(ws.last("conv-search-result")).toEqual({ t: "conv-search-result", req: "r2", hits: [] });
+    } finally {
+      hub.stop();
+    }
+  });
+
   test("the pane is read only while the stamp says waiting", async () => {
     const { state, tmux } = fakeTmux(claude(transcript(), "running"), pane("claude-bash-permission"));
     const hub = createConversationHub({ tmux, pollMs: 30 });

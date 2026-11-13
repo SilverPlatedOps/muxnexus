@@ -194,6 +194,22 @@ describe("send", () => {
     expect([...fresh.writes(), ...none.writes()]).toEqual([]);
   });
 
+  test("a desk prompt that can't be read is asked about as if it held text, and Replace clears it before the paste", async () => {
+    // A composer row that isn't indented as Codex indents a draft's lines: the draft can't be read.
+    const unreadable = raw("codex-idle-multiline-draft").replace("  line two", " line two");
+    expect(adapterFor("codex").readPane(unreadable)).toMatchObject({ dialog: null, unrecognised: false, draft: "unknown" });
+    const ask = fakeTmux(codexAgent(), [unreadable]);
+    expect(await sendText(ask, "@24", "thread-1", "x", false)).toEqual({ ok: false, draft: "" });
+    expect(ask.writes()).toEqual([]);
+    const replace = fakeTmux(codexAgent(), [unreadable, raw("codex-idle-empty")]);
+    expect(await sendText(replace, "@25", "thread-1", "x", true)).toEqual({ ok: true });
+    expect(replace.writes()).toEqual([["sendKeys", "%2", ["C-c"]], ["pasteInto", "%2", "x"], ["sendKeys", "%2", ["Enter"]]]);
+    // Not read as empty after the clear: nothing is pasted.
+    const stuck = fakeTmux(codexAgent(), [unreadable]);
+    expect(await sendText(stuck, "@26", "thread-1", "x", true)).toEqual({ ok: false, error: "prompt-changed" });
+    expect(stuck.writes()).toEqual([["sendKeys", "%2", ["C-c"]]]);
+  });
+
   test("no text goes into a dialog", async () => {
     for (const [agent, pane] of [[claudeAgent(), "claude-bash-permission"], [claudeAgent(), "claude-trust"], [claudeAgent(), "claude-bash-no-field"], [codexAgent(), "codex-approval"]] as const) {
       const tmux = fakeTmux(agent, [raw(pane)]);
@@ -205,6 +221,8 @@ describe("send", () => {
   test("control characters never reach the pane", async () => {
     expect(cleanText("a\x1b[201~b\x07\nc")).toBe("a[201~b\nc");
     expect(cleanText("tab\there\r\nnext\x7f\x00")).toBe("tab\there\nnext");
+    // C1 controls too: \x9b is CSI on its own.
+    expect(cleanText("a\x9b201~b\x85c\x80\x9fd é")).toBe("a201~bcd é");
     const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty")]);
     expect(await sendText(tmux, "@1", "sess-1", "one\x1b[201~\x1b[2Jtwo", false)).toEqual({ ok: true });
     expect(tmux.writes()[0]).toEqual(["pasteInto", "%1", "one[201~[2Jtwo"]);

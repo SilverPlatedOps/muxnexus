@@ -56,6 +56,15 @@ export function mergeItems(list: ConvItem[], incoming: (ConvItem | StepResult)[]
 
 /** A step's line in the past tense, as the server words it, turned to what is happening now. */
 const NOW: Record<string, string> = { Ran: "Running", Edited: "Editing", Wrote: "Writing", Read: "Reading", Searched: "Searching" };
+/** The same, turned to what was tried. */
+const TRIED: Record<string, string> = { Ran: "Run", Edited: "Edit", Wrote: "Write", Read: "Read", Searched: "Search" };
+
+/** A step's line: as the server words it, or for one that failed or was denied what was tried (`Write note.txt`), never `Wrote`. */
+export function stepLine(it: Extract<ConvItem, { kind: "step" }>): string {
+  if (!it.result || it.result.ok) return it.summary;
+  const verb = /^(\S+) (.+)$/.exec(it.summary);
+  return verb && TRIED[verb[1]!] ? `${TRIED[verb[1]!]} ${verb[2]}` : it.summary;
+}
 
 /**
  * The working line's words: the step still running and for how long
