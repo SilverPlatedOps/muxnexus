@@ -79,7 +79,119 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 
-export function openNewAgent(host: HTMLElement, o: NewAgentOpts): void {
+/**
+ * The folders the picker lists for what is typed: every word somewhere in the
+ * path, in any case. The ones whose name is the query come first, then those
+ * whose name starts with it, then those whose name holds it, then the rest;
+ * within each, recent folders before repos, each list in its own order.
+ * Nothing typed lists them all, recent first.
+ */
+export function matchFolders(query: string, recents: readonly string[], repos: readonly string[], limit = 50): string[] {
+  const all = [...new Set([...recents, ...repos])];
+  const q = query.trim().toLowerCase();
+  if (!q) return all.slice(0, limit);
+  const words = q.split(/\s+/);
+  const rank = (p: string) => {
+    const n = nameFromFolder(p).toLowerCase();
+    return n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : 3;
+  };
+  return all
+    .filter((p) => words.every((w) => p.toLowerCase().includes(w)))
+    .map((p, i) => ({ p, i, r: rank(p) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .slice(0, limit)
+    .map((x) => x.p);
+}
+
+/**
+ * The folder field with a list under it: the server's repos and the recent
+ * folders, narrowed as you type. ↑↓ move, Enter or a click picks, Escape
+ * closes the list (a second one the form). Any path can still be typed. It
+ * opens on focus showing everything, so a prefilled folder does not hide the
+ * rest; it narrows from the first keystroke.
+ */
+function folderPicker(input: HTMLInputElement, recents: readonly string[], pick: (f: string) => void) {
+  const wrap = el("div", "na-combo");
+  const list = el("ul", "na-list");
+  list.id = `na-list-${Math.random().toString(36).slice(2)}`;
+  list.setAttribute("role", "listbox");
+  list.hidden = true;
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-controls", list.id);
+  input.setAttribute("aria-expanded", "false");
+  input.autocomplete = "off";
+  wrap.append(input, list);
+
+  let repos: string[] = [];
+  let shown: string[] = [];
+  let hi = 0;
+  let narrowed = false;
+
+  const highlight = (i: number) => {
+    hi = i;
+    [...list.children].forEach((li, j) => li.setAttribute("aria-selected", String(j === hi)));
+    list.children[hi]?.scrollIntoView({ block: "nearest" });
+  };
+  const paint = () => {
+    shown = matchFolders(narrowed ? input.value : "", recents, repos);
+    list.replaceChildren(...shown.map((f) => {
+      const li = el("li", "na-opt");
+      li.setAttribute("role", "option");
+      const slash = f.lastIndexOf("/");
+      li.append(el("span", "na-opt-name", nameFromFolder(f) || f), el("span", "na-opt-path", slash > 0 ? f.slice(0, slash) : ""));
+      li.title = f;
+      // Picked on mousedown, kept from blurring the field, so the list does not close first.
+      li.onmousedown = (e) => { e.preventDefault(); choose(f); };
+      return li;
+    }));
+    const open = document.activeElement === input && shown.length > 0;
+    list.hidden = !open;
+    input.setAttribute("aria-expanded", String(open));
+    highlight(0);
+  };
+  const shut = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
+  const choose = (f: string) => { pick(f); narrowed = false; shut(); };
+
+  input.addEventListener("focus", () => { narrowed = false; input.select(); paint(); });
+  input.addEventListener("blur", shut);
+  input.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (list.hidden) {
+      if (e.key === "ArrowDown") { e.preventDefault(); paint(); }
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      highlight((hi + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (shown[hi]) choose(shown[hi]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      shut();
+    }
+  });
+
+  return {
+    el: wrap,
+    typed() { narrowed = true; paint(); },
+    repos(r: string[]) {
+      if (!wrap.isConnected) return;
+      repos = r;
+      if (document.activeElement === input) paint();
+    },
+  };
+}
+
+export interface NewAgentHandle {
+  /** The server's answer to `repos`: the git checkouts to offer. */
+  repos(list: string[]): void;
+}
+
+export function openNewAgent(host: HTMLElement, o: NewAgentOpts): NewAgentHandle {
   const back = el("div", "modal-back");
   const box = el("div", "move new-agent");
   box.setAttribute("role", "dialog");
@@ -93,7 +205,8 @@ export function openNewAgent(host: HTMLElement, o: NewAgentOpts): void {
   head.append(x);
 
   const state = { agent: "claude" as AgentChoice, group: o.group, profile: groupAccount(o.group, o.profiles), profileChosen: false };
-  const recents = [...new Set([...recentFolders(), ...o.folders.map(tilde)])].slice(0, 6);
+  const known = [...new Set([...recentFolders(), ...o.folders.map(tilde)])];
+  const recents = known.slice(0, 6);
 
   const field = (label: string, control: HTMLElement, note?: HTMLElement) => {
     const f = el("label", "na-field");
@@ -115,11 +228,13 @@ export function openNewAgent(host: HTMLElement, o: NewAgentOpts): void {
     const c = el("button", "na-chip", nameFromFolder(f) || f);
     c.type = "button";
     c.title = f;
-    c.onclick = () => { folder.value = f; paintName(); paintChips(); };
+    c.onclick = () => pick(f);
     chips.append(c);
   }
   const paintChips = () => { for (const c of chips.children) c.classList.toggle("on", (c as HTMLElement).title === folder.value); };
-  folder.oninput = () => { paintName(); paintChips(); };
+  const pick = (f: string) => { folder.value = f; paintName(); paintChips(); };
+  const picker = folderPicker(folder, known, pick);
+  folder.oninput = () => { paintName(); paintChips(); picker.typed(); };
 
   const seg = (values: readonly [string, string][], get: () => string, set: (v: string) => void) => {
     const s = el("div", "na-seg");
@@ -185,7 +300,7 @@ export function openNewAgent(host: HTMLElement, o: NewAgentOpts): void {
     head,
     field("Name", name),
     field("Agent", kinds),
-    field("Folder", folder, chips),
+    field("Folder", picker.el, chips),
     field("Group", groups),
     field("Account", account, accountNote),
     foot,
@@ -204,4 +319,5 @@ export function openNewAgent(host: HTMLElement, o: NewAgentOpts): void {
   back.onclick = (e) => { if (e.target === back) close(); };
   host.append(back);
   name.focus();
+  return { repos: picker.repos };
 }

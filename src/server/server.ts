@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { HTMLBundle, ServerWebSocket } from "bun";
-import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, SessionInfo, SwapHolder, SwapNotice, SystemStats } from "../shared/protocol";
+import type { ClientMessage, DetachReason, NewWindowAgent, ServerMessage, ServerSettings, SessionInfo, SwapHolder, SwapNotice, SystemStats } from "../shared/protocol";
+import { createSettingsStore, scanRepos, type SettingsStore } from "./settings";
 import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
 import { SEARCH_LIMITS } from "../shared/chat";
@@ -102,6 +103,8 @@ export interface ServerOptions {
   chatsDir?: string;
   /** Where images pasted into a terminal are saved. Absent, there is no paste route. */
   pastesDir?: string;
+  /** This server's settings; `~/.config/muxnexus/settings.json` when absent. */
+  settings?: SettingsStore;
 }
 
 export interface RunningServer {
@@ -291,6 +294,7 @@ export function createServer(opts: ServerOptions): RunningServer {
     return serveFile(path);
   }
   const notes = createNoteStore(opts.notesDir);
+  const settings = opts.settings ?? createSettingsStore();
   /**
    * Note requests run one at a time, in the order they arrived: a save sent a
    * moment before the list is asked for must be in the list, and the socket's
@@ -1055,6 +1059,21 @@ export function createServer(opts: ServerOptions): RunningServer {
           for (const c of clients) if (c.readyState === WebSocket.OPEN) c.sendText(json);
           break;
         }
+        case "settings-get":
+          return send(ws, { t: "settings", settings: await settings.read() });
+        case "settings-save": {
+          let saved: ServerSettings;
+          try {
+            saved = await settings.save(m.settings);
+          } catch (e) {
+            return send(ws, { t: "settings", settings: await settings.read(), error: (e as Error).message });
+          }
+          const json = JSON.stringify({ t: "settings", settings: saved } satisfies ServerMessage);
+          for (const c of clients) if (c.readyState === WebSocket.OPEN) c.sendText(json);
+          break;
+        }
+        case "repos":
+          return send(ws, { t: "repos", repos: await scanRepos((await settings.read()).scanFolders, settings.home) });
         default:
           return send(ws, { t: "error", message: `unknown message type: ${String((m as { t?: unknown }).t)}` });
       }

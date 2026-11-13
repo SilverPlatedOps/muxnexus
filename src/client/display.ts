@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
+import type { ClientMessage, ServerSettings } from "../shared/protocol";
 import { setThemeChoice, themeChoice, type ThemeChoice } from "./theme";
 
 /**
@@ -87,12 +88,91 @@ export const ABOUT = {
   ],
 };
 
+/** What the settings modal hears from the server while it is open. */
+export interface DisplayHandle {
+  settings(s: ServerSettings, error?: string): void;
+}
+
 /**
- * The display modal: one switch per mark, each saying what it is for, so a
- * mark that has become noise can go without hunting for where it lives.
- * `onChange` is told after every switch, to redraw whatever wears the marks.
+ * The folders the New agent form looks in for repos: a list with a remove on
+ * each, and a field to add one. Saved on the server as soon as it changes, as
+ * the switches above apply at once; until the server answers, it says so.
  */
-export function openDisplay(host: HTMLElement, onChange: () => void): void {
+function scanFoldersSection(send: (m: ClientMessage) => void): { el: HTMLElement; receive: DisplayHandle["settings"] } {
+  const wrap = el("div", "display-folders");
+  const text = el("span", "display-text");
+  text.append(
+    el("span", "move-opt-name", "Repo folders"),
+    el("span", "move-opt-note", "Where New agent looks for git repos to pick from, one level down"),
+  );
+  const list = el("ul", "display-folder-list");
+  const addRow = el("div", "display-folder-add");
+  const input = el("input", "na-input");
+  input.placeholder = "~/github";
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "Folder to add");
+  const add = el("button", "chat-btn", "Add");
+  add.type = "button";
+  addRow.append(input, add);
+  const error = el("span", "display-folder-error");
+  error.setAttribute("role", "alert");
+  wrap.append(text, list, addRow, error);
+
+  let folders: string[] | null = null;
+  /** A folder sent to be added: its answer clears the field, or keeps it to fix. */
+  let adding = false;
+  const save = (next: string[]) => {
+    error.textContent = "";
+    send({ t: "settings-save", settings: { scanFolders: next } });
+  };
+  const paint = () => {
+    list.replaceChildren();
+    if (!folders) {
+      list.append(el("li", "display-folder-none", "Loading…"));
+      return;
+    }
+    if (!folders.length) list.append(el("li", "display-folder-none", "None: New agent offers only recent folders"));
+    for (const f of folders) {
+      const li = el("li", "display-folder");
+      const x = el("button", "icon-btn", "✕");
+      x.type = "button";
+      x.setAttribute("aria-label", `Remove ${f}`);
+      x.onclick = () => save(folders!.filter((g) => g !== f));
+      li.append(el("span", "display-folder-path", f), x);
+      list.append(li);
+    }
+  };
+  const submit = () => {
+    const f = input.value.trim();
+    if (!f || !folders) return;
+    adding = true;
+    save([...folders, f]);
+  };
+  add.onclick = submit;
+  input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
+  paint();
+  send({ t: "settings-get" });
+  return {
+    el: wrap,
+    receive(s, err) {
+      if (!wrap.isConnected) return;
+      if (adding && !err) input.value = "";
+      adding = false;
+      folders = s.scanFolders;
+      error.textContent = err ?? "";
+      paint();
+    },
+  };
+}
+
+/**
+ * The settings modal. "This device" is what this browser remembers for
+ * itself: one switch per mark, each saying what it is for, so a mark that has
+ * become noise can go without hunting for where it lives. "This server" is
+ * saved beside the server, so every device sees the same. `onChange` is told
+ * after every switch, to redraw whatever wears the marks.
+ */
+export function openDisplay(host: HTMLElement, onChange: () => void, send: (m: ClientMessage) => void): DisplayHandle {
   const back = el("div", "modal-back");
   const box = el("div", "move display");
   box.setAttribute("role", "dialog");
@@ -105,6 +185,7 @@ export function openDisplay(host: HTMLElement, onChange: () => void): void {
   x.onclick = () => close();
   head.append(x);
   box.append(head);
+  box.append(el("div", "move-cap display-cap", "THIS DEVICE"));
 
   const rows: [string, string, () => boolean, (on: boolean) => void][] = [
     ["Account badges", "The account each tab's agent spends, as a letter on the tab", badgesShown, setBadgesShown],
@@ -140,6 +221,10 @@ export function openDisplay(host: HTMLElement, onChange: () => void): void {
     box.append(row);
   }
 
+  box.append(el("div", "move-cap display-cap", "THIS SERVER · SAME ON EVERY DEVICE"));
+  const folders = scanFoldersSection(send);
+  box.append(folders.el);
+
   const about = el("section", "display-about");
   about.setAttribute("aria-label", ABOUT.title);
   const links = el("span", "display-about-links");
@@ -164,4 +249,5 @@ export function openDisplay(host: HTMLElement, onChange: () => void): void {
   document.addEventListener("keydown", esc);
   host.append(back);
   (box.querySelector("input") as HTMLInputElement | null)?.focus();
+  return { settings: folders.receive };
 }

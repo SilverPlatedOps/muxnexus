@@ -3,7 +3,7 @@
 
 import { createSidebar, sessionLabel } from "./sidebar";
 import { groupNames, isArchived, visualOrder } from "./groups";
-import { openNewAgent } from "./new-agent";
+import { openNewAgent, type NewAgentHandle } from "./new-agent";
 import { knownFolders } from "./chat/model";
 import { createMenuActions, kindOf } from "./menu-actions";
 import { onContextMenu } from "./popover";
@@ -18,7 +18,7 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { memoryShown, openDisplay } from "./display";
+import { memoryShown, openDisplay, type DisplayHandle } from "./display";
 import { memoryStore } from "./memory";
 import { createNudge } from "./nudge";
 import { createSystemPanel, setSystemCollapsed, systemCollapsed } from "./system";
@@ -71,6 +71,9 @@ let chatUI: ChatUI | null = null;
  */
 let agentNote: { session: string; windowId: string } | null = null;
 let globalSearch: ReturnType<typeof createGlobalSearch> | null = null;
+/** The last Settings and New agent forms opened, told what the server answers them; one that closed ignores it. */
+let displayDialog: DisplayHandle | null = null;
+let newAgentDialog: NewAgentHandle | null = null;
 
 let desired: string | null = localStorage.getItem(SESSION_KEY);
 let current: string | null = null;
@@ -457,7 +460,8 @@ function changeAccount(session: string, id: string) {
 
 /** The New agent form, from the ＋ at the top, a group's ＋ or its menu, and the empty page. */
 function newAgent(group: string | null = null) {
-  openNewAgent(document.body, {
+  conn.send({ t: "repos" });
+  newAgentDialog = openNewAgent(document.body, {
     group,
     groups: groupNames(sessions.map(sessionLabel)),
     folders: knownFolders(sessions),
@@ -862,6 +866,12 @@ const conn = new Connection(wsUrl, {
       case "docker":
         if (dockerSent) docker.receive(m.stats);
         break;
+      case "settings":
+        displayDialog?.settings(m.settings, m.error);
+        break;
+      case "repos":
+        newAgentDialog?.repos(m.repos);
+        break;
       case "notes":
         notes.list(m.notes);
         globalSearch?.receive(m.notes);
@@ -918,12 +928,14 @@ document.getElementById("side-new")!.onclick = () => {
 };
 // The badges are worn by the tabs and legended by the quota panel; the checkout
 // mark by the tabs and the sidebar. A switch redraws all of them.
-displayBtn.onclick = () => openDisplay(document.body, () => {
-  syncMemory();
-  paintAll();
-  renderUsage(usageEl, usageSources);
-  syncSystem();
-});
+displayBtn.onclick = () => {
+  displayDialog = openDisplay(document.body, () => {
+    syncMemory();
+    paintAll();
+    renderUsage(usageEl, usageSources);
+    syncSystem();
+  }, (m) => { conn.send(m); });
+};
 overlay.onclick = () => setDrawer(false);
 emptyNew.onclick = () => {
   if (onPhone()) setDrawer(true);

@@ -244,7 +244,22 @@ export type ClientMessage =
   | { t: "chat-round"; id: string; action: "start" | "end"; topic?: string }
   /** Point a member whose tab closed at the tab its conversation was resumed in. */
   | { t: "chat-reconnect"; id: string; handle: string; windowId?: string }
+  /** This server's settings; answered with `settings`. */
+  | { t: "settings-get" }
+  /** Replace this server's settings: every browser is sent the new ones, or this one an `error` beside the old. */
+  | { t: "settings-save"; settings: ServerSettings }
+  /** The git checkouts in the settings' scan folders, for the New agent form; answered with `repos`. */
+  | { t: "repos" }
   | { t: "ping" };
+
+/**
+ * Settings that belong to the server rather than to one browser: saved in a
+ * file beside it, so every device sees the same.
+ */
+export interface ServerSettings {
+  /** Folders whose git checkouts the New agent form offers, one level down, as `~/github`. */
+  scanFolders: string[];
+}
 
 /** An agent already running in a tab, joining a chat. */
 export interface ChatJoin {
@@ -517,4 +532,8 @@ export type ServerMessage =
   | { t: "chat"; chat: Chat; agents: Record<string, ChatMemberLive> }
   /** Sent to the browser that created a chat, so it can open it. */
   | { t: "chat-created"; id: string }
+  /** This server's settings; `error` says why a save from this browser did not land. */
+  | { t: "settings"; settings: ServerSettings; error?: string }
+  /** Git checkouts as `~/github/shop-api`, sorted by name. */
+  | { t: "repos"; repos: string[] }
   | { t: "error"; message: string };
