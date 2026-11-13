@@ -14,7 +14,7 @@ import { sessionLabel, tabLabel } from "../labels";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { SAFE_LINK } from "../live-markdown";
-import { CONV_ERROR, linkRows, mergeItems, stepLine, stuckToBottom, workingLine } from "./model";
+import { composedAs, type Composed, CONV_ERROR, linkRows, mergeItems, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere } from "./model";
 
 /**
  * One tab's agent as a conversation, for a phone or an iPad: what it said and
@@ -132,12 +132,16 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let card: Card | null = null;
   let screen = false;
   let working = false;
-  /** A send waiting for its `conv-result`, in the tab shown: Send stays off, so a double tap pastes once. */
-  let pending: { req: string; text: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** A send waiting for its `conv-result`, in the tab shown, and the conversation it went to: Send stays off, so a double tap pastes once. */
+  let pending: { req: string; text: string; to: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** A stop waiting for its `conv-result`. */
   let stopping: string | null = null;
-  /** What was typed in each tab and not sent: switching tabs keeps it. */
-  const typed = new Map<string, string>();
+  /** What the text box holds, and the conversation it was written for. */
+  let composed: Composed = { text: "", for: null };
+  /** What was typed in each tab and not sent, with the conversation it was for: switching tabs keeps it. */
+  const typed = new Map<string, Composed>();
+  /** Send was pressed on words written for the conversation before: the line over the box asks before they go to this one. */
+  let confirming = false;
   let seq = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -202,6 +206,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     target: () => (windowId && conversation ? { windowId, conversation } : null),
     openScreen: () => screenView.open(false),
   });
+  /** Over the box while its words were written for the conversation the tab held before (a /clear, a resume at the desk). */
+  const boundEl = el("div", "conv-bound");
+  boundEl.hidden = true;
+  const boundYes = button("conv-bound-yes", "Send it to the new conversation?");
+  boundEl.append(el("span", "conv-bound-text", "Written for the previous conversation in this tab."), boundYes);
   const compose = el("div", "conv-compose");
   const input = el("textarea", "conv-input");
   input.rows = 1;
@@ -212,7 +221,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   stopBtn.title = "Interrupt the agent (Esc at the desk)";
   const sendBtn = button("conv-send", "Send");
   compose.append(input, stopBtn, sendBtn);
-  slot.append(draftEl, waiting.el, compose);
+  slot.append(draftEl, boundEl, waiting.el, compose);
   host.replaceChildren(head, main, slot);
 
   // ---- the header ----
@@ -629,6 +638,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     stopBtn.hidden = !working || asked() || !conversation;
     stopBtn.disabled = stopping !== null;
     sendBtn.disabled = !conversation || pending !== null || input.value.trim() === "";
+    const elsewhere = writtenElsewhere(composed, conversation);
+    if (!elsewhere) confirming = false;
+    boundEl.hidden = !elsewhere || compose.hidden;
+    boundYes.hidden = !confirming;
+    boundYes.disabled = pending !== null;
   }
 
   function grow() {
@@ -642,8 +656,25 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     pending = null;
   }
 
-  function send(text: string, replace = false) {
+  /**
+   * Send pressed: the words go to the conversation they were written for. Written for the one before (the tab
+   * now holds another), they wait for the user to say they're for this one.
+   */
+  function send(text: string) {
     if (!windowId || !conversation || pending || asked() || text.trim() === "") return;
+    const how = sendAs({ text, for: composed.for }, conversation);
+    if (!how) return;
+    if ("ask" in how) {
+      confirming = true;
+      paintSlot();
+      return;
+    }
+    sendTo(text, how.send);
+  }
+
+  /** `text` as a message to conversation `to`: the one it was written for, never just whichever the tab shows. */
+  function sendTo(text: string, to: string, replace = false) {
+    if (!windowId || pending || asked() || text.trim() === "") return;
     if (text.length > MAX_TEXT) {
       deps.toast(`Too long to send: ${text.length} characters, ${MAX_TEXT} at most`);
       return;
@@ -654,17 +685,26 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       pending = null;
       paintSlot();
     }, SEND_GIVE_UP_MS);
-    pending = { req, text, timer };
+    pending = { req, text, to, timer };
     draftEl.hidden = true;
-    deps.send({ t: "conv-send", req, windowId, conversation, text, ...(replace ? { replace: true } : {}) });
+    deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace ? { replace: true } : {}) });
     paintSlot();
   }
 
-  /** The desk's prompt holds text: show it, and let the user replace it or keep it. */
-  function showDraft(draft: string, text: string) {
+  boundYes.onclick = () => {
+    if (!conversation || !confirming) return;
+    // Only now are the words for the conversation the tab holds.
+    composed = { ...composed, for: conversation };
+    if (windowId) typed.set(windowId, composed);
+    confirming = false;
+    send(input.value);
+  };
+
+  /** The desk's prompt holds text: show it, and let the user replace it or keep it. The words stay for conversation `to`. */
+  function showDraft(draft: string, text: string, to: string) {
     const replace = button("conv-draft-replace", "Replace it");
     const cancel = button("conv-draft-cancel", "Cancel");
-    replace.onclick = () => send(text, true);
+    replace.onclick = () => sendTo(text, to, true);
     cancel.onclick = () => { draftEl.hidden = true; };
     const buttons = el("div", "conv-draft-buttons");
     buttons.append(replace, cancel);
@@ -679,7 +719,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   /** What the text box holds now, typed or put there (a note): kept for the tab, and the buttons painted. */
   function setTyped(text: string) {
     if (input.value !== text) input.value = text;
-    if (windowId) typed.set(windowId, input.value);
+    composed = composedAs(composed, input.value, conversation);
+    if (windowId) typed.set(windowId, composed);
     grow();
     paintSlot();
   }
@@ -703,6 +744,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   // ---- messages ----
   function loaded(m: Extract<ServerMessage, { t: "conv" }>) {
     agent = m.agent;
+    // A yes asked for under another conversation is no yes for this one.
+    if (m.conversation !== conversation) confirming = false;
     conversation = m.conversation;
     start = m.start;
     asking = false;
@@ -789,12 +832,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       const sent = pending;
       dropPending();
       if (m.ok) {
-        if (windowId && typed.get(windowId) === sent.text) typed.delete(windowId);
-        if (input.value === sent.text) {
-          input.value = "";
-          grow();
-        }
-      } else if (m.draft !== undefined) showDraft(m.draft, sent.text);
+        if (input.value === sent.text) setTyped("");
+      } else if (m.draft !== undefined) showDraft(m.draft, sent.text, sent.to);
       else if (m.error) deps.toast(CONV_ERROR[m.error]);
       // Neither: the action threw, and an `error` message says why.
       paintSlot();
@@ -883,7 +922,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       list.replaceChildren();
       draftEl.hidden = true;
       newBtn.hidden = true;
-      input.value = typed.get(nextWindow) ?? "";
+      composed = typed.get(nextWindow) ?? { text: "", for: null };
+      input.value = composed.text;
+      confirming = false;
       grow();
       paintHead();
       paintBody();

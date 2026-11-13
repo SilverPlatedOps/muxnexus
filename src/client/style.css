@@ -2510,6 +2510,11 @@ select.na-input:disabled { color: var(--dim); }
 .conv-draft-text { margin-bottom: 6px; }
 .conv-draft .conv-pre { max-height: 120px; }
 .conv-draft-buttons { display: flex; gap: 8px; margin-top: 8px; }
+/* Words written for the conversation the tab held before: said over the box, and Send asks before they go. */
+.conv-bound { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--dim); font: 12px/1.4 var(--mono); }
+.conv-bound-text { flex: 1 1 12em; }
+.conv-bound-yes { flex: none; min-height: 44px; padding: 0 14px; border-radius: 8px; background: var(--accent); border: 0; color: var(--on-accent, var(--chrome)); font: 700 12px/1 var(--mono); cursor: pointer; }
+.conv-bound-yes:disabled { opacity: 0.45; cursor: default; }
 
 /* The waiting card, in the text box's place while the agent waits on a dialog.
    Labels run long ("Yes, and always allow access to … from this project"):

@@ -94,6 +94,35 @@ export function stuckToBottom(scrollTop: number, scrollHeight: number, clientHei
   return scrollHeight - scrollTop - clientHeight <= 40;
 }
 
+/** What the text box holds, and the conversation it was written for (null: none yet). */
+export interface Composed { text: string; for: string | null }
+
+/**
+ * The text box once it holds `text`, with `showing` the conversation on
+ * screen: words begun in an empty box are for `showing`, more words keep the
+ * conversation they were begun for (a /clear at the desk doesn't move them),
+ * and an empty box is for none.
+ */
+export function composedAs(before: Composed, text: string, showing: string | null): Composed {
+  if (text.trim() === "") return { text, for: null };
+  return { text, for: before.text.trim() === "" ? showing : before.for };
+}
+
+/** Whether the words were written for another conversation than the one the tab shows now (known). */
+export function writtenElsewhere(c: Composed, showing: string | null): boolean {
+  return showing !== null && c.text.trim() !== "" && c.for !== showing;
+}
+
+/**
+ * What Send does: the words go to the conversation they were written for,
+ * or, written for another than the tab shows now, only after the user says
+ * so (`ask`). Null: nothing to send, or nothing to send it to.
+ */
+export function sendAs(c: Composed, showing: string | null): { send: string } | { ask: true } | null {
+  if (c.text.trim() === "" || showing === null) return null;
+  return c.for === showing ? { send: c.for } : { ask: true };
+}
+
 /** Each refusal in a sentence the user can act on. */
 export const CONV_ERROR: Record<ConvError, string> = {
   "another-conversation": "This tab now holds another conversation",

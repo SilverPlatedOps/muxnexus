@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, conversationWindow, linkRows, mergeItems, stepLine, stuckToBottom, TERMINAL_MESSAGES, withLocalActive,
-  wordsOptional, workingLine,
+  CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, composedAs, conversationWindow, linkRows, mergeItems, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
 import type { AgentKind } from "../src/shared/chat";
@@ -219,4 +219,34 @@ test("a step that failed or was denied reads as what was tried, not as done", ()
   // Done, or not done yet: as the server words it.
   expect(stepLine(step("Wrote note.txt", true))).toBe("Wrote note.txt");
   expect(stepLine(step("Wrote note.txt"))).toBe("Wrote note.txt");
+});
+
+test("the text box's words are bound to the conversation they were begun for", () => {
+  const none = { text: "", for: null };
+  // Begun (empty to some text) while A shows: for A.
+  const a = composedAs(none, "fix the", "A");
+  expect(a).toEqual({ text: "fix the", for: "A" });
+  // More words, even once B shows (a /clear at the desk): still for A.
+  expect(composedAs(a, "fix the tests", "B")).toEqual({ text: "fix the tests", for: "A" });
+  // Emptied: for nothing, and the next words are for whatever shows then.
+  const emptied = composedAs(a, "  ", "B");
+  expect(emptied).toEqual({ text: "  ", for: null });
+  expect(composedAs(emptied, "new", "B")).toEqual({ text: "new", for: "B" });
+});
+
+test("Send goes to the conversation the words were written for, and asks first when the tab now holds another", () => {
+  const forA = { text: "fix the tests", for: "A" };
+  expect(sendAs(forA, "A")).toEqual({ send: "A" });
+  expect(writtenElsewhere(forA, "A")).toBe(false);
+  // B in the tab now: ask, and only a yes rebinds (the caller sends with { ...c, for: "B" }).
+  expect(sendAs(forA, "B")).toEqual({ ask: true });
+  expect(writtenElsewhere(forA, "B")).toBe(true);
+  expect(sendAs({ ...forA, for: "B" }, "B")).toEqual({ send: "B" });
+  // Words with no conversation to them are asked about too; nothing to send, or nothing to send to, is no send.
+  expect(sendAs({ text: "x", for: null }, "B")).toEqual({ ask: true });
+  expect(sendAs({ text: " ", for: "A" }, "A")).toBeNull();
+  expect(sendAs(forA, null)).toBeNull();
+  // While the tab's conversation isn't known yet (opening), the words aren't said to be for another.
+  expect(writtenElsewhere(forA, null)).toBe(false);
+  expect(writtenElsewhere({ text: "", for: "A" }, "B")).toBe(false);
 });
