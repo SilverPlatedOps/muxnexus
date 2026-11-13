@@ -402,7 +402,9 @@ its conversation too.
 
 - **Send** types your message into the agent as if you were at the desk, line
   breaks and all. If the desk's prompt already holds unsent text, you're shown it
-  and asked before it's replaced. While the agent works, **Stop** presses Esc.
+  and asked before it's replaced. If a prompt comes up while your words go in,
+  Enter isn't pressed: they wait in the desk's prompt, and you're told. While the
+  agent works, **Stop** presses Esc.
 - **Prompts become cards.** When the agent waits on you, a card takes the text
   box's place: Claude Code's Bash, Write and Edit permissions, its plan approval
   and its questions with one answer each, and Codex's command approval. Tap an
@@ -410,10 +412,14 @@ its conversation too.
   desk before your tap is refused ("This prompt changed: refresh"), never
   answered. A card is read off the tab's screen, so a prompt that doesn't fit it
   whole goes through Screen instead: a plan longer than the screen, whose start
-  has scrolled away, or a pane too narrow for an option's line.
+  has scrolled away, or a pane too narrow for an option's line. So does a Bash
+  permission drawn with extra rows, as Claude Code 2.1.323 sometimes draws it
+  (a "Tip: auto mode…" row, a description of the command, "This command
+  requires approval").
 - **Screen** (`⋯ → Screen`, or offered in the card's place) is the tab's terminal,
   read-only, with keys for 1–5, Enter, Esc, ↑ and ↓, and Tab. It answers what a
-  card can't.
+  card can't. A key goes only to the screen you saw: if it changed meanwhile,
+  the key isn't pressed and the screen as it is now shows instead.
 - **Links** and **Search** (`⋯`) reach a PR or a phrase anywhere in a long
   conversation, not just the part on screen. **Next waiting** goes to the next
   workspace waiting on you.
