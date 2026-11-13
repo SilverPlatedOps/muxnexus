@@ -44,12 +44,13 @@ test("a Bash prompt is a permission card with the command and the pane's own opt
   });
 });
 
-test("a Write prompt names the file; an Edit prompt adds the diff", () => {
+test("a Write prompt names the file and its content; an Edit prompt the file and the diff", () => {
   const write = claude("write-permission").dialog;
   expect(write).toEqual({
     kind: "permission",
     title: "Create file",
-    detail: "notes.txt",
+    // The content as the pane numbers it.
+    detail: "notes.txt\n 1 alpha\n 2 beta",
     options: [
       { index: 1, label: "Yes" },
       { index: 2, label: "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)", secondary: true },
@@ -401,10 +402,10 @@ test("plan, question, review and file cards: the fingerprint changes when their 
   expect(changed.detail).toEndWith("→ large");
   expect(changed.fingerprint).not.toBe(claudeCard(review)!.fingerprint);
 
-  // A file card shows only the path, but its fingerprint covers the content too.
+  // A file card shows the path and the content, and its fingerprint covers both.
   const write = raw("claude-write-permission");
   const rewritten = claudeCard(edit(write, "\x1b[38;2;248;248;242mbeta", "\x1b[38;2;248;248;242mbetter"))!;
-  expect(rewritten.detail).toBe("notes.txt");
+  expect(rewritten.detail).toBe("notes.txt\n 1 alpha\n 2 better");
   expect(rewritten.fingerprint).not.toBe(claudeCard(write)!.fingerprint);
   const editPane = raw("claude-edit-permission");
   const reedited = claudeCard(edit(editPane, "\x1b[38;2;248;248;242mgamma", "\x1b[38;2;248;248;242mdelta"))!;

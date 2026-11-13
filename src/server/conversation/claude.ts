@@ -215,7 +215,7 @@ function permission(texts: string[], field = false): Card | null {
     const rows = texts.slice(head + 1, open).filter((t) => !blank(t));
     if (rows.length !== 1) return null;
     const path = rows[0]!.trim();
-    detail = title === "Edit file" ? `${path}\n${body}` : path;
+    detail = `${path}\n${body}`;
     parts.push(path);
   }
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: lasting(labels[k]!), takesText: o === no }));
