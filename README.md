@@ -35,8 +35,9 @@ never going to let me do gracefully.
   one you're in.
 - **Groups.** Tag a session `[Work] …` and it files itself under **Work** — and
   starts on the work account.
-- **Works on a phone and an iPad.** The sidebar becomes a drawer; dragging to
-  reorder works with a long press.
+- **Works on a phone and an iPad.** Each agent reads as a conversation you can
+  answer with a tap; the sidebar becomes a drawer, and dragging to reorder works
+  with a long press.
 
 ## Setup
 
@@ -391,11 +392,39 @@ the left or right half to choose the side — or pick **Open beside** from its
 `⋯` menu. Each pane is a real terminal of its own; the divider drags, and either
 pane can be closed or zoomed to full width. It needs a screen wider than a phone.
 
-## On a phone
+## On a phone or iPad
+
+On a touch screen each agent tab opens as a **conversation**, not a terminal:
+what you asked, what the agent said and what it ran, read from Claude Code's or
+Codex's own transcript. The page never attaches to tmux, so the desk's terminal
+keeps its size however long you read.
+
+- **Send** types your message into the agent as if you were at the desk, line
+  breaks and all. If the desk's prompt already holds unsent text, you're shown it
+  and asked before it's replaced. While the agent works, **Stop** presses Esc.
+- **Prompts become cards.** When the agent waits on you, a card takes the text
+  box's place: Claude Code's Bash, Write and Edit permissions, its plan approval
+  and its questions with one answer each, and Codex's command approval. Tap an
+  answer; **No** takes a note for the agent. A prompt answered or changed at the
+  desk before your tap is refused ("This prompt changed: refresh"), never
+  answered.
+- **Screen** (`⋯ → Screen`, or offered in the card's place) is the tab's terminal,
+  read-only, with keys for 1–5, Enter, Esc, the arrows and Tab. It answers what a
+  card can't.
+- **Links** and **Search** (`⋯`) reach a PR or a phrase anywhere in a long
+  conversation, not just the part on screen. **Next waiting** goes to the next
+  workspace waiting on you.
+
+It isn't built for starting agents. A shell tab, a question that takes several
+answers, and Codex's `request_user_input` questions all go through Screen.
+
+**Settings → On this device** switches between Conversation (the default on a
+touch screen) and Terminal, the desk's own view, for that browser only; the
+change takes effect when the page reloads.
 
 <p>
 <img src="docs/images/phone-drawer.png" width="260" alt="muxnexus on a phone with the sessions drawer open">
-<img src="docs/images/phone-term.png" width="260" alt="muxnexus on a phone showing a Claude Code session">
+<img src="docs/images/phone-term.png" width="260" alt="muxnexus on a phone in the Terminal view, showing a Claude Code session">
 </p>
 
 On a narrow screen the sidebar becomes a drawer behind the `☰`, and the tab
