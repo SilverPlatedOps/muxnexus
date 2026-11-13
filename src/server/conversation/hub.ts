@@ -193,7 +193,8 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     void tail.then(() => { if (lanes.get(windowId) === tail) lanes.delete(windowId); });
     return run;
   }
-  const lastAnswer = new Map<string, { fingerprint: string; at: number }>();
+  /** Each tab's last answer, by the conversation and dialog it was for: a double tap is the same both. */
+  const lastAnswer = new Map<string, { conversation: string; fingerprint: string; at: number }>();
 
   /** A screen that couldn't be read: answered empty (no token, so no key can follow), and the reason sent to show. */
   function unreadScreen(ws: HubSocket, req: string, e: unknown) {
@@ -264,12 +265,13 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     },
 
     async answer(ws: HubSocket, req: string, windowId: string, conversation: string, fingerprint: string, option: number, text?: string) {
-      // Counted from when an answer arrives, not when it is done: a double tap queued behind the first would answer the next dialog.
+      // Counted from when an answer arrives, not when it is done: a double tap queued behind the first would answer the next
+      // dialog. One for another conversation (a card from before a /clear, refused) is no first tap for this one's.
       const last = lastAnswer.get(windowId);
-      if (last?.fingerprint === fingerprint && Date.now() - last.at < ANSWER_AGAIN_MS) {
+      if (last?.conversation === conversation && last.fingerprint === fingerprint && Date.now() - last.at < ANSWER_AGAIN_MS) {
         return send(ws, { t: "conv-result", req, ok: false, error: "prompt-changed" });
       }
-      lastAnswer.set(windowId, { fingerprint, at: Date.now() });
+      lastAnswer.set(windowId, { conversation, fingerprint, at: Date.now() });
       try {
         const r = await inLane(windowId, () => answer(tmux, windowId, conversation, fingerprint, option, text));
         send(ws, { t: "conv-result", req, ...r });

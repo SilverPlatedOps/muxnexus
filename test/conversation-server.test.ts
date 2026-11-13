@@ -417,6 +417,28 @@ describe("the conversation hub", () => {
     }
   });
 
+  test("a stale answer for the conversation before doesn't block the real one; a double tap is still one answer", async () => {
+    // The tab holds sess-2 now; a tap still bound to sess-1 (its card from before a /clear) on the same prompt comes first.
+    const { state, tmux } = fakeTmux(claude(transcript(), "input", "sess-2"), pane("claude-bash-permission"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      const { fingerprint } = ws.last("conv-card")!.card!;
+      await hub.answer(ws, "stale", "@1", "sess-1", fingerprint, 1);
+      await hub.answer(ws, "real", "@1", "sess-2", fingerprint, 1);
+      await hub.answer(ws, "again", "@1", "sess-2", fingerprint, 1);
+      expect(ws.all("conv-result").map((r) => [r.req, r.ok, r.error ?? null])).toEqual([
+        ["stale", false, "another-conversation"],
+        ["real", true, null],
+        ["again", false, "prompt-changed"],
+      ]);
+      expect(state.writes).toEqual(["keys %1 1"]);
+    } finally {
+      hub.stop();
+    }
+  });
+
   test("a Screen key carries the screen's token back: pressed while it matches, refused with the screen as it is once it doesn't", async () => {
     const { state, tmux } = fakeTmux(claude(transcript()), pane("claude-bash-permission-tip"));
     const hub = createConversationHub({ tmux, pollMs: 1000 });
