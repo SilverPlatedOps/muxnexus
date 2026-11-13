@@ -5,7 +5,7 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
-  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, isRule, lastFilled, lasting, nextFilled,
+  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
   optionRow, paneLines, scanOptions, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
@@ -147,9 +147,6 @@ const PERMISSION_ASK = /^Do you want to [^?]+\?$/u;
 const rule = (t: string) => isRule(t, "─");
 const dashes = (t: string) => isRule(t, "╌");
 const option = (t: string) => optionRow(t, "❯") !== null;
-const indent = (t: string) => t.length - t.trimStart().length;
-/** Under a focused field, the user's words wrapped or on more lines, indented to its label. */
-const fieldRow = (t: string, prev: PaneOption) => prev.selected && !blank(t) && indent(t) >= prev.labelAt;
 
 interface Box { top: number; bottom: number }
 
@@ -201,7 +198,8 @@ function permission(texts: string[], field = false): Card | null {
   if (close < 0 || findRow(texts, dashes, close + 1, last) >= 0) return null;
   const first = findRow(texts, option, close + 1, last);
   if (first < 0 || !PERMISSION_ASK.test(askBefore(texts, close + 1, first))) return null;
-  const scan = scanOptions(texts, first, "❯", field ? fieldRow : undefined);
+  // Focused, the No row's field runs down to the footer.
+  const scan = scanOptions(texts, first, "❯", undefined, field ? last : undefined);
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const no = opts[opts.length - 1]!;
@@ -239,8 +237,10 @@ function plan(texts: string[], field = false): Card | null {
   if (close < 0 || findRow(texts, dashes, close + 1, last) >= 0) return null;
   const first = findRow(texts, option, close + 1, last);
   if (first < 0 || askBefore(texts, close + 1, first) !== PLAN_ASK) return null;
-  const between = field ? fieldRow : (t: string, prev: PaneOption) => prev.label === PLAN_FEEDBACK && t.trim() === PLAN_HINT;
-  const scan = scanOptions(texts, first, "❯", between);
+  // Focused, the change request's field runs down to its hint, the last one on screen (the words may quote it).
+  const hint = field ? findRowBack(texts, (t) => t.trim() === PLAN_HINT, last) : -1;
+  const between = (t: string, prev: PaneOption) => !field && prev.label === PLAN_FEEDBACK && t.trim() === PLAN_HINT;
+  const scan = scanOptions(texts, first, "❯", between, field ? hint + 1 : undefined);
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const feedback = opts[opts.length - 1]!;
@@ -304,8 +304,10 @@ function question(lines: PaneLine[], texts: string[], field = false): Card | nul
   const first = findRow(texts, option, bar + 1, last);
   if (at === 0 || first < 0) return null;
   const title = block(texts, bar + 1, first, 0);
-  // Under each option its description, indented to the label; a rule sets "Chat about this" apart.
-  const scan = scanOptions(texts, first, "❯", (t, prev) => rule(t) || (!blank(t) && t.length - t.trimStart().length >= prev.labelAt));
+  // Under each option its description, indented to the label; a rule sets "Chat about this" apart. Focused, the field
+  // of "Type something." runs down to that rule, over the last option on screen.
+  const fieldTo = field ? findRowBack(texts, option, last) - 1 : undefined;
+  const scan = scanOptions(texts, first, "❯", (t, prev) => rule(t) || (!blank(t) && indentOf(t) >= prev.labelAt), fieldTo);
   if (!title || !scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const chat = opts[opts.length - 1]!;
@@ -316,7 +318,8 @@ function question(lines: PaneLine[], texts: string[], field = false): Card | nul
   if (other.selected !== field) return null;
   const labels = opts.map((o) => (field && o === other ? QUESTION_OTHER : o.label));
   if (labels[labels.length - 2] !== QUESTION_OTHER) return null;
-  const rules = texts.slice(first, scan.end).flatMap((t, k) => (rule(t) ? [first + k] : []));
+  const inField = (row: number) => !!scan.field && row >= scan.field.from && row < scan.field.to;
+  const rules = texts.slice(first, scan.end).flatMap((t, k) => (rule(t) && !inField(first + k) ? [first + k] : []));
   if (rules.length !== 1 || rules[0] !== chat.row - 1) return null;
   // Multi-select rows carry a checkbox: not a card in this version (Decision 4).
   if (labels.some((l) => /^\[.\] /u.test(l))) return null;

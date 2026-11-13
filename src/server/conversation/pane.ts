@@ -173,24 +173,44 @@ export function optionRow(text: string, marker: string, row = -1): PaneOption | 
  * only the rows `between` accepts in between (descriptions, a separator).
  * Null unless they are numbered 1..N in order. `end` is the row after the last
  * one consumed.
+ *
+ * With `fieldTo`, the highlighted option is a text field holding the user's
+ * words, and every row after it up to `fieldTo` (the dialog's own end, found
+ * from the bottom) is theirs, blank or indented under its label: a `1. …` or
+ * a rule in the words is never read as the dialog's. Those rows are `field`.
  */
 export function scanOptions(
   texts: string[],
   from: number,
   marker: string,
   between: (text: string, prev: PaneOption) => boolean = () => false,
-): { options: PaneOption[]; end: number } | null {
+  fieldTo?: number,
+): { options: PaneOption[]; end: number; field?: { from: number; to: number } } | null {
   const options: PaneOption[] = [];
+  let field: { from: number; to: number } | undefined;
   let i = from;
   for (; i < texts.length; i++) {
     const o = optionRow(texts[i]!, marker, i);
-    if (o) { options.push(o); continue; }
+    if (o) {
+      options.push(o);
+      if (o.selected && fieldTo !== undefined) {
+        if (fieldTo <= i) return null;
+        for (let k = i + 1; k < fieldTo; k++) if (!blank(texts[k]!) && indentOf(texts[k]!) < o.labelAt) return null;
+        field = { from: i + 1, to: fieldTo };
+        i = fieldTo - 1;
+      }
+      continue;
+    }
     const prev = options[options.length - 1];
     if (!prev || !between(texts[i]!, prev)) break;
   }
   if (options.length === 0 || options.some((o, k) => o.index !== k + 1)) return null;
-  return { options, end: i };
+  if (fieldTo !== undefined && !field) return null;
+  return { options, end: i, ...(field ? { field } : {}) };
 }
+
+/** How far a row is indented. */
+export const indentOf = (text: string): number => text.length - text.trimStart().length;
 
 /** A card's `selected`: the highlighted option, when one is. */
 export function highlighted(opts: PaneOption[]): { selected?: number } {

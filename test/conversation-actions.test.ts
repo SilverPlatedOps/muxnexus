@@ -80,6 +80,21 @@ const noCardAt = (to: number) => raw("claude-bash-no-card")
   .replace("\x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m1.", "  \x1b[38;2;153;153;153m1.")
   .replace(`   \x1b[38;2;153;153;153m${to}.`, ` \x1b[38;2;153;204;255m❯\x1b[39m \x1b[38;2;153;153;153m${to}.`);
 
+/**
+ * A Write prompt with `note` typed into its No field (a lab capture), and the same dialog as it read before:
+ * the card with the highlight on Yes, then the No field focused and empty.
+ */
+function notePanes(note: "lines" | "blank"): string[] {
+  const typed = raw(`claude-write-no-${note}`);
+  const rows = typed.split("\n");
+  const no = rows.findIndex((r) => r.includes("3.\x1b[39m \x1b[38;5;153mNo, "));
+  const footer = rows.findIndex((r, k) => k > no && r.includes("mEsc\x1b[39m"));
+  const field = [...rows.slice(0, no), rows[no]!.replace(/No, \x1b\[39m.*$/, "No, \x1b[2m\x1b[39mand tell Claude what to do differently\x1b[0m"), "", ...rows.slice(footer)];
+  const card = [...rows.slice(0, no), "   \x1b[38;5;246m3.\x1b[39m No", "", rows[footer] + " \x1b[38;5;246m·\x1b[39m \x1b[38;5;246mTab\x1b[39m \x1b[38;5;246mto\x1b[39m \x1b[38;5;246mamend\x1b[39m", ...rows.slice(footer + 1)]
+    .map((r) => r.replace("   \x1b[38;5;246m1.\x1b[39m Yes", " \x1b[38;5;153m❯\x1b[39m \x1b[38;5;246m1.\x1b[39m Yes"));
+  return [card.join("\n"), field.join("\n"), typed];
+}
+
 // The agents' own panes: Claude's is %1, Codex's %2. Every read and write goes there, whatever the window's active pane.
 describe("send", () => {
   test("send pastes then presses Enter", async () => {
@@ -261,6 +276,21 @@ describe("answer", () => {
       const moved = fakeTmux(claudeAgent(), [noCardAt(at), raw("claude-bash-no-field"), raw("claude-bash-no-text")]);
       expect(await answer(moved, "@1", "sess-1", print("claude", "bash-no-card"), 4, "words")).toEqual({ ok: true });
       expect(moved.writes()[0]).toEqual(["sendKeys", "%1", keys]);
+    }
+  });
+
+  test("a note with a numbered line or a blank line in it is still the field's: Enter follows", async () => {
+    for (const [note, words] of [
+      ["lines", "Two things:\n1. do not create the file\nThen reply with just the word skipped2."],
+      ["blank", "Do not create the file.\n\nReply with just the word skipped3."],
+    ] as const) {
+      const panes = notePanes(note);
+      const read = adapterFor("claude").readPane(panes[0]!);
+      expect(read.dialog).toMatchObject({ kind: "permission", selected: 1 });
+      expect(panes.slice(1).map((p) => adapterFor("claude").readPane(p).field?.fingerprint)).toEqual([read.dialog!.fingerprint, read.dialog!.fingerprint]);
+      const tmux = fakeTmux(claudeAgent(), panes);
+      expect(await answer(tmux, "@1", "sess-1", read.dialog!.fingerprint, 3, words)).toEqual({ ok: true });
+      expect(tmux.writes()).toEqual([["sendKeys", "%1", ["Down", "Down", "Tab"]], ["pasteInto", "%1", words], ["sendKeys", "%1", ["Enter"]]]);
     }
   });
 

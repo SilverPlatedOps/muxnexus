@@ -195,6 +195,24 @@ test("a focused field is read as the dialog it belongs to, before and after the 
   ] as const) {
     for (const name of fields) expect(claude(name)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false, field: { fingerprint: card(cardName) } });
   }
+  // Words with a numbered line, a blank line, a rule or the dialog's own hint in them: all of it the field's, read to the
+  // dialog's own end (the permission's footer, the plan's hint, the rule over "Chat about this"), never as options.
+  const short = card("plan-short");
+  expect(claude("plan-short-field").field).toEqual({ fingerprint: short });
+  // The words' extra rows scrolled the dialog's heading off the top: no longer the whole dialog, so no field.
+  expect(claude("plan-short-text-lines")).not.toHaveProperty("field");
+  // With the rows above put back (from the same dialog's card): the field.
+  const card_ = raw("claude-plan-short").split("\n");
+  const typed = raw("claude-plan-short-text-lines").split("\n");
+  const top = card_.slice(0, card_.findIndex((r) => r.includes("Here is Claude")));
+  expect(adapterFor("claude").readPane([...top, ...typed].join("\n")).field).toEqual({ fingerprint: short });
+  expect(claude("question-single-text-lines").field).toEqual({ fingerprint: card("question-single") });
+  const ruled = raw("claude-question-single-text-lines").replace("     thanks", "     ────────────\n     4. Chat about this");
+  expect(adapterFor("claude").readPane(ruled).field).toEqual({ fingerprint: card("question-single") });
+  for (const name of ["write-no-lines", "write-no-blank"]) expect(claude(name)).toMatchObject({ dialog: null, unrecognised: true, field: { fingerprint: anyPrint } });
+  // A row under the field that isn't indented to it is not the user's: no field.
+  expect(adapterFor("claude").readPane(raw("claude-write-no-lines").replace("          1. do not create", "  1. do not create"))).not.toHaveProperty("field");
+
   // A card is not a field, and a screen that isn't a dialog has none.
   for (const name of ["bash-no-card", "plan", "question", "question-review", "trust", "question-multi", "idle-empty"]) expect(claude(name)).not.toHaveProperty("field");
 

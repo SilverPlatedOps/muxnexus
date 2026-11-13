@@ -1,0 +1,40 @@
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the AskUserQuestion tool to ask me exactly one single-select question: "Pick a fruit" with options Apple and [39m
+  [38;5;231mPear. Nothing else.[39m
+
+[38;5;246m[49m⏺ [39mUser answered Claude's questions:
+[38;5;246m  ⎿  · Pick a fruit → Apple[39m
+
+[38;5;231m⏺[39m You picked Apple.
+
+[38;5;246m✻[39m [38;5;246mCrunched for 3s · done 9:49 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the Write tool to create note.txt containing the word hello. No other tools.[39m
+
+[38;5;210m[49m⏺[39m [1mWrite[0m(]8;id=ep0pxh;file:///private/tmp/claude-501/c10lab/note.txt\note.txt]8;;\)
+[38;5;246m  ⎿  User rejected write to [1m]8;id=ep0pxh;file:///private/tmp/claude-501/c10lab/note.txt\note.txt[0m]8;;\
+     [2m[38;5;231m 1 hello[0m
+
+[38;5;231m⏺[39m skipped
+
+[38;5;246m✻[39m [38;5;246mBaked for 3s · done 9:50 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the Write tool to create note2.txt containing the word hello. No other tools.[39m
+
+[38;5;246m[49m⏺[39m [1mWrite[0m(]8;id=tdwehd;file:///private/tmp/claude-501/c10lab/note2.txt\note2.txt]8;;\)
+
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;153mCreate file[0m
+ [38;5;246mnote2.txt[39m
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m [2m[38;5;231m 1 [0m[38;5;231mhello[39m
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m Do you want to create [1mnote2.txt[0m?
+   [38;5;246m1.[39m Yes
+   [38;5;246m2.[39m Yes, and switch to [1maccept[0m [1medits[0m [1m(auto-approve[0m [1mfile[0m [1medits[0m [1mand[0m [1mcommon[0m [1mfile[0m [1mcommands)[0m for this session [1m(shift+tab)[0m
+ [38;5;153m❯[39m [38;5;246m3.[39m [38;5;153mNo, [39mTwo things:
+          1. do not create the file
+          Then reply with just the word skipped2.
+
+ [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m
+
