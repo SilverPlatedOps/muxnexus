@@ -17,6 +17,11 @@ export interface MenuExtra {
   pick(action: MenuAction): boolean;
 }
 
+/** Whether `extra` handled `action`: only an action among its items is its to take. */
+function tookIt(extra: MenuExtra | undefined, action: MenuAction): boolean {
+  return !!extra && extra.items.some((i) => i.action === action) && extra.pick(action);
+}
+
 /** `menu` with `extra`'s items first, and any of its own items those stand in for left out. */
 export function withExtra(menu: Menu, extra: MenuExtra | undefined): Menu {
   if (!extra || extra.items.length === 0) return menu;
@@ -140,12 +145,12 @@ export function createMenuActions(host: MenuHost) {
       if (s.windows.length === 1) {
         const w = s.windows[0]!;
         const pick = agentPick(s, w, true, at);
-        openMenu(at, withExtra(agentMenu(target(s, w, true)), extra), (action) => { if (!extra?.pick(action)) pick(action); });
+        openMenu(at, withExtra(agentMenu(target(s, w, true)), extra), (action) => { if (!tookIt(extra, action)) pick(action); });
         return;
       }
       const label = sessionLabel(s);
       openMenu(at, withExtra(workspaceMenu({ name: editableName(label), tabs: s.windows.length, archived: isArchived(s, label) }), extra), (action) => {
-        if (extra?.pick(action)) return;
+        if (tookIt(extra, action)) return;
         switch (action) {
           case "new-tab-claude": return newTab(s.name, "claude");
           case "new-tab-codex": return newTab(s.name, "codex");

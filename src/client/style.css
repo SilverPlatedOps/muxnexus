@@ -2701,7 +2701,11 @@ body.conv-mode .tab-new { margin-bottom: 0; }
 @media (pointer: coarse) { .conv-input { font-size: 16px; } }
 
 /* Who asks and what stay at the top of a card long enough to scroll (a short screen, the keyboard up). */
-.conv-card-head { position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px; padding-bottom: 4px; background: var(--chrome); }
+/* A head too long to keep (a long question with the keyboard up) scrolls in its own box: the buttons stay reachable. */
+.conv-card-head {
+  position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px;
+  max-height: calc(var(--app-height, 100dvh) * 0.3); overflow-y: auto; background: var(--chrome);
+}
 
 /* The page is as tall as what is visible (app.ts): with a phone's keyboard up, the text box sits right above it. */
 body.conv-mode { height: var(--app-height, 100%); }
@@ -2711,6 +2715,12 @@ body.conv-mode { height: var(--app-height, 100%); }
    The tab's state stays on the title bar's and the tabs' marks. Text gets more of the width: narrower gutters. */
 #top-next { display: none; }
 #top-next:disabled { color: var(--faint); cursor: default; }
+/* How many others wait on the user, as the conversation's own row said: on the corner of ▷. */
+#top-next { position: relative; }
+#top-next-count {
+  position: absolute; top: 4px; right: 2px; min-width: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--red); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+}
 @media (max-width: 720px) {
   body.conv-mode #topbar { gap: 4px; padding-right: 10px; }
   body.conv-mode .conv-head, body.conv-mode #note-btn { display: none; }

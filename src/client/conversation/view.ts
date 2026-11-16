@@ -720,6 +720,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight + 2, Math.max(66, Math.min(180, Math.round(room / 4))))}px`;
   }
+  // The keyboard coming up (or a turn of the phone) changes what is visible: the cap with it.
+  window.visualViewport?.addEventListener("resize", () => { if (input.value) grow(); });
 
   /** Forget the send in flight: answered, given up, or for a tab no longer shown. */
   function dropPending() {
