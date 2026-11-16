@@ -26,6 +26,10 @@ const ANSWER_GIVE_UP_MS = 15_000;
 const ANSWERED_HOLD_MS = 4000;
 /** A key with no answer by then is given up, so the keys come back whatever happened to it. */
 const KEY_GIVE_UP_MS = 10_000;
+/** Screen standing in for a tab with no agent reads the pane again this often: nothing else says it has changed. */
+const LIVE_MS = 1000;
+/** A read with no answer by then is given up, so those reads go on. */
+const READ_GIVE_UP_MS = 5000;
 /** Screen's view padding (style.css `.conv-screen-view`), top and bottom. */
 const VIEW_PAD = 16;
 /** CSI and OSC sequences, to tell a blank row from one with text. */
@@ -338,7 +342,13 @@ export function createScreen(deps: ScreenDeps): ScreenView {
   let term: { t: Terminal; off: () => void; blind: boolean } | null = null;
   /** The capture asked for last (a read, or a key's screen after it): an older one's answer is not drawn. */
   let latest: string | null = null;
+  /** When the last read was asked for. */
+  let askedAt = 0;
   let seq = 0;
+  /** The capture drawn: one the same is not drawn again, so a reader scrolled up in it stays there. */
+  let shown: string | null = null;
+  /** Reads the pane again while Screen is the fixed one: a new Claude at its trust prompt has no hook to say it drew. */
+  let live: ReturnType<typeof setInterval> | undefined;
   /** The screen drawn's token, which a key pressed on it carries; null until one is drawn. */
   let token: string | null = null;
   /** A key out: the keys stay off until its answer, so each key is pressed on the screen the one before left. */
@@ -357,18 +367,28 @@ export function createScreen(deps: ScreenDeps): ScreenView {
     term?.off();
     term?.t.dispose();
     term = null;
+    shown = null;
     host.replaceChildren();
   }
 
-  function refresh() {
+  /** `again`: a re-read, which leaves the note as it is (a "Couldn't read" stays up rather than flicker). */
+  function refresh(again = false) {
     const windowId = deps.windowId();
     if (mode === "closed" || !windowId) return;
     latest = `screen-${++seq}`;
-    if (!term) {
+    askedAt = Date.now();
+    if (!term && !again) {
       note.textContent = "Reading the screen…";
       note.hidden = false;
     }
     deps.send({ t: "conv-screen", req: latest, windowId });
+  }
+
+  /** The fixed Screen's next read: not over a key or a read still out, nor while nothing of it shows. */
+  function reread() {
+    if (mode !== "fixed" || keyOut || document.hidden || view.clientWidth === 0) return;
+    if (latest !== null && Date.now() - askedAt < READ_GIVE_UP_MS) return;
+    refresh(true);
   }
 
   /** A key, on the screen drawn: refused by the server if that has changed since. Its answer is the screen after it. */
@@ -413,13 +433,15 @@ export function createScreen(deps: ScreenDeps): ScreenView {
   }
 
   paintKeys();
-  refreshBtn.onclick = refresh;
+  refreshBtn.onclick = () => refresh();
   // A terminal made while hidden is drawn at the wrong cell size: read the pane again, to make it anew, once it shows.
   new ResizeObserver(() => { if (term?.blind && view.clientWidth > 0) refresh(); }).observe(view);
   closeBtn.onclick = () => close();
 
   function close() {
     mode = "closed";
+    clearInterval(live);
+    live = undefined;
     root.hidden = true;
     latest = null;
     token = null;
@@ -434,6 +456,8 @@ export function createScreen(deps: ScreenDeps): ScreenView {
       mode = fixed ? "fixed" : "open";
       closeBtn.hidden = fixed;
       root.hidden = false;
+      clearInterval(live);
+      live = fixed ? setInterval(reread, LIVE_MS) : undefined;
       refresh();
     },
     close,
@@ -456,6 +480,8 @@ export function createScreen(deps: ScreenDeps): ScreenView {
         return;
       }
       note.hidden = true;
+      if (term && !term.blind && m.ansi === shown && term.t.cols === m.cols && term.t.rows === m.rows) return;
+      shown = m.ansi;
       // `capture-pane -p` ends every row with a newline: the last one would scroll the top row away.
       const ansi = m.ansi.replace(/\n$/, "");
       const rows = m.rows;
