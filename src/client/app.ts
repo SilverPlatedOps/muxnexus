@@ -77,6 +77,12 @@ const convMode = deviceView() === "conversation";
 if (convMode) document.body.classList.add("conv-mode");
 /** In conversation mode, the tab shown in `current`: this page's own pick, tmux's active window left alone. */
 let convWindow: string | null = null;
+/**
+ * In conversation mode, tmux's id for the workspace in `current` (`$3`), which a rename keeps. This page never
+ * attaches, so no `renamed` comes to it: a workspace renamed anywhere (the desk, another browser, a move between
+ * groups) is followed by this id, and a rename refused or altered by tmux changes nothing here.
+ */
+let convSessionId: string | null = null;
 /** The conversation screen in #conv; its deps are called only once the page is running. */
 const convView = convMode
   ? createConversationView(convEl, {
@@ -421,6 +427,7 @@ function attach(session: string, rejoin = false) {
 function showConversation(session: string, windowId: string | null) {
   const s = sessions.find((x) => x.name === session);
   current = session;
+  convSessionId = s?.id ?? null;
   convWindow = conversationWindow(s?.windows ?? [], windowId);
   sessions = withLocalActive(sessions, current, convWindow);
   terminalOn = true;
@@ -473,10 +480,21 @@ function openReader(target: string) {
 function syncConversation() {
   if (current === null && desired && sessions.some((s) => s.name === desired)) return attach(desired, true);
   if (current === null) return;
-  const s = sessions.find((x) => x.name === current);
+  let s = sessions.find((x) => x.name === current);
+  const renamed = s ? undefined : sessions.find((x) => convSessionId !== null && x.id === convSessionId);
+  if (renamed) {
+    // The same workspace under another name: follow it, the remembered pick too.
+    if (desired === current) {
+      desired = renamed.name;
+      localStorage.setItem(SESSION_KEY, renamed.name);
+    }
+    current = renamed.name;
+    s = renamed;
+  }
   if (!s) {
     convView?.close();
     current = null;
+    convSessionId = null;
     convWindow = null;
     desired = null;
     localStorage.removeItem(SESSION_KEY);
@@ -492,11 +510,8 @@ const sidebar = createSidebar(sessionsEl, layout, {
   attach,
   newSession: (name) => conn.send({ t: "new-session", name }),
   killSession: (session) => conn.send({ t: "kill-session", session }),
-  renameSession: (session, name) => {
-    // No `renamed` comes back to a page that never attached: follow the name here.
-    if (convMode && session === current) { current = name; if (desired === session) { desired = name; localStorage.setItem(SESSION_KEY, name); } }
-    conn.send({ t: "rename-session", session, name });
-  },
+  // In conversation mode the new name is followed by the session's id once tmux has it (`syncConversation`).
+  renameSession: (session, name) => conn.send({ t: "rename-session", session, name }),
   reorderSessions,
   openWindow,
   openMenu: (session, at) => menus.session(session, at),
