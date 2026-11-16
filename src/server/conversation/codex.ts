@@ -142,7 +142,11 @@ function approval(texts: string[]): Card | null {
   if (!labels[0]!.startsWith("Yes") || !lasting(labels[1]!) || !labels[2]!.startsWith("No")) return null;
   const cmd = commandRow(texts, start);
   if (cmd < 0) return null;
-  const detail = block(texts, cmd, start, 2);
+  // The whole block under the header: Environment and Reason (the model's case for the command) are what the user
+  // decides on, and a prompt with either changed is another prompt.
+  let head = cmd;
+  while (texts[head] !== `  ${APPROVAL}`) head--;
+  const detail = block(texts, head + 1, start, 2).split("\n").filter((t) => t.trim() !== "").join("\n");
   const options = opts.map((o, k) => cardOption(o, { label: labels[k], secondary: k === 1, takesText: k === 2 }));
   return {
     kind: "approval", title: APPROVAL, detail, options, fingerprint: fingerprint([APPROVAL, detail, ...options.map((o) => o.label)]),

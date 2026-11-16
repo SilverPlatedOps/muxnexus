@@ -294,7 +294,7 @@ test("a Codex approval is a card with the command; its decline row takes the use
     dialog: {
       kind: "approval",
       title: "Would you like to run the following command?",
-      detail: "$ touch probe2.txt && sleep 20",
+      detail: "Environment: local\nReason: Create a probe file\n$ touch probe2.txt && sleep 20",
       options: [
         { index: 1, label: "Yes, proceed" },
         { index: 2, label: "Yes, and don't ask again for commands that start with `touch probe2.txt`", secondary: true },
@@ -307,6 +307,21 @@ test("a Codex approval is a card with the command; its decline row takes the use
     draft: "unknown",
     working: false,
   });
+});
+
+test("a Codex approval's Reason and Environment are part of the prompt: either changed is another one", () => {
+  const print = codex("approval").dialog!.fingerprint;
+  const rows = [
+    ["Reason: \x1b[3mCreate a probe file", "Reason: \x1b[3mDelete the backups", "Reason: Delete the backups"],
+    ["Environment: \x1b[1mlocal", "Environment: \x1b[1mremote", "Environment: remote"],
+  ];
+  for (const [from, to, shown] of rows) {
+    const pane = raw("codex-approval").replace(from!, to!);
+    expect(pane).not.toBe(raw("codex-approval"));
+    const read = adapterFor("codex").readPane(pane);
+    expect(read.dialog!.detail).toContain(shown!);
+    expect(read.dialog!.fingerprint).not.toBe(print);
+  }
 });
 
 test("a stamp that says waiting proves nothing: an idle pane has no card", () => {
