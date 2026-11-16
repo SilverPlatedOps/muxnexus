@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapterFor } from "../src/server/conversation/adapter";
-import { answer, draftFingerprint, pressKey, screenNow, sendText, stop } from "../src/server/conversation/actions";
+import { afterStop, answer, draftFingerprint, pressKey, screenNow, sendText, stop, stoppedSince } from "../src/server/conversation/actions";
 import type { WindowAgentInfo } from "../src/server/tmux";
 
 // Every write from the phone goes through one guard: right before it, the tab is looked up again and the pane read,
@@ -21,10 +21,14 @@ const SINCE = Date.parse("2026-11-13T10:00:00Z") / 1000;
 const claude: WindowAgentInfo = { paneId: "%1", kind: "claude", state: "done", conversation: { sessionId: "sess-A", transcriptPath: TRANSCRIPT } };
 const codex: WindowAgentInfo = { paneId: "%2", kind: "codex", state: "done", thread: { id: "thread-A", path: TRANSCRIPT } };
 
-/** The same tab, changed: another conversation in the same pane (`/clear`, a resume), the agent in another pane, or a desk edit. */
-type Change = "conversation" | "pane" | "desk";
-function changed(agent: WindowAgentInfo, how: Change): WindowAgentInfo {
+/**
+ * The same tab, changed: another conversation in the same pane (`/clear`, a resume), the agent in another pane, a
+ * desk edit, or the same conversation's turn moved on (`stamp`: a new turn begun, or the one going ended).
+ */
+type Change = "conversation" | "pane" | "desk" | "stamp";
+function changed(agent: WindowAgentInfo, how: Change, stamp?: Pick<WindowAgentInfo, "state" | "since">): WindowAgentInfo {
   if (how === "pane") return { ...agent, paneId: "%7" };
+  if (how === "stamp") return { ...agent, ...stamp };
   if (how === "conversation") {
     return agent.kind === "claude"
       ? { ...agent, conversation: { sessionId: "sess-B", transcriptPath: TRANSCRIPT } }
@@ -39,7 +43,10 @@ function changed(agent: WindowAgentInfo, how: Change): WindowAgentInfo {
  * counts), or once `afterWrite` writes have landed: the conversation or pane behind the window, or the screen
  * (`foreign`, drawn at the desk).
  */
-function liveTab(agent: WindowAgentInfo, screens: string[], change?: { at?: number; afterWrite?: number; how: Change; foreign?: string }) {
+function liveTab(
+  agent: WindowAgentInfo, screens: string[],
+  change?: { at?: number; afterWrite?: number; how: Change; foreign?: string; stamp?: Pick<WindowAgentInfo, "state" | "since"> },
+) {
   let me = agent;
   let screen = screens[0]!;
   let step = 1;
@@ -49,7 +56,7 @@ function liveTab(agent: WindowAgentInfo, screens: string[], change?: { at?: numb
   const calls: { at: number; name: string; args: unknown[] }[] = [];
   const apply = () => {
     done = true;
-    me = changed(me, change!.how);
+    me = changed(me, change!.how, change!.stamp);
     if (change!.how === "desk") screen = change!.foreign!;
   };
   const begin = (name: string, ...args: unknown[]) => {
@@ -218,6 +225,73 @@ describe("a conversation changed while an action waits gets none of its words", 
     const tab = liveTab(claude, [raw("claude-idle-multiline-draft")], { at: 2, how: "desk", foreign: raw("claude-idle-draft") });
     expect(await sendText(tab, fresh(), "sess-A", "hello draft", shown("claude", "claude-idle-multiline-draft"))).toEqual({ ok: false, error: "prompt-changed" });
     expect(tab.writes()).toEqual([]);
+  });
+});
+
+// Codex reproduced both on 828c26c: the decision was taken on the stamp read before the snapshot the write went on.
+describe("a write that depends on the turn goes by the turn the snapshot shows", () => {
+  /** Every look before the action's last write: a boundary a change can come at. */
+  const boundaries = (happy: Tab) => {
+    const last = happy.writes().at(-1)!.at;
+    return happy.calls.filter((c) => c.at < last && c.name !== "pasteInto" && c.name !== "sendKeys").map((c) => c.at);
+  };
+
+  test("Replace: a new turn begun at any boundary before the clear, and no C-c goes", async () => {
+    const run = (tab: Tab) => sendText(tab, fresh(), "sess-A", "hello draft", shown("claude", "claude-idle-multiline-draft"));
+    const screens = [raw("claude-idle-multiline-draft"), raw("claude-idle-empty"), raw("claude-idle-draft"), raw("claude-idle-empty")];
+    const happy = liveTab({ ...claude, since: SINCE }, screens);
+    expect(await run(happy)).toEqual({ ok: true });
+    const clearAt = happy.writes()[0]!.at;
+    const late: number[] = [];
+    for (const at of boundaries(happy).filter((at) => at < clearAt)) {
+      const tab = liveTab({ ...claude, since: SINCE }, screens, { at, how: "stamp", stamp: { state: "running", since: SINCE + 5 } });
+      await run(tab);
+      if (tab.writes().some((w) => JSON.stringify(w.args[1]) === JSON.stringify(["C-c"]))) late.push(at);
+    }
+    expect(late).toEqual([]);
+  });
+
+  test("Stop: the turn ended at any boundary before the Escape, and no Escape goes to the idle prompt", async () => {
+    // Nothing on the pane says Claude works (text streaming under an empty prompt shows nothing): the stamp decides.
+    const agent: WindowAgentInfo = { ...claude, state: "running", since: SINCE };
+    const screens = [raw("claude-idle-empty")];
+    const happy = liveTab(agent, screens);
+    expect(await stop(happy, fresh(), "sess-A")).toEqual({ ok: true });
+    expect(happy.writes().map((w) => w.args[1])).toEqual([["Escape"]]);
+    const late: number[] = [];
+    for (const at of boundaries(happy)) {
+      const tab = liveTab(agent, screens, { at, how: "stamp", stamp: { state: "done", since: SINCE + 5 } });
+      await stop(tab, fresh(), "sess-A");
+      if (tab.writes().length > 0) late.push(at);
+    }
+    expect(late).toEqual([]);
+  });
+});
+
+describe("a Stop is matched to the turn it ended, not to the second it was sent in", () => {
+  test("a Stop in the stamp's own second still ends that turn, and a later stamp is a new turn", async () => {
+    const agent: WindowAgentInfo = { ...claude, state: "running", since: Math.floor(Date.now() / 1000) };
+    const windowId = fresh();
+    const tab = liveTab(agent, [raw("claude-idle-empty")]);
+    expect(await stop(tab, windowId, "sess-A")).toEqual({ ok: true });
+    expect(tab.writes().map((w) => w.args[1])).toEqual([["Escape"]]);
+    const idle = adapterFor("claude").readPane(raw("claude-idle-empty"));
+    // That turn is over: the Working line clears, and no later Stop sends a second Escape into the idle prompt.
+    expect(stoppedSince(windowId, agent)).toBe(true);
+    expect(afterStop(windowId, agent, "running", idle)).toBe("done");
+    // The next prompt's stamp is another turn, whatever second it lands in.
+    expect(stoppedSince(windowId, { ...agent, since: agent.since! + 1 })).toBe(false);
+  });
+});
+
+describe("Stop with no conversation is for a Codex that hasn't begun one", () => {
+  test("a fresh Codex can be stopped; a daemon Codex, whose conversation is unknown, can't be by a null", async () => {
+    const screens = [raw("codex-working"), raw("codex-idle-empty")];
+    const freshTab = liveTab({ paneId: "%2", kind: "codex", fresh: true, state: "running", since: SINCE }, screens);
+    expect(await stop(freshTab, fresh(), null)).toEqual({ ok: true });
+    const daemon = liveTab({ paneId: "%2", kind: "codex", daemon: true }, screens);
+    expect(await stop(daemon, fresh(), null)).toEqual({ ok: false, error: "another-conversation" });
+    expect(daemon.writes()).toEqual([]);
   });
 });
 

@@ -34,8 +34,8 @@ const CLEAR_AGAIN_MS = 5000;
 const lastClear = new Map<string, number>();
 /** A second Escape soon after the first is Claude's Esc Esc (it opens the rewind list): a double tap stops once. */
 const STOP_AGAIN_MS = 2000;
-/** When Stop's Escape last went to each window, and the pane and conversation it went to. */
-const stopSent = new Map<string, { pane: string; conversation: string | null; at: number }>();
+/** When Stop's Escape last went to each window, and the pane, conversation and turn (the stamp's `since`) it went to. */
+const stopSent = new Map<string, { pane: string; conversation: string | null; since: number | undefined; at: number }>();
 
 export const GENERIC_KEYS: readonly string[] =["1", "2", "3", "4", "5", "Enter", "Escape", "Up", "Down", "Tab"] satisfies GenericKey[];
 
@@ -68,8 +68,16 @@ type Write = { keys: string[] } | { paste: string };
 /** What the pane, read right before a write, says: write this, not yet (read it again), nothing to write, or refused. */
 type Verdict = { write: Write } | "wait" | "skip" | ConvError;
 
-/** A verdict on the agent's pane as its adapter reads it. */
-const onPane = (kind: AgentKind, verdict: (r: PaneRead) => Verdict) => (ansi: string): Verdict => verdict(adapterFor(kind).readPane(ansi));
+/**
+ * A verdict on the agent's pane as its adapter reads it, and on the tab's agent as the same snapshot found it: a
+ * write that depends on the turn (Replace's clear, Stop's Escape) goes by the stamp read with the screen, never one
+ * read before it.
+ */
+const onPane = (kind: AgentKind, verdict: (r: PaneRead, agent: WindowAgentInfo | null) => Verdict) =>
+  (ansi: string, agent: WindowAgentInfo | null): Verdict => verdict(adapterFor(kind).readPane(ansi), agent);
+
+/** Whether two looks at a tab found the same turn: the stamp's state and when it was set. */
+const sameTurn = (a: WindowAgentInfo, b: WindowAgentInfo | null) => !!b && a.state === b.state && a.since === b.since;
 
 /**
  * The one way the conversation view writes to a pane. Right before the write
@@ -87,9 +95,9 @@ const onPane = (kind: AgentKind, verdict: (r: PaneRead) => Verdict) => (ansi: st
  * are two tmux calls, so that window is one round trip, a few milliseconds.
  */
 async function guarded(
-  tmux: Pick<Tmux, "snapshot" | "pasteInto" | "sendKeys">, b: Bound, verdict: (ansi: string) => Verdict,
+  tmux: Pick<Tmux, "snapshot" | "pasteInto" | "sendKeys">, b: Bound, verdict: (ansi: string, agent: WindowAgentInfo | null) => Verdict,
   opts: { ms?: number; every?: number; wordsIn?: boolean; late?: ConvError } = {},
-): Promise<{ ok: true; wrote: boolean; ansi: string } | Refusal> {
+): Promise<{ ok: true; wrote: boolean; ansi: string; agent: WindowAgentInfo | null } | Refusal> {
   const no = (error: ConvError) => refuse(opts.wordsIn ? "unsent" : error);
   const deadline = Date.now() + (opts.ms ?? 0);
   for (;;) {
@@ -101,16 +109,16 @@ async function guarded(
     const pane = snap.agent?.paneId ?? snap.active;
     const conversation = snap.agent ? conversationOf(snap.agent) : null;
     if (!!snap.agent !== b.agent || pane !== b.pane || conversation !== b.conversation) return no("another-conversation");
-    const v = verdict(snap.ansi);
+    const v = verdict(snap.ansi, snap.agent);
     if (v === "wait") {
       if (Date.now() >= deadline) return no(opts.late ?? "prompt-changed");
       continue;
     }
-    if (v === "skip") return { ok: true, wrote: false, ansi: snap.ansi };
+    if (v === "skip") return { ok: true, wrote: false, ansi: snap.ansi, agent: snap.agent };
     if (typeof v === "string") return no(v);
     if ("paste" in v.write) await tmux.pasteInto(b.pane, v.write.paste);
     else await tmux.sendKeys(b.pane, v.write.keys);
-    return { ok: true, wrote: true, ansi: snap.ansi };
+    return { ok: true, wrote: true, ansi: snap.ansi, agent: snap.agent };
   }
 }
 
@@ -179,10 +187,11 @@ export async function sendText(
     const stamp = await believedState(info);
     if (r.working || afterStop(windowId, info, stamp, r) !== "done") return refuse("working");
     if (Date.now() - (lastClear.get(windowId) ?? 0) < CLEAR_AGAIN_MS) return refuse("prompt-changed");
-    // Read again after the transcript: the clear goes only to the draft shown, with the turn still over.
-    const cleared = await guarded(tmux, b, onPane(info.kind, (x) =>
+    // Read again after the transcript: the clear goes only to the draft shown, with the turn still over. A stamp moved
+    // since the transcript was read against it is a turn begun (a queued or peer message): C-c would interrupt it.
+    const cleared = await guarded(tmux, b, onPane(info.kind, (x, now) =>
       x.dialog || x.unrecognised ? "waiting" : draftFingerprint(x) !== shown ? "prompt-changed"
-        : x.working || afterStop(windowId, info, stamp, x) !== "done" ? "working" : { write: { keys: adapter.clearDraft } }));
+        : x.working || !sameTurn(info, now) || afterStop(windowId, info, stamp, x) !== "done" ? "working" : { write: { keys: adapter.clearDraft } }));
     if (!cleared.ok) return cleared;
     lastClear.set(windowId, Date.now());
     // The words go in once the prompt reads empty.
@@ -264,12 +273,13 @@ export function afterStop(windowId: string, info: WindowAgentInfo, state: AgentS
 
 /**
  * Whether Stop's Escape went to this tab's agent pane, in its conversation,
- * after its stamp was set. The stamp's time is in whole seconds: one set in
- * the Stop's own second may be the next turn's, so only an earlier second counts.
+ * during the turn its stamp is for: the stamp the Escape was sent over, matched
+ * exactly, whatever second the Stop came in. The next prompt's stamp is set anew,
+ * so it is another turn.
  */
 export function stoppedSince(windowId: string, info: WindowAgentInfo): boolean {
   const stop = stopSent.get(windowId);
-  return !!stop && info.since !== undefined && stop.pane === info.paneId && stop.conversation === conversationOf(info) && info.since < Math.floor(stop.at / 1000);
+  return !!stop && info.since !== undefined && stop.pane === info.paneId && stop.conversation === conversationOf(info) && stop.since === info.since;
 }
 
 /**
@@ -285,16 +295,23 @@ export async function stop(
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
   // A tap meant for the conversation before a /clear, a resume or a new agent would stop the one there now. None
-  // (`null`) is a fresh Codex's, before its first thread: a Claude tab always names its session.
-  if (conversationOf(info) !== conversation || (conversation === null && info.kind !== "codex")) return refuse("another-conversation");
+  // (`null`) is a fresh Codex's, before its first thread: a Claude tab always names its session, and a daemon Codex's
+  // conversation is unknown rather than none.
+  if (conversationOf(info) !== conversation || (conversation === null && !(info.kind === "codex" && info.fresh))) return refuse("another-conversation");
   // A stamp left `running` by an interrupt (no hook fires for Esc) has nothing to stop: Escape would reach an idle prompt.
   const stamp = await believedState(info);
   const again = Date.now() - (stopSent.get(windowId)?.at ?? 0) < STOP_AGAIN_MS;
-  const sent = await guarded(tmux, bound(windowId, info), onPane(info.kind, (r) =>
+  const sent = await guarded(tmux, bound(windowId, info), onPane(info.kind, (r, now) => {
     // Escape answers a dialog: the card or Screen does that.
-    r.dialog || r.unrecognised ? "waiting" : (r.working || afterStop(windowId, info, stamp, r) === "running") && !again ? { write: { keys: ["Escape"] } } : "skip"));
+    if (r.dialog || r.unrecognised) return "waiting";
+    // The turn as the snapshot finds it: a stamp moved since the transcript was read is taken as it stands (a turn
+    // ended has nothing to stop, one begun is the one to stop).
+    const turn = sameTurn(info, now) ? stamp : now?.state;
+    return (r.working || afterStop(windowId, now ?? info, turn, r) === "running") && !again ? { write: { keys: ["Escape"] } } : "skip";
+  }));
   if (!sent.ok) return sent;
-  if (sent.wrote) stopSent.set(windowId, { pane: info.paneId, conversation: conversationOf(info), at: Date.now() });
+  const to = sent.agent ?? info;
+  if (sent.wrote) stopSent.set(windowId, { pane: to.paneId, conversation: conversationOf(to), since: to.since, at: Date.now() });
   return { ok: true };
 }
 
