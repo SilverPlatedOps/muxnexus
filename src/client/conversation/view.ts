@@ -417,7 +417,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       return row;
     }));
     const any = searchHits.childElementCount > 0;
-    searchNote.textContent = any ? "" : `No matches for "${searchedFor}"`;
+    // A long conversation is searched a stretch at a time: none found yet is not none at all.
+    searchNote.textContent = any ? "" : m.next !== undefined ? `No matches for "${searchedFor}" in the latest part` : `No matches for "${searchedFor}"`;
     searchNote.hidden = any;
     searchMore.hidden = m.next === undefined;
     searchMore.disabled = false;

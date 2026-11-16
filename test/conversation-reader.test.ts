@@ -140,6 +140,42 @@ test("search finds text in agent prose and in folded step output, newest first, 
   expect(b.next).toBeUndefined();
 });
 
+test("search matches what the conversation says, the same whether or not the query can be tested before parsing", async () => {
+  // One row, two matching items: both are hits. The step's own label ("Ran ls") is the view's words, not the file's.
+  const two = JSON.stringify({
+    type: "assistant", uuid: "m1", timestamp: "2026-01-01T10:00:00.000Z",
+    message: { content: [{ type: "text", text: "running ls now" }, { type: "tool_use", id: "t9", name: "Bash", input: { command: "ls -la" } }] },
+  }) + "\n";
+  const p = file("search-rows.jsonl", agent(1, "older ls mention") + two);
+  expect((await searchFile("claude", p, "ls")).hits.map((h) => h.id)).toEqual(["m1:0", "t9", "r1"]);
+  expect((await searchFile("claude", p, "ran ls")).hits).toEqual([]);
+  expect((await searchFile("claude", p, "ran ls (")).hits).toEqual([]);
+  expect((await searchFile("claude", p, "ls -la")).hits.map((h) => h.id)).toEqual(["t9"]);
+});
+
+test("a search reads a bounded stretch per request, and says where to go on", async () => {
+  const filler = Array.from({ length: 400 }, (_, i) => agent(100 + i, `filler ${"x".repeat(200)}`)).join("");
+  const p = file("search-far.jsonl", agent(1, "the needle, far back") + filler);
+  const near = await searchFile("claude", p, "needle", { scanBytes: 20_000 });
+  expect(near.hits).toEqual([]);
+  expect(near.next).toBeDefined();
+  let cursor = near.next;
+  const found: string[] = [];
+  for (let i = 0; cursor !== undefined && i < 100; i++) {
+    const r = await searchFile("claude", p, "needle", { scanBytes: 20_000, cursor });
+    found.push(...r.hits.map((h) => h.id));
+    cursor = r.next;
+  }
+  expect(found).toEqual(["r1"]);
+});
+
+test("links read the newest stretch of a long conversation, not all of it", async () => {
+  const filler = Array.from({ length: 400 }, (_, i) => agent(100 + i, `filler ${"x".repeat(200)}`)).join("");
+  const p = file("links-far.jsonl", agent(1, "old https://old.example") + filler + agent(2, "new https://new.example"));
+  expect(await linksIn("claude", p, { scanBytes: 20_000 })).toEqual([{ url: "https://new.example", pr: false }]);
+  expect(await linksIn("claude", p)).toEqual([{ url: "https://new.example", pr: false }, { url: "https://old.example", pr: false }]);
+});
+
 test("links: every URL once, PR links first", async () => {
   const p = file(
     "links.jsonl",

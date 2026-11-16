@@ -263,48 +263,64 @@ function textsOf(it: Item): string[] {
   }
 }
 
+/**
+ * What a search looks in: what the conversation itself says (prose, a step's input and output), not the words the
+ * view puts on it (a step's "Ran …" label, a notice). Those aren't in the file's row, so a row skipped unparsed for not
+ * holding the query could still have matched them: a search for the same words would find them or not by chance.
+ */
+function searchedOf(it: Item): string[] {
+  switch (it.kind) {
+    case "step":
+      return [it.input, it.result?.output ?? ""];
+    case "notice":
+      return [];
+    default:
+      return textsOf(it);
+  }
+}
+
+/** How far back one search request or one Links read goes: a long conversation is read a stretch at a time. */
+const SEARCH_SCAN_BYTES = 8 * 1024 * 1024;
+
 function snippet(text: string, at: number, len: number): string {
   const lo = Math.max(0, at - 40);
   const hi = Math.min(text.length, at + len + 40);
   return `${lo > 0 ? "…" : ""}${text.slice(lo, hi).replace(/\s+/g, " ")}${hi < text.length ? "…" : ""}`;
 }
 
-/** Newest-first search in agent prose and step output. `next` is the cursor to continue from, absent when the file is exhausted. */
+/**
+ * Newest-first search in agent prose and step input and output (`searchedOf`), every matching item of a row a hit.
+ * One request reads at most `scanBytes` back; `next` is the cursor to continue from, absent when the file is exhausted.
+ */
 export async function searchFile(
   kind: AgentKind,
   path: string,
   query: string,
-  opts: { cursor?: number; max?: number } = {},
+  opts: { cursor?: number; max?: number; scanBytes?: number } = {},
 ): Promise<{ hits: { id: string; offset: number; snippet: string }[]; next?: number }> {
   const hits: { id: string; offset: number; snippet: string }[] = [];
   const needle = query.toLowerCase();
   if (!needle) return { hits };
   const max = opts.max ?? 20;
+  const scan = opts.scanBytes ?? SEARCH_SCAN_BYTES;
   // JSON escapes quotes and backslashes in the raw line, so only a plain query can be tested before parsing.
   const plain = /^[\w .-]+$/.test(needle);
   const adapter = adapterFor(kind);
   const fh = await open(path, "r");
   try {
     const size = (await fh.stat()).size;
+    const from = Math.min(opts.cursor ?? size, size);
     const counter = { n: 0 };
-    for await (const line of linesBack(fh, Math.min(opts.cursor ?? size, size), SCAN_CHUNK, counter)) {
-      if (plain && !line.text.toLowerCase().includes(needle)) continue;
-      const row = parseRow(line.text);
-      if (row === undefined) continue;
-      for (const it of adapter.rowItems(row)) {
-        const found = textsOf(it)
+    for await (const line of linesBack(fh, from, SCAN_CHUNK, counter)) {
+      const row = plain && !line.text.toLowerCase().includes(needle) ? undefined : parseRow(line.text);
+      for (const it of row === undefined ? [] : adapter.rowItems(row)) {
+        const found = searchedOf(it)
           .map((t) => ({ t, i: t.toLowerCase().indexOf(needle) }))
           .find((x) => x.i >= 0);
-        if (found) {
-          hits.push({ id: it.id, offset: line.offset, snippet: snippet(found.t, found.i, needle.length) });
-          break;
-        }
+        if (found) hits.push({ id: it.id, offset: line.offset, snippet: snippet(found.t, found.i, needle.length) });
       }
-      if (hits.length >= max) {
-        const last = hits[hits.length - 1].offset;
-        // Continue before this row, unless it was the first.
-        return last > 0 ? { hits, next: last } : { hits };
-      }
+      // Go on before this row next time, unless it was the file's first: a row is never split between requests.
+      if (hits.length >= max || from - line.offset >= scan) return line.offset > 0 ? { hits, next: line.offset } : { hits };
     }
     return { hits };
   } finally {
@@ -315,15 +331,20 @@ export async function searchFile(
 const URL_RE = /https?:\/\/[^\s<>"'`)\]\\]+/g;
 const PR_RE = /\/pull\/\d+|\/merge_requests\/\d+/;
 
-/** Every URL in the conversation once, pull and merge requests first, each group newest first. */
-export async function linksIn(kind: AgentKind, path: string): Promise<{ url: string; pr: boolean }[]> {
+/**
+ * Every URL in the conversation's newest `scanBytes` once, pull and merge requests first, each group newest first.
+ * A long conversation's oldest links are left out rather than the whole file read on every tap.
+ */
+export async function linksIn(kind: AgentKind, path: string, opts: { scanBytes?: number } = {}): Promise<{ url: string; pr: boolean }[]> {
   const adapter = adapterFor(kind);
   const seen = new Set<string>();
+  const scan = opts.scanBytes ?? SEARCH_SCAN_BYTES;
   const fh = await open(path, "r");
   try {
     const size = (await fh.stat()).size;
     const counter = { n: 0 };
     for await (const line of linesBack(fh, size, SCAN_CHUNK, counter)) {
+      if (size - line.offset > scan) break;
       if (!line.text.includes("http")) continue;
       const row = parseRow(line.text);
       if (row === undefined) continue;
