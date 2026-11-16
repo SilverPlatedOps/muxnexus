@@ -642,11 +642,12 @@ describe("answer", () => {
 });
 
 describe("pendingQuestionMulti", () => {
-  test("true only while the newest unanswered AskUserQuestion has a multi-select question", async () => {
+  test("false only while the newest unanswered AskUserQuestion is single-select throughout", async () => {
     expect(await pendingQuestionMulti("claude", SINGLE)).toBe(false);
     expect(await pendingQuestionMulti("claude", MULTI_LATER)).toBe(true);
-    expect(await pendingQuestionMulti("claude", transcript("multi-answered", [q("Pick fruits", true)], true))).toBe(false);
-    // Unreadable input fails closed.
+    // A question on the pane with none unanswered in the transcript (its row not written yet, or not one the page
+    // parsed): nothing says it is single-select, so it fails closed, as unreadable input does.
+    expect(await pendingQuestionMulti("claude", transcript("multi-answered", [q("Pick fruits", true)], true))).toBe(true);
     expect(await pendingQuestionMulti("claude", transcript("odd", "not a list"))).toBe(true);
     // Codex has no AskUserQuestion.
     expect(await pendingQuestionMulti("codex", MULTI_LATER)).toBe(false);

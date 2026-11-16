@@ -389,14 +389,15 @@ export async function pressKey(
 /**
  * Whether the newest unanswered AskUserQuestion in the transcript's last page
  * has a multi-select question: such a call is answered on Screen, card by
- * card being only for single-select. An input that can't be read counts as one.
+ * card being only for single-select. An input that can't be read counts as one, and so does none found: this
+ * is asked only while the pane shows a question, so a transcript not naming it proves nothing.
  */
 export async function pendingQuestionMulti(kind: AgentKind, transcriptPath: string): Promise<boolean> {
   if (kind !== "claude") return false;
   const { items } = await readPage(kind, transcriptPath, {});
   const answered = new Set(items.flatMap((i) => (i.kind === "step-result" || (i.kind === "step" && i.result) ? [i.id] : [])));
   const step = items.findLast((i) => i.kind === "step" && i.tool === "AskUserQuestion" && !answered.has(i.id));
-  if (!step || step.kind !== "step") return false;
+  if (!step || step.kind !== "step") return true;
   try {
     const questions: unknown = JSON.parse(step.input)?.questions;
     return !Array.isArray(questions) || questions.some((q) => q?.multiSelect === true);
