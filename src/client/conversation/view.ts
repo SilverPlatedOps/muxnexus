@@ -18,7 +18,7 @@ import { createScreen, createWaitingCard } from "./card";
 import { isImagePath, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
 import { SAFE_LINK } from "../live-markdown";
 import {
-  clipAround, composedAs, type Composed, CONV_ERROR, foldSteps, hitShown, linkRows, mergeItems, pageFor, readForShown, runLine, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
+  clipAround, composedAs, type Composed, CONV_ERROR, foldSteps, hitShown, linkRows, mergeItems, pageFor, readForShown, runLine, sendAs, type Step, stepLine, stuckToBottom, workingLine, writtenElsewhere,
 } from "./model";
 
 /**
@@ -82,8 +82,6 @@ const DOTS = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor
 /** A paperclip: attach a photo or a file. */
 const PAPERCLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>';
 const PLAY = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 3v10l8-5z"></path></svg>';
-
-type Step = Extract<ConvItem, { kind: "step" }>;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -616,8 +614,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     r.text.textContent = `${steps.length} steps · ${runLine(steps)}`;
     r.failed.textContent = `${failed} failed`;
     r.failed.hidden = !failed;
-    const last = steps[steps.length - 1]!.result;
-    r.time.textContent = last ? took(steps[0]!.at, last.at) : "";
+    // Steps run side by side finish in any order: the run took until its last result, once all are in.
+    const end = done ? steps.reduce((m, s) => (s.result!.at > m ? s.result!.at : m), "") : "";
+    r.time.textContent = end ? took(steps[0]!.at, end) : "";
   }
 
   /** Puts `want` in `parent` in that order, moving only what is out of place (a moved box loses its scroll). */
@@ -632,7 +631,12 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     const taken = new Set<Run>();
     const top = foldSteps(items, (s) => sentFiles(s).length > 0).map((x) => {
       if (!Array.isArray(x)) return drawn.get(x.id)!.el;
-      const r = x.map((s) => runOf.get(s.id)).find((y) => y && !taken.has(y)) ?? runEl();
+      let r = x.map((s) => runOf.get(s.id)).find((y) => y && !taken.has(y));
+      if (!r) {
+        r = runEl();
+        // A step opened to watch it stays in sight when the next one folds it into a run.
+        r.el.open = x.some((s) => drawn.get(s.id)!.el.matches("details[open]"));
+      }
       taken.add(r);
       place(r.box, x.map((s) => drawn.get(s.id)!.el));
       paintRun(r, x);

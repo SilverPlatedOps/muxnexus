@@ -70,7 +70,7 @@ export function stepLine(it: Extract<ConvItem, { kind: "step" }>): string {
   return verb && TRIED[verb[1]!] ? `${TRIED[verb[1]!]} ${verb[2]}` : it.summary;
 }
 
-type Step = Extract<ConvItem, { kind: "step" }>;
+export type Step = Extract<ConvItem, { kind: "step" }>;
 
 /**
  * The list as shown: two or more steps in a row fold into one run, everything else stands alone. A step `apart` says
@@ -100,11 +100,14 @@ const NOUN: Record<string, [string, string]> = {
   Ran: ["command", "commands"], Edited: ["edit", "edits"], Wrote: ["edit", "edits"], Read: ["file read", "files read"], Searched: ["search", "searches"],
 };
 
+const EARLIER: [string, string] = ["earlier step", "earlier steps"];
+
 /** A run's folded line: `2 commands, 1 file read, TaskUpdate ×2`, kinds in the order first done. */
 export function runLine(steps: Step[]): string {
   const kinds = new Map<string, { n: number; noun?: [string, string] }>();
   for (const s of steps) {
-    const noun = NOUN[/^(\S+) /.exec(s.summary)?.[1] ?? ""];
+    // A step listed from its result alone (its call too far back to read) has no tool to name.
+    const noun = NOUN[/^(\S+) /.exec(s.summary)?.[1] ?? ""] ?? (s.tool ? undefined : EARLIER);
     const key = noun ? noun[1] : s.tool;
     const k = kinds.get(key);
     if (k) k.n++;

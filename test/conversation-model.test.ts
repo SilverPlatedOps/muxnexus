@@ -119,6 +119,9 @@ test("a run's line counts what it did, in the order first done", () => {
   expect(runLine(steps)).toBe("2 commands, 1 file read, 2 edits, 1 search, TaskUpdate ×2, TaskCreate");
   expect(runLine(steps.slice(0, 1))).toBe("1 command");
   expect(runLine([steps[1]!, { ...steps[1]!, id: "r2" }])).toBe("2 files read");
+  // Steps listed from their result alone have no tool to name.
+  const earlier = { ...steps[0]!, tool: "", summary: "Output of an earlier step" };
+  expect(runLine([earlier, { ...earlier, id: "e2" }, steps[0]!])).toBe("2 earlier steps, 1 command");
 });
 
 test("the working line names the step still running", () => {
