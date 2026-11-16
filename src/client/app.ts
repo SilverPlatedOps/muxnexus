@@ -57,6 +57,8 @@ const expandBtn = document.getElementById("expand")!;
 const displayBtn = document.getElementById("display")!;
 const hamburger = document.getElementById("hamburger")!;
 const nextBtn = document.getElementById("next-waiting") as HTMLButtonElement;
+/** Next waiting in the title bar: shown only by a phone's conversation view, whose own header row it stands in for. */
+const topNext = document.getElementById("top-next") as HTMLButtonElement;
 const nextCount = document.getElementById("next-count")!;
 const drawerClose = document.getElementById("drawer-close")!;
 const findEl = document.getElementById("find")!;
@@ -237,6 +239,7 @@ function updateAttention() {
   const chatting = chatUI?.isShowing() ?? false;
   const elsewhere = needsYouCount(chatting ? live : live.filter((s) => s.name !== current)) + (chatUI?.asking().length ?? 0);
   nextBtn.disabled = !nextJump();
+  topNext.disabled = nextBtn.disabled;
   nextCount.hidden = elsewhere === 0;
   nextCount.textContent = String(elsewhere);
 }
@@ -630,7 +633,8 @@ const menus = createMenuActions({
 });
 
 const topMenu = document.getElementById("top-menu") as HTMLButtonElement;
-topMenu.onclick = () => { if (current) menus.session(current, topMenu); };
+// On a phone the conversation's own header row is folded into this one: its items lead this menu.
+topMenu.onclick = () => { if (current) menus.session(current, topMenu, convView && onPhone() ? convView.tools() : undefined); };
 onContextMenu(chipName, (at) => { if (current) menus.session(current, at); });
 // The name in the title bar renames, like the row: one name for a one-tab agent.
 chipName.ondblclick = () => { if (current) sidebar.startRename(current); };
@@ -1081,6 +1085,7 @@ nextBtn.onclick = () => {
   nextJump()?.();
   if (onPhone()) setDrawer(false);
 };
+topNext.onclick = () => nextJump()?.();
 drawerClose.onclick = () => setDrawer(false);
 // ＋ beside the filter: something new in the list on show.
 document.getElementById("side-new")!.onclick = () => {
@@ -1249,5 +1254,21 @@ if (convMode) {
 
 // The bar (and its ☰) is there from the start, before any workspace is chosen.
 if (convMode) paintMain();
+
+// A phone's keyboard covers the bottom of the page without making it shorter (iOS): the page is sized to what is
+// still visible, so the text box sits just above the keyboard, and the page itself is never left scrolled under it
+// (the conversation scrolls inside).
+if (convMode && window.visualViewport) {
+  const vv = window.visualViewport;
+  const fit = () => {
+    // Pinch-zoomed, the visible part is smaller for another reason: the page keeps its size, and pans as zoom does.
+    if (Math.abs(vv.scale - 1) > 0.01) return;
+    document.documentElement.style.setProperty("--app-height", `${Math.round(vv.height)}px`);
+    if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+  };
+  vv.addEventListener("resize", fit);
+  vv.addEventListener("scroll", fit);
+  fit();
+}
 
 conn.connect();

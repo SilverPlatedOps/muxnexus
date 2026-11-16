@@ -2699,6 +2699,37 @@ body.conv-mode .tab-new { margin-bottom: 0; }
 
 /* iOS zooms the page into a field whose text is under 16px. */
 @media (pointer: coarse) { .conv-input { font-size: 16px; } }
+
+/* Who asks and what stay at the top of a card long enough to scroll (a short screen, the keyboard up). */
+.conv-card-head { position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px; padding-bottom: 4px; background: var(--chrome); }
+
+/* The page is as tall as what is visible (app.ts): with a phone's keyboard up, the text box sits right above it. */
+body.conv-mode { height: var(--app-height, 100%); }
+
+/* A phone's conversation view has one header row: the conversation's own (state, Next waiting, its menu) folds into
+   the title bar. Next waiting moves up beside the menu, whose list its items now lead (app.ts), Note among them.
+   The tab's state stays on the title bar's and the tabs' marks. Text gets more of the width: narrower gutters. */
+#top-next { display: none; }
+#top-next:disabled { color: var(--faint); cursor: default; }
+@media (max-width: 720px) {
+  body.conv-mode #topbar { gap: 4px; padding-right: 10px; }
+  body.conv-mode .conv-head, body.conv-mode #note-btn { display: none; }
+  body.conv-mode #top-next { display: flex; margin-left: auto; }
+  .conv-body { padding: 8px 10px 12px; }
+  .conv-slot { padding-left: 8px; padding-right: 8px; }
+  .conv-bubble { padding: 8px 10px; }
+  .conv-you, .conv-peer { max-width: 92%; }
+  .conv-agent .chat-markdown :is(ul, ol) { padding-left: 20px; }
+  .conv-agent .chat-markdown li { padding-left: 2px; }
+}
+/* A finger's target in the title bar: 44px, the hamburger wholly on screen. */
+@media (pointer: coarse) {
+  #topbar .icon-btn { width: 44px; height: 44px; }
+  #hamburger { margin-left: 0; }
+  #note-btn { margin-right: 0; }
+  #top-solo .tab.solo { height: 44px; }
+  .tab-new .tab-new-more { width: 40px; }
+}
 @media (max-width: 720px) {
   #conv, #tabs:not([hidden]) + #conv { border: 0; border-radius: 0; }
   .conv-head { padding-left: 12px; }

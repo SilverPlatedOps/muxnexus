@@ -169,8 +169,10 @@ export function createWaitingCard(deps: CardDeps): WaitingCard {
   function draw(card: Card) {
     field = null;
     buttons.length = 0;
-    const title = el("div", "conv-card-title", cardTitle(card));
-    const parts: HTMLElement[] = [head(agentShown, card), title];
+    // Who asks and what, held at the top while a long card scrolls under it.
+    const top = el("div", "conv-card-head");
+    top.append(head(agentShown, card), el("div", "conv-card-title", cardTitle(card)));
+    const parts: HTMLElement[] = [top];
     // As text: it comes from the agent's screen.
     if (card.description) parts.push(el("div", "conv-card-description", card.description));
     if (card.detail) parts.push(el("pre", "conv-pre conv-card-detail", card.detail));

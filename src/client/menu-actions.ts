@@ -5,8 +5,25 @@ import type { ClientMessage, NewWindowAgent, SessionInfo, WindowInfo } from "../
 import { editableName, retag, splitCategory } from "../shared/category";
 import { groupNames, isArchived, unarchivedName } from "./groups";
 import { sessionLabel, tabLabel } from "./labels";
-import { agentMenu, groupMenu, workspaceMenu, type AgentKind, type AgentTarget, type MenuAction } from "./menus";
+import { agentMenu, groupMenu, workspaceMenu, type AgentKind, type AgentTarget, type Menu, type MenuAction, type MenuItem } from "./menus";
 import { openMenu, type Anchor } from "./popover";
+
+/**
+ * Items another view puts first in a menu it shares (the conversation's Screen, Links, Search and Note, in the title
+ * bar's menu on a phone), and what picking one does: false for an action that isn't one of them.
+ */
+export interface MenuExtra {
+  items: MenuItem[];
+  pick(action: MenuAction): boolean;
+}
+
+/** `menu` with `extra`'s items first, and any of its own items those stand in for left out. */
+export function withExtra(menu: Menu, extra: MenuExtra | undefined): Menu {
+  if (!extra || extra.items.length === 0) return menu;
+  const theirs = new Set(extra.items.map((i) => i.action));
+  const own = menu.sections.map((s) => s.filter((i) => !theirs.has(i.action))).filter((s) => s.length > 0);
+  return { ...menu, sections: [extra.items, ...own] };
+}
 
 /**
  * What a picked menu item does. The sidebar, the tab strip and the title bar
@@ -116,17 +133,19 @@ export function createMenuActions(host: MenuHost) {
   }
 
   return {
-    /** A sidebar row or the title bar: the agent when there's one tab, else the workspace. */
-    session(name: string, at: Anchor) {
+    /** A sidebar row or the title bar: the agent when there's one tab, else the workspace. `extra`: items put first. */
+    session(name: string, at: Anchor, extra?: MenuExtra) {
       const s = find(name);
       if (!s || s.windows.length === 0) return;
       if (s.windows.length === 1) {
         const w = s.windows[0]!;
-        openMenu(at, agentMenu(target(s, w, true)), agentPick(s, w, true, at));
+        const pick = agentPick(s, w, true, at);
+        openMenu(at, withExtra(agentMenu(target(s, w, true)), extra), (action) => { if (!extra?.pick(action)) pick(action); });
         return;
       }
       const label = sessionLabel(s);
-      openMenu(at, workspaceMenu({ name: editableName(label), tabs: s.windows.length, archived: isArchived(s, label) }), (action) => {
+      openMenu(at, withExtra(workspaceMenu({ name: editableName(label), tabs: s.windows.length, archived: isArchived(s, label) }), extra), (action) => {
+        if (extra?.pick(action)) return;
         switch (action) {
           case "new-tab-claude": return newTab(s.name, "claude");
           case "new-tab-codex": return newTab(s.name, "codex");

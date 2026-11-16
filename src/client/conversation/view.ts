@@ -12,6 +12,7 @@ import { badgesShown } from "../display";
 import { markdownPath } from "../file-links";
 import { isArchived, visualOrder } from "../groups";
 import { sessionLabel, tabLabel } from "../labels";
+import type { MenuAction, MenuItem } from "../menus";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
 import { isImagePath, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
@@ -55,6 +56,11 @@ export interface ConversationView {
    * the one shown, or has no conversation to send to.
    */
   compose(windowId: string, text: string): "composed" | "not-shown" | "nothing-to-send-to";
+  /**
+   * The conversation's own menu items (Screen, Links, Search, Note) and what picking one does, for a menu that
+   * stands in for its header's on a phone; `pick` is false for an action that isn't one of them.
+   */
+  tools(): { items: MenuItem[]; pick(action: MenuAction): boolean };
 }
 
 /** How much of a step's input or output is shown behind the tap: the server sends them whole. */
@@ -279,6 +285,20 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     nextBtn.setAttribute("aria-label", n > 0 ? `Next waiting (${n} waiting for you)` : "Next waiting");
   }
 
+  const TOOLS: MenuItem[] = [
+    { action: "screen", label: "Screen", hint: "the terminal, read-only" },
+    { action: "links", label: "Links" },
+    { action: "search", label: "Search" },
+  ];
+  /** A pick from the conversation's own items; false for any other action. */
+  function pickTool(action: MenuAction): boolean {
+    if (action === "screen") showScreen();
+    else if (action === "links") showLinks();
+    else if (action === "search") showSearch();
+    else if (action === "note") { if (windowId) deps.openNote(windowId); }
+    else return false;
+    return true;
+  }
   menuBtn.onclick = () => {
     if (!windowId) return;
     const w = shownWindow();
@@ -286,20 +306,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     openMenu(menuBtn, {
       title: w ? tabLabel(w) : "Conversation",
       sub: s ? sessionLabel(s) : "",
-      sections: [
-        [
-          { action: "screen", label: "Screen", hint: "the terminal, read-only" },
-          { action: "links", label: "Links" },
-          { action: "search", label: "Search" },
-        ],
-        [{ action: "note", label: "Note" }],
-      ],
-    }, (action) => {
-      if (action === "screen") showScreen();
-      else if (action === "links") showLinks();
-      else if (action === "search") showSearch();
-      else if (action === "note" && windowId) deps.openNote(windowId);
-    });
+      sections: [TOOLS, [{ action: "note", label: "Note" }]],
+    }, (action) => { pickTool(action); });
   };
 
   function showScreen() {
@@ -707,8 +715,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
 
   function grow() {
+    // At most a quarter of what is visible (less with a phone's keyboard up), so the conversation stays in sight.
+    const room = window.visualViewport?.height ?? window.innerHeight;
     input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight + 2, 180)}px`;
+    input.style.height = `${Math.min(input.scrollHeight + 2, Math.max(66, Math.min(180, Math.round(room / 4))))}px`;
   }
 
   /** Forget the send in flight: answered, given up, or for a tab no longer shown. */
@@ -1123,6 +1133,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       if (!agent || !conversation) return "nothing-to-send-to";
       setTyped(input.value.trim() === "" ? text : `${input.value.replace(/\s+$/, "")}\n${text}`);
       return "composed";
+    },
+    tools() {
+      // With no tab shown there is nothing for them to act on.
+      return { items: windowId ? [...TOOLS, { action: "note", label: "Note", hint: "this tab's" }] : [], pick: pickTool };
     },
   };
 }
