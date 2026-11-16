@@ -18,7 +18,9 @@ export type MenuAction =
   | "chat-open" | "chat-notes" | "chat-settings" | "chat-rename" | "chat-archive" | "chat-reopen" | "chat-delete"
   | "member-note" | "member-terminal" | "change-role" | "replace" | "remove" | "reconnect"
   // The conversation view's menu (conversation/view.ts).
-  | "screen" | "links" | "search";
+  | "screen" | "links" | "search"
+  // The title bar's switch between the conversation and the terminal (app.ts).
+  | "switch-view";
 
 export interface MenuItem {
   action: MenuAction;

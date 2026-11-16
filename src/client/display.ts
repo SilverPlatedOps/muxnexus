@@ -18,6 +18,7 @@ const MARKS_KEY = "muxnexus.checkout-marks";
 const SYSTEM_KEY = "muxnexus.system";
 const MEMORY_KEY = "muxnexus.tab-memory";
 const DEVICE_VIEW_KEY = "muxnexus.device-view";
+const WORKSPACE_VIEW_KEY = "muxnexus.workspace-view";
 
 /** What the preference is kept in: `localStorage`, or a stand-in under test. */
 export interface Store {
@@ -89,6 +90,39 @@ export function setDeviceView(v: DeviceView, store?: Store): void {
     (store ?? localStorage).setItem(DEVICE_VIEW_KEY, v);
   } catch {
     /* not remembered; the page keeps what it loaded with */
+  }
+}
+
+/** The workspaces this device shows in the other view than its own, by name: `{"api":"terminal"}`. */
+function switched(store?: Store): Record<string, unknown> {
+  try {
+    const v: unknown = JSON.parse((store ?? localStorage).getItem(WORKSPACE_VIEW_KEY) ?? "{}");
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** What this browser shows of `session`: the view it was switched to here, else the device's. */
+export function workspaceView(session: string | null, store?: Store, touch: number = navigator.maxTouchPoints): DeviceView {
+  const own = session === null ? {} : switched(store);
+  const v = session !== null && Object.hasOwn(own, session) ? own[session] : undefined;
+  return v === "conversation" || v === "terminal" ? v : deviceView(store, touch);
+}
+
+/**
+ * Shows `session` as `view` on this device from now on. Switched back to the
+ * device's own view it follows that again, a later change included. False:
+ * not remembered.
+ */
+export function setWorkspaceView(session: string, view: DeviceView, store?: Store, touch: number = navigator.maxTouchPoints): boolean {
+  const { [session]: _, ...rest } = switched(store);
+  const next = view === deviceView(store, touch) ? rest : { ...rest, [session]: view };
+  try {
+    (store ?? localStorage).setItem(WORKSPACE_VIEW_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -260,7 +294,7 @@ export function openDisplay(host: HTMLElement, onChange: () => void, send: (m: C
     }
     select.onchange = () => setDeviceView(select.value as DeviceView);
     const text = el("span", "display-text");
-    text.append(el("span", "move-opt-name", "On this device"), el("span", "move-opt-note", "Conversation shows each agent as a chat; Terminal is the desk's view. Takes effect when the page reloads."));
+    text.append(el("span", "move-opt-name", "On this device"), el("span", "move-opt-note", "Conversation shows each agent as a chat; Terminal is the desk's view. Takes effect when the page reloads. A workspace switched from its ⋯ menu keeps its own."));
     row.append(text, select);
     box.append(row);
   }

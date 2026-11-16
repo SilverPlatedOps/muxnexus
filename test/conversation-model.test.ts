@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { deviceView, setDeviceView, type Store } from "../src/client/display";
+import { deviceView, setDeviceView, setWorkspaceView, workspaceView, type Store } from "../src/client/display";
 import {
   answerMessage, CONV_ERROR, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, foldSteps, linkRows, mergeItems, readForShown, runLine, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
@@ -30,6 +30,40 @@ test("a store that throws falls back to the default", () => {
   expect(deviceView(broken, 3)).toBe("conversation");
   expect(deviceView(broken, 0)).toBe("terminal");
   expect(() => setDeviceView("terminal", broken)).not.toThrow();
+});
+
+test("a workspace switched on this device opens in its own view, the others in the device's", () => {
+  const s = memory();
+  expect(workspaceView("api", s, 5)).toBe("conversation");
+  expect(setWorkspaceView("api", "terminal", s, 5)).toBe(true);
+  expect(workspaceView("api", s, 5)).toBe("terminal");
+  expect(workspaceView("web", s, 5)).toBe("conversation");
+  expect(workspaceView(null, s, 5)).toBe("conversation");
+  // Switched back to what the device shows anyway, it follows the device again, a later change of that included.
+  expect(setWorkspaceView("api", "conversation", s, 5)).toBe(true);
+  setDeviceView("terminal", s);
+  expect(workspaceView("api", s, 5)).toBe("terminal");
+  // A name that is also an object's own key is a workspace like any other.
+  setWorkspaceView("constructor", "conversation", s, 5);
+  setWorkspaceView("__proto__", "conversation", s, 5);
+  expect(workspaceView("constructor", s, 5)).toBe("conversation");
+  expect(workspaceView("__proto__", s, 5)).toBe("conversation");
+  expect(workspaceView("toString", s, 5)).toBe("terminal");
+});
+
+test("a workspace's view kept in a store that throws, or holds junk, is the device's", () => {
+  const broken: Store = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  expect(workspaceView("api", broken, 3)).toBe("conversation");
+  expect(setWorkspaceView("api", "terminal", broken, 3)).toBe(false);
+  const junk = memory();
+  junk.setItem("muxnexus.workspace-view", "{not json");
+  expect(workspaceView("api", junk, 0)).toBe("terminal");
+  junk.setItem("muxnexus.workspace-view", JSON.stringify({ api: "sideways" }));
+  expect(workspaceView("api", junk, 0)).toBe("terminal");
+  junk.setItem("muxnexus.workspace-view", JSON.stringify(["api"]));
+  expect(workspaceView("api", junk, 0)).toBe("terminal");
+  expect(setWorkspaceView("api", "conversation", junk, 0)).toBe(true);
+  expect(workspaceView("api", junk, 0)).toBe("conversation");
 });
 
 const win = (id: string, over: Partial<WindowInfo> = {}): WindowInfo => ({ id, index: 0, name: "sh", active: false, panes: 1, ...over });

@@ -5,7 +5,7 @@ import { createSidebar, sessionLabel } from "./sidebar";
 import { groupNames, isArchived, visualOrder } from "./groups";
 import { openNewAgent, type NewAgentHandle } from "./new-agent";
 import { knownFolders } from "./chat/model";
-import { createMenuActions, kindOf } from "./menu-actions";
+import { createMenuActions, kindOf, type MenuExtra } from "./menu-actions";
 import { onContextMenu } from "./popover";
 import { createTabs } from "./tabs";
 import { openMove, targets } from "./move";
@@ -18,7 +18,7 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { deviceView, memoryShown, openDisplay, type DisplayHandle } from "./display";
+import { memoryShown, openDisplay, setWorkspaceView, workspaceView, type DeviceView, type DisplayHandle } from "./display";
 import { conversationWindow, TERMINAL_MESSAGES, withLocalActive } from "./conversation/model";
 import { createConversationView } from "./conversation/view";
 import { createReader, type Reader } from "./reader";
@@ -33,6 +33,8 @@ import { createChatUI, type ChatUI } from "./chat/ui";
 import { createGlobalSearch } from "./global-search";
 
 const SESSION_KEY = "muxnexus.session";
+/** The tab to show after a reload into the other view (sessionStorage): the one shown before it. */
+const VIEW_WINDOW_KEY = "muxnexus.view-window";
 const PHONE = "(max-width: 720px)";
 
 const layout = document.getElementById("layout")!;
@@ -76,7 +78,24 @@ const convEl = document.getElementById("conv")!;
  * iPad resizes the agent's screen at the desk. The workspace and tab it shows
  * are chosen here, not in tmux (`current`, `convWindow`).
  */
-const convMode = deviceView() === "conversation";
+// Built for the view of the workspace it opens with: one switched on this device has its own (its title bar's menu).
+const pageView: DeviceView = workspaceView(localStorage.getItem(SESSION_KEY));
+const convMode = pageView === "conversation";
+/** The tab the page was reloaded to show, taken once; null with none. */
+let handedOff: string | null = (() => {
+  try {
+    const id = sessionStorage.getItem(VIEW_WINDOW_KEY);
+    sessionStorage.removeItem(VIEW_WINDOW_KEY);
+    return id;
+  } catch {
+    return null;
+  }
+})();
+const takeHandedOff = () => {
+  const id = handedOff;
+  handedOff = null;
+  return id;
+};
 if (convMode) document.body.classList.add("conv-mode");
 /** In conversation mode, the tab shown in `current`: this page's own pick, tmux's active window left alone. */
 let convWindow: string | null = null;
@@ -414,13 +433,14 @@ function hideReconnect() {
 
 /** `rejoin`: the socket came back, and the workspace is taken up again behind whatever was showing, a chat included. */
 function attach(session: string, rejoin = false) {
+  if (!rejoin && reloadedFor(session, null)) return;
   // A workspace picked while a chat is open leaves the chat (it can be gone back to).
   if (!rejoin) chatUI?.leaveForWorkspace();
   desired = session;
   localStorage.setItem(SESSION_KEY, session);
   if (onPhone()) setDrawer(false);
   if (convMode) {
-    if (session !== current || rejoin) showConversation(session, session === current ? convWindow : null);
+    if (session !== current || rejoin) showConversation(session, session === current ? convWindow : takeHandedOff());
     return;
   }
   // The row of the workspace on screen: the keys go back to its terminal.
@@ -638,7 +658,55 @@ const menus = createMenuActions({
 
 const topMenu = document.getElementById("top-menu") as HTMLButtonElement;
 // On a phone the conversation's own header row is folded into this one: its items lead this menu.
-topMenu.onclick = () => { if (current) menus.session(current, topMenu, convView && onPhone() && !chatting() ? convView.tools() : undefined); };
+topMenu.onclick = () => {
+  if (current) menus.session(current, topMenu, withViewSwitch(convView && onPhone() && !chatting() ? convView.tools() : undefined));
+};
+
+/** The title bar's switch to the other view, first, on a touch device (or one already showing conversations). */
+function withViewSwitch(tools: MenuExtra | undefined): MenuExtra | undefined {
+  if (!convMode && navigator.maxTouchPoints === 0) return tools;
+  return {
+    items: [{ action: "switch-view", label: convMode ? "Show as terminal" : "Show as chat", hint: "this workspace" }, ...(tools?.items ?? [])],
+    pick: (action) => (action === "switch-view" ? (switchView(), true) : tools?.pick(action) ?? false),
+  };
+}
+
+/** This workspace in the other view on this device from now on: the page reloads built for it, on the same tab. */
+function switchView() {
+  if (!current) return;
+  const s = sessions.find((x) => x.name === current);
+  const tab = convMode ? convWindow : s?.windows.find((w) => w.active)?.id ?? null;
+  if (!setWorkspaceView(current, convMode ? "terminal" : "conversation") || !reloadInto(current, tab)) {
+    sidebar.toast("This browser can't remember that: its storage is blocked");
+  }
+}
+
+/**
+ * A workspace set to the other view on this device opens in it: the page is
+ * built for one, so it reloads built for that one, on `tab` (null: the one it
+ * would pick). True when it does; false, nothing to do or nothing remembered,
+ * and this page shows it.
+ */
+function reloadedFor(session: string, tab: string | null): boolean {
+  return workspaceView(session) !== pageView && reloadInto(session, tab);
+}
+
+function reloadInto(session: string, tab: string | null): boolean {
+  try {
+    localStorage.setItem(SESSION_KEY, session);
+  } catch {
+    return false;
+  }
+  // The tab is a nicety: without it the page opens the one it would pick.
+  try {
+    if (tab) sessionStorage.setItem(VIEW_WINDOW_KEY, tab);
+    else sessionStorage.removeItem(VIEW_WINDOW_KEY);
+  } catch {
+    /* not kept */
+  }
+  location.reload();
+  return true;
+}
 onContextMenu(chipName, (at) => { if (current) menus.session(current, at); });
 // The name in the title bar renames, like the row: one name for a one-tab agent.
 chipName.ondblclick = () => { if (current) sidebar.startRename(current); };
@@ -897,6 +965,7 @@ makeSplit({
 
 /** Show a window: its session attached, the window selected in the main pane. */
 function openWindow(session: string, id: string) {
+  if (reloadedFor(session, id)) return;
   if (convMode) {
     // As attach does on the desk: a workspace's tab picked while a chat is open leaves the chat.
     chatUI?.leaveForWorkspace();
@@ -930,8 +999,12 @@ const conn = new Connection(wsUrl, {
       }
       return;
     }
-    if (desired) attach(desired, true);
-    else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
+    // Taken whatever happens: a tab id left over would be selected on some later reconnect.
+    const tab = takeHandedOff();
+    if (desired) {
+      attach(desired, true);
+      if (tab) conn.send({ t: "select-window", session: desired, id: tab });
+    } else conn.send({ t: "resize", cols: term.cols, rows: term.rows });
   },
   onClose(nextDelayMs) {
     showReconnect(nextDelayMs);
