@@ -193,8 +193,11 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     void tail.then(() => { if (lanes.get(windowId) === tail) lanes.delete(windowId); });
     return run;
   }
-  /** Each tab's last answer, by the conversation and dialog it was for: a double tap is the same both. */
-  const lastAnswer = new Map<string, { conversation: string; fingerprint: string; at: number }>();
+  /**
+   * Each tab's last answer in each conversation (`windowId|conversation`), by the dialog it was for: a double tap is
+   * the same both. Keyed by conversation, so a stale tap for the one before a /clear can't take the real one's place.
+   */
+  const lastAnswer = new Map<string, { fingerprint: string; at: number }>();
 
   /** A screen that couldn't be read: answered empty (no token, so no key can follow), and the reason sent to show. */
   function unreadScreen(ws: HubSocket, req: string, e: unknown) {
@@ -267,13 +270,18 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     async answer(ws: HubSocket, req: string, windowId: string, conversation: string, fingerprint: string, option: number, text?: string) {
       // Counted from when an answer arrives, not when it is done: a double tap queued behind the first would answer the next
       // dialog. One for another conversation (a card from before a /clear, refused) is no first tap for this one's.
-      const last = lastAnswer.get(windowId);
-      if (last?.conversation === conversation && last.fingerprint === fingerprint && Date.now() - last.at < ANSWER_AGAIN_MS) {
+      const slot = `${windowId}|${conversation}`;
+      const last = lastAnswer.get(slot);
+      if (last?.fingerprint === fingerprint && Date.now() - last.at < ANSWER_AGAIN_MS) {
         return send(ws, { t: "conv-result", req, ok: false, error: "prompt-changed" });
       }
-      lastAnswer.set(windowId, { conversation, fingerprint, at: Date.now() });
+      const mine = { fingerprint, at: Date.now() };
+      lastAnswer.set(slot, mine);
       try {
         const r = await inLane(windowId, () => answer(tmux, windowId, conversation, fingerprint, option, text));
+        // A tap refused before any key went is no first tap: tapped again, it is answered. (Words left unsent in a
+        // field did reach the pane: the next tap must not answer as if they hadn't.)
+        if (!r.ok && r.error !== "unsent" && lastAnswer.get(slot) === mine) lastAnswer.delete(slot);
         send(ws, { t: "conv-result", req, ...r });
       } catch (e) {
         failed(ws, req, e);
