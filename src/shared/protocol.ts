@@ -269,15 +269,16 @@ export type ClientMessage =
    * result's `draftFingerprint`, the draft is cleared first, if it is still
    * the one shown (else the new draft comes back). `attachments`: names the
    * upload route gave; images go in after the words, other files are named
-   * in them.
+   * in them. `conversation` null: a fresh agent's first message.
    */
-  | { t: "conv-send"; req: string; windowId: string; conversation: string; text: string; replace?: string; attachments?: string[] }
+  | { t: "conv-send"; req: string; windowId: string; conversation: string | null; text: string; replace?: string; attachments?: string[] }
   /**
    * Choose option `option` (a `CardOption.index`) of the card read as
    * `fingerprint`, in `conversation` (the `conv`'s); `text` for an option that
-   * takes words. Answered with `conv-result`.
+   * takes words. Answered with `conv-result`. `conversation` null: a fresh
+   * agent's trust question, before it has one.
    */
-  | { t: "conv-answer"; req: string; windowId: string; conversation: string; fingerprint: string; option: number; text?: string }
+  | { t: "conv-answer"; req: string; windowId: string; conversation: string | null; fingerprint: string; option: number; text?: string }
   /**
    * Interrupt the agent, if the tab still holds `conversation` (the `conv`'s;
    * null for a Codex tab with no thread yet, which still has none).
@@ -585,9 +586,11 @@ export type ServerMessage =
    * A tab's conversation, its newest page: the answer to `conv-open`, and again,
    * replacing everything shown, whenever the tab comes to hold another one.
    * `agent` null: no agent in the tab (show Screen). `conversation` null: none to
-   * read yet, so nothing can be sent. `start` and `end` are byte offsets.
+   * read yet, so nothing can be sent, unless `fresh`: an agent that starts one
+   * with its first message (a new Codex), or is asked to trust its folder
+   * first. `start` and `end` are byte offsets.
    */
-  | { t: "conv"; windowId: string; agent: AgentKind | null; conversation: string | null; items: (ConvItem | StepResult)[]; start: number; end: number }
+  | { t: "conv"; windowId: string; agent: AgentKind | null; conversation: string | null; fresh?: boolean; items: (ConvItem | StepResult)[]; start: number; end: number }
   /** What the agent wrote since, to append; a `step-result` completes a step already shown. */
   | { t: "conv-items"; windowId: string; items: (ConvItem | StepResult)[] }
   /**

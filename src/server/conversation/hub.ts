@@ -8,6 +8,7 @@ import type { ServerMessage } from "../../shared/protocol";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
 import { afterStop, answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop, stoppedSince, type Attached } from "./actions";
+import { paneLines } from "./pane";
 import { linksIn, readPage, readSince, searchFile } from "./reader";
 
 /**
@@ -32,6 +33,8 @@ interface Sub {
   windowId: string;
   kind: AgentKind | null;
   conversation: string | null;
+  /** The agent's pane: with no conversation yet (a fresh agent), all that says which agent the view shows. */
+  pane: string | null;
   path: string | null;
   /** Byte offset read up to; null while the file can't be read (not written yet). */
   end: number | null;
@@ -52,7 +55,46 @@ const transcriptOf = (info: WindowAgentInfo | null): string | null =>
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; pollMs?: number }) {
+/** A Claude asking to trust its folder, read from the pane it is in: it has run no hook yet, so no stamp says so. */
+const trusting = (paneId: string, ansi: string): WindowAgentInfo | null =>
+  adapterFor("claude").readPane(ansi).dialog?.kind === "trust" ? { paneId, kind: "claude", fresh: true } : null;
+
+/**
+ * The tmux the hub and its actions see: a tab with no stamp whose pane shows
+ * Claude's trust question holds a fresh Claude while it is up, so the question
+ * is a card, answered through the same guard as any other. Chat delivery reads
+ * tmux itself, and sees no agent there until the hook stamps.
+ */
+export function withTrustingClaude(tmux: HubTmux): HubTmux {
+  return {
+    async agentOfWindow(windowId) {
+      const info = await tmux.agentOfWindow(windowId);
+      if (info) return info;
+      try {
+        const pane = await tmux.activePane(windowId);
+        return trusting(pane, await tmux.capturePane(pane));
+      } catch {
+        return null;
+      }
+    },
+    async snapshot(windowId, paneId) {
+      const snap = await tmux.snapshot(windowId, paneId);
+      return snap.agent || paneId !== snap.active ? snap : { ...snap, agent: trusting(paneId, snap.ansi) };
+    },
+    activePane: (windowId) => tmux.activePane(windowId),
+    capturePane: (paneId) => tmux.capturePane(paneId),
+    // Handed on as they are: the guard stays the one place a write is made.
+    pasteInto: tmux.pasteInto.bind(tmux),
+    sendKeys: tmux.sendKeys.bind(tmux),
+    paneSize: (paneId) => tmux.paneSize(paneId),
+  };
+}
+
+/** Nothing drawn yet: an agent still starting. */
+const unpainted = (ansi: string) => paneLines(ansi).every((l) => l.text.trim() === "");
+
+export function createConversationHub({ tmux: given, pollMs = 1000 }: { tmux: HubTmux; pollMs?: number }) {
+  const tmux = withTrustingClaude(given);
   const subs = new Map<HubSocket, Sub>();
   let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -82,9 +124,9 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     // The last page, never a read from 0 forward: a file can be tens of megabytes.
     const page = kind && path ? await readPage(kind, path, {}).catch(() => null) : null;
     if (!current(ws, sub) || (retry && !page)) return;
-    Object.assign(sub, { kind, conversation: info ? conversationOf(info) : null, path, end: page?.end ?? null, card: null, multi: null });
+    Object.assign(sub, { kind, conversation: info ? conversationOf(info) : null, pane: info?.paneId ?? null, path, end: page?.end ?? null, card: null, multi: null });
     send(ws, {
-      t: "conv", windowId: sub.windowId, agent: sub.kind, conversation: sub.conversation,
+      t: "conv", windowId: sub.windowId, agent: sub.kind, conversation: sub.conversation, ...(info?.fresh ? { fresh: true } : {}),
       items: page?.items ?? [], start: page?.start ?? 0, end: page?.end ?? 0,
     });
   }
@@ -121,8 +163,11 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       const read = await tmux.capturePane(info.paneId).then((ansi) => adapterFor(info.kind).readPane(ansi)).catch(() => null);
       working = afterStop(sub.windowId, info, state, read) === "running";
     }
-    if (info && state === "input") {
-      const read = await tmux.capturePane(info.paneId).then((ansi) => adapterFor(info.kind).readPane(ansi)).catch(() => null);
+    // A fresh agent has no stamp to say it waits: its pane is read for whatever it shows (a trust question, an update
+    // notice), and nothing drawn yet is an agent still starting, waiting on nothing.
+    if (info && (state === "input" || info.fresh)) {
+      const ansi = await tmux.capturePane(info.paneId).catch(() => null);
+      const read = ansi === null ? null : adapterFor(info.kind).readPane(ansi);
       card = read?.dialog ?? null;
       working ||= read?.working ?? false;
       // A waiting stamp over a pane showing no dialog may be stale: Screen, never a guess. One over an agent plainly at
@@ -133,6 +178,7 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       screen = !read || read.unrecognised || !!read.field || (!card && !read.working && !idle);
       // The pane shows one question at a time: a multi-select one later in the call would be met half-answered (Decision 4).
       if (card?.kind === "question" && !screen) screen = await multiSelect(sub, info, card);
+      if (info.fresh && ansi !== null && unpainted(ansi)) screen = false;
       if (screen) card = null;
     }
     // The card is the conversation's the pane was read with: a tap on it answers that one only.
@@ -152,7 +198,14 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
   }
 
   const sameTab = (sub: Sub, info: WindowAgentInfo | null) =>
-    (info?.kind ?? null) === sub.kind && (info ? conversationOf(info) : null) === sub.conversation && transcriptOf(info) === sub.path;
+    (info?.kind ?? null) === sub.kind && (info ? conversationOf(info) : null) === sub.conversation && transcriptOf(info) === sub.path
+    && (info?.paneId ?? null) === sub.pane;
+
+  /** The pane `ws` shows `windowId`'s agent in, or null: a write with no conversation goes to that agent only. */
+  const shownPane = (ws: HubSocket, windowId: string): string | null => {
+    const sub = subs.get(ws);
+    return sub?.windowId === windowId ? sub.pane : null;
+  };
 
   async function tick(ws: HubSocket, sub: Sub) {
     if (sub.busy) return;
@@ -214,7 +267,7 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
   return {
     /** Shows `windowId`'s conversation on `ws`, in place of any other, then keeps it current. */
     async open(ws: HubSocket, windowId: string) {
-      const sub: Sub = { windowId, kind: null, conversation: null, path: null, end: null, card: null, multi: null, busy: true };
+      const sub: Sub = { windowId, kind: null, conversation: null, pane: null, path: null, end: null, card: null, multi: null, busy: true };
       subs.set(ws, sub);
       sync();
       try {
@@ -258,16 +311,17 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
     },
 
     /** `replace`: the fingerprint of the desk's draft the user agreed to replace, or null. `attached`: the files that go with the words. */
-    async send(ws: HubSocket, req: string, windowId: string, conversation: string, text: string, replace: string | null, attached?: Attached) {
+    async send(ws: HubSocket, req: string, windowId: string, conversation: string | null, text: string, replace: string | null, attached?: Attached) {
       try {
-        const r = await inLane(windowId, () => sendText(tmux, windowId, conversation, text, replace, attached));
+        const pane = shownPane(ws, windowId);
+        const r = await inLane(windowId, () => sendText(tmux, windowId, conversation, text, replace, attached, pane));
         send(ws, { t: "conv-result", req, ...r });
       } catch (e) {
         failed(ws, req, e);
       }
     },
 
-    async answer(ws: HubSocket, req: string, windowId: string, conversation: string, fingerprint: string, option: number, text?: string) {
+    async answer(ws: HubSocket, req: string, windowId: string, conversation: string | null, fingerprint: string, option: number, text?: string) {
       // Counted from when an answer arrives, not when it is done: a double tap queued behind the first would answer the next
       // dialog. One for another conversation (a card from before a /clear, refused) is no first tap for this one's.
       const slot = `${windowId}|${conversation}`;
@@ -279,7 +333,8 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       for (const [k, v] of lastAnswer) if (Date.now() - v.at >= ANSWER_AGAIN_MS) lastAnswer.delete(k);
       lastAnswer.set(slot, { fingerprint, at: Date.now() });
       try {
-        const r = await inLane(windowId, () => answer(tmux, windowId, conversation, fingerprint, option, text));
+        const pane = shownPane(ws, windowId);
+        const r = await inLane(windowId, () => answer(tmux, windowId, conversation, fingerprint, option, text, pane));
         send(ws, { t: "conv-result", req, ...r });
       } catch (e) {
         failed(ws, req, e);

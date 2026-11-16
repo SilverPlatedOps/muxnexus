@@ -60,15 +60,16 @@ function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
    * `pasted`, `entered`: the screen after a paste (a prompt holding "hello draft", which then reads as the words
    * pasted) and after Enter (the prompt empty again), when set.
    */
-  const state = { agent, screen, captures: 0, lookups: 0, writes: [] as string[], slowPaste: 0, pasted: null as string | null, entered: null as string | null };
+  // `pane`: the agent's pane, which is the window's active one; `cleared`: the screen after C-c, when set.
+  const state = { agent, screen, pane: "%1", captures: 0, lookups: 0, writes: [] as string[], slowPaste: 0, pasted: null as string | null, entered: null as string | null, cleared: null as string | null };
   const tmux = {
     async agentOfWindow(_windowId: string) {
       state.lookups++;
-      return state.agent ? ({ paneId: "%1", kind: "claude", ...state.agent } as WindowAgentInfo) : null;
+      return state.agent ? ({ paneId: state.pane, kind: "claude", ...state.agent } as WindowAgentInfo) : null;
     },
-    async activePane(_windowId: string) { return "%1"; },
+    async activePane(_windowId: string) { return state.pane; },
     async capturePane(_paneId: string) { state.captures++; return state.screen; },
-    async snapshot(windowId: string, paneId: string) { return { agent: await tmux.agentOfWindow(windowId), active: "%1", ansi: await tmux.capturePane(paneId) }; },
+    async snapshot(windowId: string, paneId: string) { return { agent: await tmux.agentOfWindow(windowId), active: state.pane, ansi: await tmux.capturePane(paneId) }; },
     async pasteInto(paneId: string, text: string) {
       state.writes.push(`paste ${paneId} ${text}`);
       await sleep(state.slowPaste);
@@ -77,6 +78,7 @@ function fakeTmux(agent: Partial<WindowAgentInfo> | null, screen: string) {
     async sendKeys(paneId: string, keys: string[]) {
       state.writes.push(`keys ${paneId} ${keys.join(" ")}`);
       if (state.entered !== null && keys.join(" ") === "Enter") state.screen = state.entered;
+      if (state.cleared !== null && keys.join(" ") === "C-c") state.screen = state.cleared;
     },
     async paneSize(_paneId: string) { return { cols: 80, rows: 24 }; },
   };
@@ -106,7 +108,7 @@ describe("the conversation hub", () => {
         return next;
       };
       // A dialog no layout matches; a field taking words: Screen, no card.
-      expect((await shows("claude-trust", "screen")).card).toBeNull();
+      expect((await shows("codex-update", "screen")).card).toBeNull();
       await shows("claude-bash-permission", "permission");
       await shows("claude-bash-no-field", "screen");
       await shows("claude-plan", "plan");
@@ -128,7 +130,7 @@ describe("the conversation hub", () => {
       [{ kind: "codex", state: "input", thread: { id: "thread-1", path: transcript("codex-turns.jsonl") } }, "codex-idle-empty", { card: null, screen: false, working: false }],
       // A dialog is still a card, and a screen no reader knows still Screen.
       [claude(transcript()), "claude-bash-permission", { screen: false, card: expect.objectContaining({ kind: "permission" }) }],
-      [claude(transcript()), "claude-trust", { card: null, screen: true }],
+      [claude(transcript()), "codex-update", { card: null, screen: true }],
       [claude(transcript()), "claude-question-multi", { card: null, screen: true }],
     ] as const) {
       const { tmux } = fakeTmux(agent as Partial<WindowAgentInfo>, pane(fixture));
@@ -704,5 +706,125 @@ describe("conversations over the socket", () => {
     expect(await waitFor(() => all(c.messages, "conv-result").find((r) => r.req === "s0"), 2000, "the null Stop's result")).toMatchObject({ ok: false, error: "no-agent" });
     await refused({ t: "conv-search", windowId: "@1", query: "x" }, "invalid conv-search");
     c.ws.close();
+  });
+});
+
+describe("a tab's first screens, before any hook has run", () => {
+  test("Claude asking to trust its folder is a fresh Claude with a trust card, answered with the arrows", async () => {
+    const { state, tmux } = fakeTmux(null, pane("claude-trust"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      expect(ws.last("conv")).toMatchObject({ agent: "claude", conversation: null, fresh: true, items: [] });
+      const card = ws.last("conv-card")!;
+      expect(card).toMatchObject({ conversation: null, screen: false, working: false });
+      expect(card.card).toMatchObject({ kind: "trust", selected: 1 });
+      await hub.answer(ws, "yes", "@1", null, card.card!.fingerprint, 2);
+      expect(ws.last("conv-result")).toEqual({ t: "conv-result", req: "yes", ok: true });
+      expect(state.writes).toEqual(["keys %1 Down Enter"]);
+      // The question gone and no stamp yet: no agent, so Screen.
+      state.screen = "$ ls\nfile.txt\n$ ";
+      await hub.open(ws, "@1");
+      expect(ws.last("conv")).toMatchObject({ agent: null, conversation: null });
+      expect(ws.last("conv")).not.toHaveProperty("fresh");
+      // An answer for a question no longer up (here also a double tap) presses nothing.
+      await hub.answer(ws, "late", "@1", null, card.card!.fingerprint, 2);
+      expect(ws.last("conv-result")).toMatchObject({ req: "late", ok: false });
+      expect(state.writes).toEqual(["keys %1 Down Enter"]);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("a new Codex: its update notice is Screen's, its trust question a card, its prompt the text box, a blank pane nothing", async () => {
+    const { state, tmux } = fakeTmux({ kind: "codex", fresh: true }, pane("codex-update"));
+    const hub = createConversationHub({ tmux, pollMs: 30 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      expect(ws.last("conv")).toMatchObject({ agent: "codex", conversation: null, fresh: true });
+      expect(ws.last("conv-card")).toMatchObject({ card: null, screen: true });
+      const shows = async (screen: string) => {
+        const n = ws.all("conv-card").length;
+        state.screen = screen;
+        return waitFor(() => ws.all("conv-card")[n], 1000, "the next card");
+      };
+      expect((await shows(pane("codex-trust"))).card?.kind).toBe("trust");
+      expect(await shows(pane("codex-fresh"))).toMatchObject({ card: null, screen: false });
+      expect(await shows(pane("codex-update"))).toMatchObject({ card: null, screen: true });
+      expect(await shows("\n\n\n")).toMatchObject({ card: null, screen: false });
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("a message for no conversation goes to a new Codex, and to nothing that has one", async () => {
+    const { state, tmux } = fakeTmux({ kind: "codex", fresh: true }, pane("codex-idle-empty"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      state.entered = pane("codex-idle-empty");
+      state.pasted = pane("codex-idle-draft");
+      await hub.send(ws, "first", "@1", null, "hi", null);
+      expect(ws.last("conv-result")).toEqual({ t: "conv-result", req: "first", ok: true });
+      expect(state.writes).toEqual(["paste %1 hi", "keys %1 Enter"]);
+      state.writes = [];
+      // With a thread, none is a conversation it no longer holds; a stamped Claude never has none.
+      state.agent = { kind: "codex", state: "input", thread: { id: "thread-1", path: transcript("codex-turns.jsonl") } };
+      await hub.send(ws, "threaded", "@1", null, "hi", null);
+      expect(ws.last("conv-result")).toMatchObject({ req: "threaded", ok: false, error: "another-conversation" });
+      state.agent = claude(transcript());
+      await hub.send(ws, "claude", "@1", null, "hi", null);
+      expect(ws.last("conv-result")).toMatchObject({ req: "claude", ok: false, error: "another-conversation" });
+      expect(state.writes).toEqual([]);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("an answer or a message for no conversation goes only to the pane the view showed", async () => {
+    const { state, tmux } = fakeTmux(null, pane("claude-trust"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      const card = ws.last("conv-card")!.card!;
+      // Another pane of the window, as new, asking the same: the same fingerprint, and no conversation either.
+      state.pane = "%2";
+      await hub.answer(ws, "yes", "@1", null, card.fingerprint, 2);
+      expect(ws.last("conv-result")).toMatchObject({ req: "yes", ok: false, error: "another-conversation" });
+      state.agent = { kind: "codex", fresh: true };
+      state.screen = pane("codex-idle-empty");
+      await hub.send(ws, "hi", "@1", null, "hi", null);
+      expect(ws.last("conv-result")).toMatchObject({ req: "hi", ok: false, error: "another-conversation" });
+      // A socket that shows no tab names no pane: refused too.
+      const other = socket();
+      await hub.send(other, "hi", "@1", null, "hi", null);
+      expect(other.last("conv-result")).toMatchObject({ req: "hi", ok: false, error: "another-conversation" });
+      expect(state.writes).toEqual([]);
+    } finally {
+      hub.stop();
+    }
+  });
+
+  test("a new Codex's desk draft can be replaced by the first message", async () => {
+    const { state, tmux } = fakeTmux({ kind: "codex", fresh: true }, pane("codex-idle-draft"));
+    const hub = createConversationHub({ tmux, pollMs: 1000 });
+    const ws = socket();
+    try {
+      await hub.open(ws, "@1");
+      await hub.send(ws, "ask", "@1", null, "hi", null);
+      const asked = ws.last("conv-result")!;
+      expect(asked).toMatchObject({ req: "ask", ok: false, draft: "hello draft" });
+      state.cleared = state.entered = pane("codex-idle-empty");
+      state.pasted = pane("codex-idle-draft");
+      await hub.send(ws, "replace", "@1", null, "hi", (asked as { draftFingerprint: string }).draftFingerprint);
+      expect(ws.last("conv-result")).toEqual({ t: "conv-result", req: "replace", ok: true });
+      expect(state.writes).toEqual(["keys %1 C-c", "paste %1 hi", "keys %1 Enter"]);
+    } finally {
+      hub.stop();
+    }
   });
 });

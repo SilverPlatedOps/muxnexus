@@ -5,7 +5,7 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, hashId, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
-  allDim, beforeImages, blank, block, cardOption, findRowBack, fingerprint, highlighted, lastFilled, lasting, optionRow,
+  allDim, arrowsTo, beforeImages, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, lastFilled, lasting, nextFilled, optionRow,
   paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneRead,
 } from "./pane";
 
@@ -181,11 +181,38 @@ function draftIn(lines: PaneLine[], texts: string[], { row, end }: { row: number
   return { draft: "text", draftText: [texts[row]!.slice(2), ...more.map((t) => t.slice(2))].join("\n") };
 }
 
+const TRUST_HEAD = "Folder access";
+const TRUST_ASK = "Trust this folder?";
+const TRUST_FOOTER = "enter continue · esc back";
+
+/**
+ * The question before the first prompt in a folder not trusted yet (0.167.1):
+ * `Folder access`, the folder, `Trust this folder? …`, then `› 1. Trust and
+ * continue` / `2. Back to Agent Command Center` above the footer. Trust leads;
+ * the way back is offered quietly.
+ */
+function trust(texts: string[]): Card | null {
+  const last = lastFilled(texts);
+  if (last < 0 || texts[last]!.trim() !== TRUST_FOOTER) return null;
+  const head = findRowBack(texts, (t) => t.trim() === TRUST_HEAD, last);
+  const ask = head < 0 ? -1 : findRow(texts, (t) => t.trim().startsWith(TRUST_ASK), head + 1, last);
+  const first = ask < 0 ? -1 : findRow(texts, option, ask + 1, last);
+  const scan = first < 0 ? null : scanOptions(texts, first, "›");
+  if (!scan || scan.options.length < 2 || nextFilled(texts, scan.end, last) >= 0) return null;
+  const folder = texts.slice(head + 1, ask).map((t) => t.trim()).join("");
+  if (!folder) return null;
+  const options = scan.options.map((o, k) => cardOption(o, { secondary: k > 0 }));
+  return {
+    kind: "trust", title: TRUST_ASK, detail: folder, options,
+    fingerprint: fingerprint(["trust", folder, ...options.map((o) => o.label)]), ...highlighted(scan.options),
+  };
+}
+
 function readPane(ansi: string): PaneRead {
   try {
     const lines = paneLines(ansi);
     const texts = lines.map((l) => l.text.trimEnd());
-    const dialog = approval(texts);
+    const dialog = approval(texts) ?? trust(texts);
     if (dialog) return { dialog, unrecognised: false, draft: "unknown", working: false };
     const box = composer(lines, texts);
     if (!box) return { ...UNREADABLE };
@@ -222,6 +249,10 @@ function owns(r: PaneRead, words: string, images = 0): boolean {
 const APPROVAL_KEYS = ["y", "p", "Escape"];
 
 function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
+  if (card.kind === "trust") {
+    const keys = hasText ? null : arrowsTo(card, option);
+    return keys ? { keys } : null;
+  }
   const o = card.options.find((x) => x.index === option);
   if (card.kind !== "approval" || !o || (hasText && !o.takesText)) return null;
   // The dialog has no field for the words: declining ends the turn, and they go as the next message.

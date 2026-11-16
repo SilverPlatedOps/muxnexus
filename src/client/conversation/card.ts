@@ -55,8 +55,11 @@ function button(cls: string, text: string): HTMLButtonElement {
 export interface CardDeps {
   send(m: ClientMessage): void;
   toast(m: string): void;
-  /** The tab and conversation the view shows (the latest `conv`'s); null while there is none. An answer names the card's own conversation. */
-  target(): { windowId: string; conversation: string } | null;
+  /**
+   * The tab and conversation the view shows (the latest `conv`'s; null before it has one); null with no tab. An
+   * answer names the card's own conversation.
+   */
+  target(): { windowId: string; conversation: string | null } | null;
   openScreen(): void;
 }
 

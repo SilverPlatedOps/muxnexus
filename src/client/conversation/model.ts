@@ -267,12 +267,14 @@ export interface ShownCard { card: Card; for: string | null }
  * them) on the card shown, in tab `target.windowId`: bound to the
  * conversation the card was read for, not whichever the view shows by the
  * tap, so a card left over from before a /clear can't answer the new
- * conversation's prompt (the server refuses it). Null for a card read for none.
+ * conversation's prompt (the server refuses it). Null for a card read for
+ * none, but a trust question: an agent asks it before it has a conversation,
+ * and the server presses only while that question, by its fingerprint, is up.
  */
 export function answerMessage(
-  shown: ShownCard, target: { windowId: string; conversation: string }, req: string, option: CardOption, words?: string,
+  shown: ShownCard, target: { windowId: string; conversation: string | null }, req: string, option: CardOption, words?: string,
 ): Extract<ClientMessage, { t: "conv-answer" }> | null {
-  if (shown.for === null) return null;
+  if (shown.for === null && shown.card.kind !== "trust") return null;
   const text = option.takesText && words?.trim() ? words : undefined;
   return {
     t: "conv-answer", req, windowId: target.windowId, conversation: shown.for,

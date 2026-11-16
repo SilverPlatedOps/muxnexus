@@ -71,6 +71,30 @@ const NEAR_TOP = 240;
 const TICK_MS = 15_000;
 /** After a page that didn't join what is shown (a failed read), wait this long before asking again. */
 const RETRY_MS = 3000;
+/** Where what was typed and not sent is kept for this browser tab (sessionStorage): a reload, a switch of view, keeps it. */
+const TYPED_KEY = "muxnexus.typed";
+
+function loadTyped(): Map<string, Composed> {
+  try {
+    const v: unknown = JSON.parse(sessionStorage.getItem(TYPED_KEY) ?? "[]");
+    const ok = (e: unknown): e is [string, Composed] =>
+      Array.isArray(e) && typeof e[0] === "string" && typeof e[1]?.text === "string" && (e[1].for === null || typeof e[1].for === "string");
+    return new Map(Array.isArray(v) ? v.filter(ok).map(([tab, c]) => [tab, { text: c.text, for: c.for }]) : []);
+  } catch {
+    return new Map();
+  }
+}
+
+function saveTyped(typed: Map<string, Composed>) {
+  try {
+    sessionStorage.setItem(TYPED_KEY, JSON.stringify([...typed].filter(([, c]) => c.text.trim() !== "")));
+  } catch {
+    /* kept for as long as the page is */
+  }
+}
+
+/** The conversation a fresh agent's first message starts, before it has an id: the words are bound to it. */
+const NONE_YET = "\u0000none-yet";
 /** The longest message the server takes (server.ts `isText`): one longer is refused with no `conv-result`. */
 const MAX_TEXT = 100_000;
 /** A send with no answer by then is given up, so Send comes back whatever happened to it. */
@@ -148,10 +172,12 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let pending: { req: string; text: string; to: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** A stop waiting for its `conv-result`. */
   let stopping: string | null = null;
+  /** The tab's agent starts its conversation with its first message (a new Codex): what is typed is for that one. */
+  let fresh = false;
   /** What the text box holds, and the conversation it was written for. */
   let composed: Composed = { text: "", for: null };
-  /** What was typed in each tab and not sent, with the conversation it was for: switching tabs keeps it. */
-  const typed = new Map<string, Composed>();
+  /** What was typed in each tab and not sent, with the conversation it was for: switching tabs keeps it, and a reload. */
+  const typed = loadTyped();
   /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them. */
   const attachedIn = new Map<string, Attachment[]>();
   let attachSeq = 0;
@@ -220,7 +246,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const waiting = createWaitingCard({
     send: (m) => deps.send(m),
     toast: (m) => deps.toast(m),
-    target: () => (windowId && conversation ? { windowId, conversation } : null),
+    target: () => (windowId ? { windowId, conversation } : null),
     openScreen: () => screenView.open(false),
   });
   /** Over the box while its words were written for the conversation the tab held before (a /clear, a resume at the desk). */
@@ -748,6 +774,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   });
 
   // ---- the text box ----
+  /**
+   * What the words go to: the conversation shown, or for a fresh agent the one its first message starts (none yet,
+   * sent as null; a draft bound to it is asked about once the agent has a conversation of its own). Null: nothing.
+   */
+  const target = (): string | null => conversation ?? (fresh ? NONE_YET : null);
   /** Typed digits would pick options: while a dialog is up, the card stands in for the text box. */
   const asked = () => !!card || screen;
 
@@ -755,17 +786,17 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     // A tab with no agent has nothing to type to: its Screen's keys are the way in.
     slot.hidden = agent === null && !asked();
     compose.hidden = asked() || agent === null;
-    input.disabled = !conversation;
-    input.placeholder = conversation || agent === undefined ? "Message" : "Nothing to send to yet";
+    input.disabled = !target();
+    input.placeholder = target() || agent === undefined ? "Message" : "Nothing to send to yet";
     // A Stop names the conversation it is for; with none to name, only a fresh Codex's "none yet" binds it.
     stopBtn.hidden = !working || asked() || (!conversation && agent !== "codex");
     stopBtn.disabled = stopping !== null;
     const files = attachedNow();
     const uploading = files.some((f) => !f.name);
-    sendBtn.disabled = !conversation || pending !== null || uploading || (input.value.trim() === "" && files.length === 0);
-    attachBtn.disabled = !conversation || pending !== null || files.length >= MAX_ATTACHMENTS;
+    sendBtn.disabled = !target() || pending !== null || uploading || (input.value.trim() === "" && files.length === 0);
+    attachBtn.disabled = !target() || pending !== null || files.length >= MAX_ATTACHMENTS;
     tray.hidden = compose.hidden || files.length === 0;
-    const elsewhere = writtenElsewhere(composed, conversation);
+    const elsewhere = writtenElsewhere(composed, target());
     if (!elsewhere) confirming = false;
     boundEl.hidden = !elsewhere || compose.hidden;
     boundYes.hidden = !confirming;
@@ -792,7 +823,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
    * now holds another), they wait for the user to say they're for this one.
    */
   function send(text: string) {
-    if (!windowId || !conversation || pending || asked()) return;
+    const to = target();
+    if (!windowId || !to || pending || asked()) return;
     // Enter pressed with Send still off: say why rather than do nothing.
     if (attachedNow().some((f) => !f.name)) {
       deps.toast("Wait for the upload to finish");
@@ -800,10 +832,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     }
     // Files alone go to the conversation shown: there are no words written for another.
     if (text.trim() === "") {
-      if (attachedNow().length > 0) sendTo(text, conversation);
+      if (attachedNow().length > 0) sendTo(text, to);
       return;
     }
-    const how = sendAs({ text, for: composed.for }, conversation);
+    const how = sendAs({ text, for: composed.for }, to);
     if (!how) return;
     if ("ask" in how) {
       confirming = true;
@@ -834,15 +866,17 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     if (files.length > 0) filesSent.set(req, { tab: windowId, files: files.map((f) => f.id) });
     draftEl.hidden = true;
     const attachments = files.map((f) => f.name!);
-    deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace !== undefined ? { replace } : {}), ...(attachments.length > 0 ? { attachments } : {}) });
+    deps.send({ t: "conv-send", req, windowId, conversation: to === NONE_YET ? null : to, text, ...(replace !== undefined ? { replace } : {}), ...(attachments.length > 0 ? { attachments } : {}) });
     paintSlot();
   }
 
   boundYes.onclick = () => {
-    if (!conversation || !confirming) return;
+    const to = target();
+    if (!to || !confirming) return;
     // Only now are the words for the conversation the tab holds.
-    composed = { ...composed, for: conversation };
+    composed = { ...composed, for: to };
     if (windowId) typed.set(windowId, composed);
+    saveTyped(typed);
     confirming = false;
     send(input.value);
   };
@@ -869,8 +903,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   /** What the text box holds now, typed or put there (a note): kept for the tab, and the buttons painted. */
   function setTyped(text: string) {
     if (input.value !== text) input.value = text;
-    composed = composedAs(composed, input.value, conversation);
+    composed = composedAs(composed, input.value, target());
     if (windowId) typed.set(windowId, composed);
+    saveTyped(typed);
     grow();
     paintSlot();
   }
@@ -952,6 +987,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   // ---- messages ----
   function loaded(m: Extract<ServerMessage, { t: "conv" }>) {
     agent = m.agent;
+    fresh = m.fresh === true;
     // A yes asked for under another conversation is no yes for this one, and its search, links and waiting card
     // (with its field and armed state) are not this one's: the new conversation's card follows.
     if (m.conversation !== conversation) {
@@ -1130,6 +1166,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       windowId = nextWindow;
       agent = undefined;
       conversation = null;
+      fresh = false;
       items = [];
       orphans = [];
       start = 0;
@@ -1169,6 +1206,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       session = windowId = null;
       agent = undefined;
       conversation = null;
+      fresh = false;
       items = [];
       orphans = [];
       dropPending();
@@ -1187,12 +1225,16 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       // Files attached in a tab that is gone are not sent anywhere: a tab made later may reuse its id.
       if (next.length > 0) {
         for (const tab of [...attachedIn.keys()]) if (!next.some((s) => s.windows.some((w) => w.id === tab))) attachedIn.delete(tab);
+        // So are words typed there (kept across a reload, they could outlive it).
+        const gone = [...typed.keys()].filter((tab) => !next.some((s) => s.windows.some((w) => w.id === tab)));
+        for (const tab of gone) typed.delete(tab);
+        if (gone.length > 0) saveTyped(typed);
       }
       if (windowId) paintHead();
     },
-    compose(target, text) {
-      if (target !== windowId || agent === undefined) return "not-shown";
-      if (!agent || !conversation) return "nothing-to-send-to";
+    compose(tab, text) {
+      if (tab !== windowId || agent === undefined) return "not-shown";
+      if (!agent || !target()) return "nothing-to-send-to";
       setTyped(input.value.trim() === "" ? text : `${input.value.replace(/\s+$/, "")}\n${text}`);
       return "composed";
     },

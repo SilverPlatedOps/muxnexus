@@ -352,7 +352,6 @@ test("a wrapped dialog fails closed", () => {
 });
 
 test("dialogs no adapter knows, and panes that aren't an agent's, fail closed", () => {
-  expect(claude("trust")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
   expect(codex("update")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
   for (const kind of ["claude", "codex"] as const) {
     expect(adapterFor(kind).readPane("")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
@@ -549,4 +548,34 @@ test("a prompt holds the words, then exactly the images pasted after them, as th
   expect(adapterFor("claude").owns(draft("claude", "hello draft [Image #1]"), "hello draft ", 1)).toBe(true);
   expect(adapterFor("claude").owns(draft("claude", "hello draft [Image #1]"), "hello draft ", 0)).toBe(false);
   expect(adapterFor("codex").owns(draft("codex", "hello draft [Image #1]"), "hello draft ", 1)).toBe(true);
+});
+
+// Claude Code 2.1.322 and Codex 0.167.1, each started in a folder it hadn't been told to trust (2.1.325's screen is the same).
+test("Claude's first screen in a folder not trusted yet is a trust card, answered with the arrows and Enter", () => {
+  const r = claude("trust");
+  expect(r.unrecognised).toBe(false);
+  const card = r.dialog!;
+  expect(card).toMatchObject({ kind: "trust", title: "Trust this folder?", detail: "/private/tmp/claude-501/cvt3", selected: 1, fingerprint: anyPrint });
+  // Yes leads the card; each keeps the row it is on screen (No is first there, highlighted).
+  expect(card.options.map((o) => [o.index, o.label])).toEqual([[2, "Yes, I trust this folder"], [1, "No, exit"]]);
+  const keys = (c: typeof card, o: number) => adapterFor("claude").keysFor(c, o, false)?.keys;
+  // No digit chooses here: a 2 typed on this screen did nothing.
+  expect(keys(card, 2)).toEqual(["Down", "Enter"]);
+  expect(keys(card, 1)).toEqual(["Enter"]);
+  expect(keys({ ...card, selected: 2 }, 1)).toEqual(["Up", "Enter"]);
+  expect(keys(card, 3)).toBeUndefined();
+  expect(keys({ ...card, selected: undefined }, 2)).toBeUndefined();
+});
+
+test("Codex's trust question is a trust card; the update notice before it, and its prompt after, are not", () => {
+  const r = codex("trust");
+  const card = r.dialog!;
+  expect(card).toMatchObject({ kind: "trust", title: "Trust this folder?", detail: "/private/tmp/claude-501/shop-api", selected: 1, fingerprint: anyPrint });
+  expect(card.options.map((o) => [o.index, o.label, !!o.secondary])).toEqual([[1, "Trust and continue", false], [2, "Back to Agent Command Center", true]]);
+  expect(adapterFor("codex").keysFor(card, 1, false)?.keys).toEqual(["Enter"]);
+  expect(adapterFor("codex").keysFor(card, 2, false)?.keys).toEqual(["Down", "Enter"]);
+  // The update notice is Screen's to answer.
+  expect(codex("update")).toMatchObject({ dialog: null, unrecognised: true });
+  // Trusted, it waits at its empty prompt.
+  expect(codex("fresh")).toMatchObject({ dialog: null, unrecognised: false, draft: "empty", working: false });
 });

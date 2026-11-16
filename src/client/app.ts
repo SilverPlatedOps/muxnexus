@@ -18,7 +18,7 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { memoryShown, openDisplay, setWorkspaceView, workspaceView, type DeviceView, type DisplayHandle } from "./display";
+import { followWorkspaces, memoryShown, openDisplay, setWorkspaceView, workspaceView, type DeviceView, type DisplayHandle } from "./display";
 import { conversationWindow, TERMINAL_MESSAGES, withLocalActive } from "./conversation/model";
 import { createConversationView } from "./conversation/view";
 import { createReader, type Reader } from "./reader";
@@ -1019,6 +1019,8 @@ const conn = new Connection(wsUrl, {
     if (convView?.onMessage(m)) return;
     switch (m.t) {
       case "state": {
+        // A workspace switched to the other view keeps it through a rename, before anything opens one by its name.
+        followWorkspaces(m.sessions, m.tmuxServer ?? null);
         if (pendingOrder && (orderSatisfied(m.sessions, pendingOrder) || Date.now() > pendingUntil)) {
           pendingOrder = null;
         }

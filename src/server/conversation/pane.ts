@@ -279,6 +279,16 @@ export function highlighted(opts: PaneOption[]): { selected?: number } {
   return o ? { selected: o.index } : {};
 }
 
+/**
+ * The arrows from the highlighted row to option `to`'s, then Enter: a list that takes no digit (a trust question).
+ * Null for an option the card doesn't have, or with no highlight read to count from.
+ */
+export function arrowsTo(card: Card, to: number): string[] | null {
+  if (card.selected === undefined || !card.options.some((o) => o.index === to)) return null;
+  const n = to - card.selected;
+  return [...Array<string>(Math.abs(n)).fill(n > 0 ? "Down" : "Up"), "Enter"];
+}
+
 /** "Yes, and …" choices make a lasting change (a rule, a mode switch). */
 export const lasting = (label: string): boolean => label.startsWith("Yes, and ");
 

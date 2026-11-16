@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { deviceView, setDeviceView, setWorkspaceView, workspaceView, type Store } from "../src/client/display";
+import { deviceView, followWorkspaces, setDeviceView, setWorkspaceView, workspaceView, type Store } from "../src/client/display";
 import {
   answerMessage, CONV_ERROR, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, foldSteps, linkRows, mergeItems, readForShown, runLine, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
@@ -64,6 +64,67 @@ test("a workspace's view kept in a store that throws, or holds junk, is the devi
   expect(workspaceView("api", junk, 0)).toBe("terminal");
   expect(setWorkspaceView("api", "conversation", junk, 0)).toBe(true);
   expect(workspaceView("api", junk, 0)).toBe("conversation");
+});
+
+test("a switched workspace keeps its view through a rename, by its tmux id", () => {
+  const s = memory();
+  let writes = 0;
+  const counted: Store = { getItem: (k) => s.getItem(k), setItem: (k, v) => { writes++; s.setItem(k, v); } };
+  setWorkspaceView("api", "terminal", counted, 5);
+  followWorkspaces([{ name: "api", id: "$1" }, { name: "web", id: "$2" }], "srv-1", counted);
+  writes = 0;
+  // Nothing new: nothing written.
+  followWorkspaces([{ name: "api", id: "$1" }, { name: "web", id: "$2" }], "srv-1", counted);
+  expect(writes).toBe(0);
+  followWorkspaces([{ name: "api-v2", id: "$1" }, { name: "web", id: "$2" }], "srv-1", counted);
+  expect(workspaceView("api-v2", counted, 5)).toBe("terminal");
+  expect(workspaceView("api", counted, 5)).toBe("conversation");
+  // Gone from the list (killed, or not restored yet): kept.
+  followWorkspaces([{ name: "web", id: "$2" }], "srv-1", counted);
+  expect(workspaceView("api-v2", counted, 5)).toBe("terminal");
+  // Kept as the first version did, a bare view by name: still read, and given its id.
+  const old = memory();
+  old.setItem("muxnexus.workspace-view", JSON.stringify({ api: "terminal", __proto__x: "terminal" }));
+  expect(workspaceView("api", old, 5)).toBe("terminal");
+  followWorkspaces([{ name: "api", id: "$7" }], "srv-1", old);
+  followWorkspaces([{ name: "renamed", id: "$7" }], "srv-1", old);
+  expect(workspaceView("renamed", old, 5)).toBe("terminal");
+  // A workspace named like an object's own key moves like any other.
+  const odd = memory();
+  setWorkspaceView("__proto__", "terminal", odd, 5);
+  followWorkspaces([{ name: "__proto__", id: "$3" }], "srv-1", odd);
+  followWorkspaces([{ name: "plain", id: "$3" }], "srv-1", odd);
+  expect(workspaceView("plain", odd, 5)).toBe("terminal");
+  expect(workspaceView("__proto__", odd, 5)).toBe("conversation");
+  // After tmux restarts, its ids are handed out again: one now another workspace's moves nothing.
+  const restarted = memory();
+  setWorkspaceView("api", "terminal", restarted, 5);
+  followWorkspaces([{ name: "api", id: "$3" }], "srv-1", restarted);
+  followWorkspaces([{ name: "web", id: "$3" }], "srv-2", restarted);
+  expect(workspaceView("web", restarted, 5)).toBe("conversation");
+  // Restored under its own name, it is found by that, and learns the new server's id.
+  followWorkspaces([{ name: "web", id: "$3" }, { name: "api", id: "$4" }], "srv-2", restarted);
+  expect(workspaceView("api", restarted, 5)).toBe("terminal");
+  followWorkspaces([{ name: "api-v2", id: "$4" }], "srv-2", restarted);
+  expect(workspaceView("api-v2", restarted, 5)).toBe("terminal");
+  // Renamed, and a new workspace made under its old name, both while this device was away: the id wins.
+  const away = memory();
+  setWorkspaceView("api", "terminal", away, 5);
+  followWorkspaces([{ name: "api", id: "$1" }], "srv-1", away);
+  followWorkspaces([{ name: "api", id: "$2" }, { name: "api-v2", id: "$1" }], "srv-1", away);
+  expect(workspaceView("api-v2", away, 5)).toBe("terminal");
+  expect(workspaceView("api", away, 5)).toBe("conversation");
+  // Two kept, one found by id and one by name: read again, nothing to write, whatever order they are put in.
+  let rewrites = 0;
+  const two = memory();
+  const counting: Store = { getItem: (k) => two.getItem(k), setItem: (k, v) => { rewrites++; two.setItem(k, v); } };
+  setWorkspaceView("b", "terminal", counting, 5);
+  setWorkspaceView("a", "terminal", counting, 5);
+  followWorkspaces([{ name: "a", id: "$1" }, { name: "b", id: "$2" }], "srv-1", counting);
+  followWorkspaces([{ name: "a", id: "$1" }, { name: "b", id: "$2" }], "srv-1", counting);
+  rewrites = 0;
+  followWorkspaces([{ name: "a", id: "$1" }, { name: "b", id: "$2" }], "srv-1", counting);
+  expect(rewrites).toBe(0);
 });
 
 const win = (id: string, over: Partial<WindowInfo> = {}): WindowInfo => ({ id, index: 0, name: "sh", active: false, panes: 1, ...over });
@@ -320,6 +381,13 @@ test("a card's answer names the conversation the card was read for, never the on
   expect(answerMessage(shown, { windowId: "@1", conversation: "B" }, "r2", no, "use the other folder")).toMatchObject({ conversation: "A", option: no.index, text: "use the other folder" });
   // A card read for no conversation answers nothing.
   expect(answerMessage({ card, for: null }, { windowId: "@1", conversation: "B" }, "r3", yes)).toBeNull();
+  // But a trust question, which an agent asks before it has one: answered for none.
+  const trust: Card = {
+    kind: "trust", title: "Trust this folder?", detail: "/srv/shop", fingerprint: "f", selected: 1,
+    options: [{ index: 2, label: "Yes, I trust this folder" }, { index: 1, label: "No, exit" }],
+  };
+  expect(answerMessage({ card: trust, for: null }, { windowId: "@1", conversation: null }, "r4", trust.options[0]!))
+    .toEqual({ t: "conv-answer", req: "r4", windowId: "@1", conversation: null, fingerprint: "f", option: 2 });
 });
 
 test("the unsent refusal says only what is known: the words may be in the desk's prompt, or never showed", () => {

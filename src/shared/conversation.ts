@@ -38,7 +38,8 @@ export interface CardOption {
 
 /** A dialog the agent is waiting on, read from its pane. */
 export interface Card {
-  kind: "permission" | "plan" | "question" | "approval";
+  /** `trust`: the agent's first screen in a folder not trusted yet, before it runs anything (its hooks included). */
+  kind: "permission" | "plan" | "question" | "approval" | "trust";
   title: string;
   /** What the agent says the request does, in its words (a Bash permission's description): plain text. */
   description?: string;

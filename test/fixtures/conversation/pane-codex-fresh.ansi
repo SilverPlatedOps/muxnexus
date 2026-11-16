@@ -1,0 +1,40 @@
+[2m╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[0m
+[2m│ [0;1m[38;2;99;168;248m✨ Update available![0m [1m0.167.1 -> 0.169.0[0;2m                                                                          │[0m
+[2m│ [0mRun [38;2;99;168;248msh -c 's=$(curl -fsSL ]8;;https://chatgpt.com/codex/install.sh\https://chatgpt.com/codex/install.sh]8;;\) && CODEX_NON_INTERACTIVE=1 eval "$s"'[39m to update.[2m │[0m
+[2m│                                                                                                                  │[0m
+[2m│ [0mSee full release notes:[2m                                                                                          │[0m
+[2m│ [0;4m[38;2;99;168;248m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest[0;2m]8;;\                                                                  │[0m
+[2m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[0m
+
+
+  [38;2;99;168;248m>_ [1m[39mOpenAI Codex[0;2m (v0.167.1)[0m
+     [2m/private/tmp/claude-501/shop-api[0m
+
+  [1m[38;2;243;139;168mTip:[0m Use the [1m[38;2;243;139;168mdesktop app[0m. Run [38;2;166;227;161mcodex app[39m to open it. It installs automatically if needed.
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  [38;2;246;226;183mGPT-6.1-Sol high[39m · [38;2;171;223;167m/private/tmp/claude-501/shop-api[39m · [1m←[0m for agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

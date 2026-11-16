@@ -1141,13 +1141,13 @@ export function createServer(opts: ServerOptions): RunningServer {
           if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-links" });
           return await conv.links(ws, m.req, m.windowId);
         case "conv-send": {
-          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isText(m.text) || (m.replace !== undefined && !isToken(m.replace)) || (m.attachments !== undefined && !isAttachments(m.attachments))) return send(ws, { t: "error", message: "invalid conv-send" });
+          if (!isReq(m.req) || !isWindowId(m.windowId) || (m.conversation !== null && !isToken(m.conversation)) || !isText(m.text) || (m.replace !== undefined && !isToken(m.replace)) || (m.attachments !== undefined && !isAttachments(m.attachments))) return send(ws, { t: "error", message: "invalid conv-send" });
           const attached = await attachedOf(m.attachments ?? []);
           if (!attached) return send(ws, { t: "conv-result", req: m.req, ok: false, error: "attachment" });
           return await conv.send(ws, m.req, m.windowId, m.conversation, m.text, m.replace ?? null, attached);
         }
         case "conv-answer":
-          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isToken(m.fingerprint) || !Number.isInteger(m.option) || m.option < 0 || m.option > 99 || (m.text !== undefined && !isText(m.text))) return send(ws, { t: "error", message: "invalid conv-answer" });
+          if (!isReq(m.req) || !isWindowId(m.windowId) || (m.conversation !== null && !isToken(m.conversation)) || !isToken(m.fingerprint) || !Number.isInteger(m.option) || m.option < 0 || m.option > 99 || (m.text !== undefined && !isText(m.text))) return send(ws, { t: "error", message: "invalid conv-answer" });
           return await conv.answer(ws, m.req, m.windowId, m.conversation, m.fingerprint, m.option, m.text);
         case "conv-stop":
           if (!isWindowId(m.windowId) || (m.conversation !== null && !isToken(m.conversation)) || (m.req !== undefined && !isReq(m.req))) return send(ws, { t: "error", message: "invalid conv-stop" });

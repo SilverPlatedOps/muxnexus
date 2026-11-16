@@ -5,7 +5,7 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
-  allDim, beforeImages, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
+  allDim, arrowsTo, beforeImages, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
   optionRow, paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
@@ -402,13 +402,52 @@ function review(lines: PaneLine[], texts: string[]): Card | null {
   return { kind: "question", title, detail, options, fingerprint: fingerprint([title, detail, ...options.map((o) => o.label)]), ...highlighted(scan.options) };
 }
 
+const TRUST_HEAD = "Accessing workspace:";
+const TRUST_FOOTER = "Enter to confirm · Esc to cancel";
+/** A row of the trust question's list: `❯` on the highlighted one, no number on any. */
+const TRUST_ROW = /^ ([❯ ]) (\S.*)$/u;
+
+/**
+ * The first screen in a folder not trusted yet (2.1.325): the folder under
+ * `Accessing workspace:`, then `❯ No, exit` and `Yes, I trust this folder`,
+ * unnumbered, above the footer. Yes leads the card; each option keeps its row's
+ * number, which the arrows count from.
+ */
+function trust(texts: string[]): Card | null {
+  const last = lastFilled(texts);
+  if (last < 0 || texts[last]!.trim() !== TRUST_FOOTER) return null;
+  const head = findRowBack(texts, (t) => t.trim() === TRUST_HEAD, last);
+  if (head < 0) return null;
+  // The list: the filled rows right above the footer, back to a blank one.
+  let top = last - 1;
+  while (top > head && blank(texts[top]!)) top--;
+  const end = top + 1;
+  while (top > head && !blank(texts[top - 1]!)) top--;
+  const rows = texts.slice(top, end).map((t) => TRUST_ROW.exec(t));
+  if (rows.length !== 2 || rows.some((m) => !m) || rows.filter((m) => m![1] === "❯").length !== 1) return null;
+  const opts = rows.map((m, k) => ({ index: k + 1, label: m![2]!.trim(), selected: m![1] === "❯" }));
+  const yes = opts.find((o) => o.label.startsWith("Yes"));
+  const no = opts.find((o) => o.label.startsWith("No"));
+  if (!yes || !no) return null;
+  // The folder: the filled rows after the heading's blank one, a long path wrapped across them.
+  const from = nextFilled(texts, head + 1, top);
+  const below = from < 0 ? -1 : findRow(texts, blank, from + 1, top);
+  const folder = from < 0 || below < 0 ? "" : texts.slice(from, below).map((t) => t.trim()).join("");
+  if (!folder) return null;
+  return {
+    kind: "trust", title: "Trust this folder?", detail: folder,
+    options: [yes, no].map((o) => ({ index: o.index, label: o.label })),
+    fingerprint: fingerprint(["trust", folder, ...opts.map((o) => o.label)]), selected: opts.find((o) => o.selected)!.index,
+  };
+}
+
 function readPane(ansi: string): PaneRead {
   try {
     const lines = paneLines(ansi);
     const texts = lines.map((l) => l.text.trimEnd());
     const box = inputBox(texts);
     if (box) return { dialog: null, unrecognised: false, ...draftIn(lines, texts, box), working: workingAround(texts, box) };
-    const dialog = permission(lines, texts) ?? plan(lines, texts) ?? question(lines, texts) ?? review(lines, texts);
+    const dialog = permission(lines, texts) ?? plan(lines, texts) ?? question(lines, texts) ?? review(lines, texts) ?? trust(texts);
     if (dialog) return { dialog, unrecognised: false, draft: "unknown", working: false };
     const field = permission(lines, texts, true) ?? plan(lines, texts, true) ?? question(lines, texts, true);
     return field ? { ...UNREADABLE, field: { fingerprint: field.fingerprint, text: field.words ?? "" } } : { ...UNREADABLE };
@@ -432,6 +471,10 @@ function downTo(card: Card, to: number): string[] | null {
 }
 
 function keysFor(card: Card, option: number, hasText: boolean): KeyPlan | null {
+  if (card.kind === "trust") {
+    const keys = hasText ? null : arrowsTo(card, option);
+    return keys ? { keys } : null;
+  }
   const o = card.options.find((x) => x.index === option);
   // One key per choice: a two-digit option would be two choices.
   if (!o || option > 9) return null;

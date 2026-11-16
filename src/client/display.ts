@@ -93,7 +93,13 @@ export function setDeviceView(v: DeviceView, store?: Store): void {
   }
 }
 
-/** The workspaces this device shows in the other view than its own, by name: `{"api":"terminal"}`. */
+/**
+ * The workspaces this device shows in the other view than its own, by name:
+ * `{"api":{"view":"terminal","id":"$3","server":"812-1794800000"}}`, the id
+ * tmux's, to follow a rename by, and the tmux server it is that server's
+ * (`state`'s `tmuxServer`): a restarted one hands ids out again. A bare
+ * `"terminal"` is how the first version kept one.
+ */
 function switched(store?: Store): Record<string, unknown> {
   try {
     const v: unknown = JSON.parse((store ?? localStorage).getItem(WORKSPACE_VIEW_KEY) ?? "{}");
@@ -103,11 +109,28 @@ function switched(store?: Store): Record<string, unknown> {
   }
 }
 
+function keep(next: Record<string, unknown>, store?: Store): boolean {
+  try {
+    (store ?? localStorage).setItem(WORKSPACE_VIEW_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const viewIn = (v: unknown): DeviceView | undefined => {
+  const view = v !== null && typeof v === "object" ? (v as { view?: unknown }).view : v;
+  return view === "conversation" || view === "terminal" ? view : undefined;
+};
+const field = (v: unknown, key: "id" | "server"): string | undefined => {
+  const x = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[key] : undefined;
+  return typeof x === "string" ? x : undefined;
+};
+
 /** What this browser shows of `session`: the view it was switched to here, else the device's. */
 export function workspaceView(session: string | null, store?: Store, touch: number = navigator.maxTouchPoints): DeviceView {
   const own = session === null ? {} : switched(store);
-  const v = session !== null && Object.hasOwn(own, session) ? own[session] : undefined;
-  return v === "conversation" || v === "terminal" ? v : deviceView(store, touch);
+  return (session !== null && Object.hasOwn(own, session) ? viewIn(own[session]) : undefined) ?? deviceView(store, touch);
 }
 
 /**
@@ -116,14 +139,41 @@ export function workspaceView(session: string | null, store?: Store, touch: numb
  * not remembered.
  */
 export function setWorkspaceView(session: string, view: DeviceView, store?: Store, touch: number = navigator.maxTouchPoints): boolean {
-  const { [session]: _, ...rest } = switched(store);
-  const next = view === deviceView(store, touch) ? rest : { ...rest, [session]: view };
-  try {
-    (store ?? localStorage).setItem(WORKSPACE_VIEW_KEY, JSON.stringify(next));
-    return true;
-  } catch {
-    return false;
+  const { [session]: before, ...rest } = switched(store);
+  const id = field(before, "id");
+  const server = field(before, "server");
+  return keep(view === deviceView(store, touch) ? rest : { ...rest, [session]: { view, ...(id ? { id } : {}), ...(server ? { server } : {}) } }, store);
+}
+
+/**
+ * Keeps each switched workspace's view under its name as `sessions` (the
+ * server's list, from tmux server `server`) has it. Its id on this same tmux
+ * server finds it first, whatever it is called now: renamed, the view moves
+ * with it, and a workspace made since under its old name gets none. Else its
+ * name does (an id from a tmux server since restarted may be any workspace's),
+ * and it learns that workspace's id. One found by neither (killed, or not
+ * restored yet) is kept, unless its name is now a workspace found by id.
+ * Written only when something changed.
+ */
+export function followWorkspaces(sessions: readonly { name: string; id: string }[], server: string | null, store?: Store): void {
+  const entries = Object.entries(switched(store)).map(([name, v]) => {
+    const view = viewIn(v);
+    const id = field(v, "id");
+    const found = view && id !== undefined && server !== null && field(v, "server") === server ? sessions.find((s) => s.id === id) : undefined;
+    return { name, v, view, found };
+  });
+  const next: Record<string, unknown> = {};
+  const put = (name: string, value: unknown) => Object.defineProperty(next, name, { value, enumerable: true, writable: true, configurable: true });
+  const stamp = (view: DeviceView, id: string) => ({ view, id, ...(server !== null ? { server } : {}) });
+  for (const e of entries) if (e.found) put(e.found.name, stamp(e.view!, e.found.id));
+  for (const e of entries) {
+    if (e.found || Object.hasOwn(next, e.name)) continue;
+    const here = e.view ? sessions.find((s) => s.name === e.name) : undefined;
+    put(e.name, here ? stamp(e.view!, here.id) : e.v);
   }
+  // In any order: those found by id are put first.
+  const same = (pairs: [string, unknown][]) => JSON.stringify(pairs.map(([k, v]) => [k, JSON.stringify(v)]).sort());
+  if (same(Object.entries(next)) !== same(entries.map((e) => [e.name, e.v]))) keep(next, store);
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {

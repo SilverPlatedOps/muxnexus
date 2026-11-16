@@ -71,6 +71,16 @@ export function cleanText(text: string): string {
  */
 interface Bound { windowId: string; pane: string; agent: boolean; conversation: string | null }
 
+/**
+ * Whether a write meant for `conversation` is for the tab's agent now. None
+ * (`null`) is only a fresh agent's, before its first conversation, and then
+ * only the one in `pane`, the pane the view showed it in: two in one window
+ * both have none. A stamped Claude always names its session, and a daemon
+ * Codex's is unknown, not none.
+ */
+const boundTo = (info: WindowAgentInfo, conversation: string | null, pane: string | null): boolean =>
+  conversationOf(info) === conversation && (conversation !== null || (!!info.fresh && info.paneId === pane));
+
 const bound = (windowId: string, info: WindowAgentInfo): Bound => ({ windowId, pane: info.paneId, agent: true, conversation: conversationOf(info) });
 
 type Write = { keys: string[] } | { paste: string };
@@ -188,11 +198,12 @@ export function draftFingerprint(r: PaneRead): string {
  * shown) cleared first.
  */
 export async function sendText(
-  tmux: ConvTmux, windowId: string, conversation: string, text: string, replace: string | null, attached: Attached = NOTHING_ATTACHED,
+  tmux: ConvTmux, windowId: string, conversation: string | null, text: string, replace: string | null, attached: Attached = NOTHING_ATTACHED,
+  pane: string | null = null,
 ): Promise<{ ok: true } | Refusal | { ok: false; draft: string; draftFingerprint: string }> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
-  if (conversationOf(info) !== conversation) return refuse("another-conversation");
+  if (!boundTo(info, conversation, pane)) return refuse("another-conversation");
   const words = wordsWith(text, attached);
   const images = attached.images;
   // What goes in first: the words, or with none the first image.
@@ -216,7 +227,8 @@ export async function sendText(
     // stamp must say the turn is done, or the transcript that it was interrupted since. `input` with the prompt on
     // screen otherwise is a turn going on after a "No, and tell Claude…" (no tool ran, so no hook moved it back to `running`).
     // A Stop before any output ends the turn with neither (`afterStop`).
-    const stamp = await believedState(info);
+    // A fresh agent has had no turn, so none is going on: its draft clears like any idle one's.
+    const stamp = info.fresh ? "done" : await believedState(info);
     if (r.working || afterStop(windowId, info, stamp, r) !== "done") return refuse("working");
     if (Date.now() - (lastClear.get(windowId) ?? 0) < CLEAR_AGAIN_MS) return refuse("prompt-changed");
     // Read again after the transcript: the clear goes only to the draft shown, with the turn still over. A stamp moved
@@ -240,12 +252,13 @@ export async function sendText(
  * `text` is the user's words for a choice that takes them.
  */
 export async function answer(
-  tmux: ConvTmux, windowId: string, conversation: string, fingerprint: string, option: number, text?: string,
+  tmux: ConvTmux, windowId: string, conversation: string | null, fingerprint: string, option: number, text?: string,
+  pane: string | null = null,
 ): Promise<{ ok: true } | Refusal> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
-  // The fingerprint is the dialog's alone: the same prompt in another conversation would match it.
-  if (conversationOf(info) !== conversation) return refuse("another-conversation");
+  // The fingerprint is the dialog's alone: the same prompt in another conversation (or pane) would match it.
+  if (!boundTo(info, conversation, pane)) return refuse("another-conversation");
   const adapter = adapterFor(info.kind);
   const b = bound(windowId, info);
   const words = cleanText(text ?? "");
