@@ -7,6 +7,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { copyText } from "./copy";
 import { FileLinkProvider } from "./file-links";
 import "@xterm/xterm/css/xterm.css";
 
@@ -41,6 +42,24 @@ export interface TerminalHandlers {
 export function pastedImage(clip: { getData(type: string): string; files: ArrayLike<File> } | null): File | null {
   if (!clip || clip.getData("text/plain")) return null;
   return Array.from(clip.files).find((f) => f.type.startsWith("image/")) ?? null;
+}
+
+/**
+ * The text an OSC 52 clipboard write carries (`<selection>;<base64>`), or null
+ * for anything else: a request to read the clipboard (`?`), a clear (empty), or
+ * data that isn't base64.
+ */
+export function osc52Text(data: string): string | null {
+  const at = data.indexOf(";");
+  if (at < 0) return null;
+  const encoded = data.slice(at + 1);
+  if (encoded === "" || encoded === "?") return null;
+  try {
+    const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
 }
 
 /** Saves a pasted image on the server's machine; the path it was saved at there. */
@@ -207,6 +226,16 @@ export function createTerminal(container: HTMLElement, h: TerminalHandlers): Ter
   }
 
   term.onData(h.onInput);
+
+  // A copy made in the pane reaches this page's clipboard. Claude Code copies
+  // what you drag over into tmux's buffer, and tmux hands it on to us as OSC 52;
+  // on another machine (warrior) that is the only way the text gets here.
+  // Write-only: a program asking to read the clipboard gets no answer.
+  term.parser.registerOscHandler(52, (data) => {
+    const text = osc52Text(data);
+    if (text !== null) void copyText(text).then((ok) => { if (!ok) h.toast?.("Couldn't copy to your clipboard from this page"); });
+    return true;
+  });
 
   // tmux keeps this terminal on its alternate screen, where xterm turns the
   // wheel into arrow keys unless the program in the pane asked for the mouse.

@@ -241,6 +241,7 @@ story grows into this, use theirs.
 | `Cmd+C` | Copy the selection (no selection: nothing) |
 | `Cmd+V` | Paste (bracketed paste, forwarded by tmux). A picture alone, such as a screenshot, is saved on the server's machine (`~/.local/share/muxnexus/pastes`, kept a week) and its path is pasted; Claude Code shows it as the image. A program on a server can't read your clipboard, so `Ctrl+V` there finds no image |
 | `Option`+drag | Select over a program that takes the mouse (Claude Code does), then `Cmd+C` |
+| drag in Claude Code | Copies by itself, on another machine too: Claude Code puts it in tmux's buffer, tmux passes it on (OSC 52), and the page copies it |
 | wheel | Scrolls the program if it takes the mouse (Claude Code does); otherwise scrolls the tab's tmux history, which closes again at the bottom or when you type |
 | everything else | Sent to tmux, including `C-b` prefix keys |
 
