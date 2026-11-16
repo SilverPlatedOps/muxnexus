@@ -431,11 +431,13 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   function goTo(id: string, offset: number, find: string) {
     if (!windowId) return;
     closeSheet();
+    // A jump tapped while another is out replaces it, one to a hit already on screen too: the earlier one's page, if
+    // it comes, is dropped rather than shown over this one.
+    aroundFor = null;
     if (hitShown(drawn.get(id)?.item, find)) {
       reveal(id, find);
       return;
     }
-    // A jump tapped while another is out replaces it: the earlier one's page, if it comes, is dropped.
     const req = `around-${++seq}`;
     aroundFor = { req, id, find };
     deps.send({ t: "conv-around", req, windowId, offset });
