@@ -26,6 +26,15 @@ const refuse = (error: ConvError): Refusal => ({ ok: false, error });
 const REDRAW_MS = 2000;
 /** How often the pane is read while waiting on a redraw. */
 const REDRAW_POLL_MS = 50;
+/**
+ * How long an image's path may show before the agent swaps it for `[Image #N]`: it reads the file first. Measured
+ * at 0.06 s for a screenshot and 0.86 s for 8.7 MB on Claude Code 2.1.325.
+ */
+const IMAGE_MS = 6000;
+
+/** What goes with a message's words: images, each pasted as its path on its own, and other files, named in the words. */
+export interface Attached { images: string[]; files: string[] }
+const NOTHING_ATTACHED: Attached = { images: [], files: [] };
 /** Codex's decline: how long until its composer is back, polled every `FOLLOW_UP_POLL_MS`. */
 const FOLLOW_UP_MS = 5000;
 const FOLLOW_UP_POLL_MS = 250;
@@ -131,13 +140,33 @@ async function guarded(
  * option 1 is usually Yes), and words typed at the desk meanwhile would be
  * sent as the phone's.
  */
-async function submit(tmux: ConvTmux, b: Bound, kind: AgentKind, words: string): Promise<{ ok: true } | Refusal> {
+async function submit(tmux: ConvTmux, b: Bound, kind: AgentKind, words: string, images: string[] = []): Promise<{ ok: true } | Refusal> {
   const adapter = adapterFor(kind);
   // Polled over the redraw delay: a read right after the paste would see the prompt before the agent redrew it.
   // A dialog stops the wait at once; anything else may be a redraw caught halfway, so it is read again.
-  const entered = await guarded(tmux, b, onPane(kind, (x) => (x.dialog ? "unsent" : adapter.owns(x, words) ? { write: { keys: ["Enter"] } } : "wait")),
-    { ms: REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
+  const after = (n: number) => ({ ms: n > 0 ? IMAGE_MS : REDRAW_MS, every: REDRAW_POLL_MS, wordsIn: true });
+  // Each image on its own paste, once the prompt shows exactly what went in before it: a path pasted with other text
+  // stays text, and one pasted at the desk meanwhile would show as one token too many. The first paste is done:
+  // the words, or with none the first image.
+  for (let i = words.trim() === "" ? 1 : 0; i < images.length; i++) {
+    const next = await guarded(tmux, b, onPane(kind, (x) => (x.dialog ? "unsent" : adapter.owns(x, words, i) ? { write: { paste: images[i]! } } : "wait")), after(i));
+    if (!next.ok) return next;
+  }
+  const entered = await guarded(tmux, b, onPane(kind, (x) => (x.dialog ? "unsent" : adapter.owns(x, words, images.length) ? { write: { keys: ["Enter"] } } : "wait")),
+    after(images.length));
   return entered.ok ? { ok: true } : entered;
+}
+
+/**
+ * The words as pasted: the files' paths after them, each on a line of its own (a path in other text stays text),
+ * and a space at the end when images follow, so the first image's token doesn't run into the last word.
+ */
+export function wordsWith(text: string, attached: Attached): string {
+  const words = cleanText(text);
+  // Nothing attached: the words exactly as typed (a fold is measured on them).
+  if (attached.files.length === 0 && attached.images.length === 0) return words;
+  const named = [words.trimEnd(), ...attached.files].filter((w) => w.trim() !== "").join("\n");
+  return named && attached.images.length > 0 ? `${named} ` : named;
 }
 
 /**
@@ -159,13 +188,16 @@ export function draftFingerprint(r: PaneRead): string {
  * shown) cleared first.
  */
 export async function sendText(
-  tmux: ConvTmux, windowId: string, conversation: string, text: string, replace: string | null,
+  tmux: ConvTmux, windowId: string, conversation: string, text: string, replace: string | null, attached: Attached = NOTHING_ATTACHED,
 ): Promise<{ ok: true } | Refusal | { ok: false; draft: string; draftFingerprint: string }> {
   const info = await tmux.agentOfWindow(windowId);
   if (!info) return refuse("no-agent");
   if (conversationOf(info) !== conversation) return refuse("another-conversation");
-  const words = cleanText(text);
-  if (words.trim() === "") return { ok: true };
+  const words = wordsWith(text, attached);
+  const images = attached.images;
+  // What goes in first: the words, or with none the first image.
+  const opening = words.trim() !== "" ? words : images[0];
+  if (opening === undefined) return { ok: true };
   const b = bound(windowId, info);
   const adapter = adapterFor(info.kind);
   // Typed into a dialog, digits would pick its options. An empty prompt takes the words on this read; one holding
@@ -173,7 +205,7 @@ export async function sendText(
   // What is left before the paste is the guard's round trip: a dialog drawn after its snapshot would take the words as
   // typed keys. Enter is still withheld then: `submit` refuses on a dialog.
   const first = await guarded(tmux, b, onPane(info.kind, (r) =>
-    r.dialog || r.unrecognised ? "waiting" : r.draft === "empty" ? { write: { paste: words } } : "skip"));
+    r.dialog || r.unrecognised ? "waiting" : r.draft === "empty" ? { write: { paste: opening } } : "skip"));
   if (!first.ok) return first;
   if (!first.wrote) {
     const r = adapter.readPane(first.ansi);
@@ -196,10 +228,10 @@ export async function sendText(
     lastClear.set(windowId, Date.now());
     // The words go in once the prompt reads empty.
     const pasted = await guarded(tmux, b, onPane(info.kind, (x) =>
-      x.dialog ? "waiting" : !x.unrecognised && x.draft === "empty" ? { write: { paste: words } } : "wait"), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
+      x.dialog ? "waiting" : !x.unrecognised && x.draft === "empty" ? { write: { paste: opening } } : "wait"), { ms: REDRAW_MS, every: REDRAW_POLL_MS });
     if (!pasted.ok) return pasted;
   }
-  return submit(tmux, b, info.kind, words);
+  return submit(tmux, b, info.kind, words, images);
 }
 
 /**

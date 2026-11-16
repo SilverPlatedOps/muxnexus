@@ -2488,6 +2488,23 @@ select.na-input:disabled { color: var(--dim); }
 .conv-peer .conv-bubble { background: none; border: 1px dashed var(--edge); }
 .conv-agent .conv-bubble { white-space: normal; }
 .conv-notice { align-self: center; padding: 2px 10px; color: var(--muted); font-size: 11px; text-align: center; }
+/* Prose reads in a proportional face, as in group chat; code, commands and tool output stay monospace (their own
+   rules name the font). Larger on a phone, where a reply is read at arm's length. */
+.conv-bubble { font: 13.5px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+@media (pointer: coarse) {
+  .conv-bubble { font-size: 15px; }
+  .conv-bubble .chat-markdown code, .conv-bubble .chat-markdown pre code { font-size: 13px; }
+  .conv-pre { font-size: 12.5px; }
+}
+
+/* Images: the ones the user sent under their message, a reply's under the reply, a file the agent sent under its
+   step. Each has its height before it loads, so the list doesn't jump; tapped, it opens full size. */
+.conv-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.conv-images .conv-thumbs { justify-content: flex-end; margin-top: 0; }
+.conv-thumb { display: block; max-width: 100%; overflow: hidden; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--well); }
+.conv-thumb img { display: block; width: auto; max-width: 100%; height: min(180px, 30dvh); object-fit: contain; }
+.conv-thumb.gone { padding: 8px 10px; color: var(--dim); font: 11.5px var(--mono); }
+.conv-sent { display: flex; flex-direction: column; }
 
 .conv-step { border: 1px solid var(--line-soft); border-radius: 8px; }
 .conv-step-line { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; list-style: none; cursor: pointer; font-size: 12px; }
@@ -2530,6 +2547,24 @@ select.na-input:disabled { color: var(--dim); }
 .conv-send:disabled { opacity: 0.45; cursor: default; }
 .conv-stop { background: none; border: 1px solid var(--red); color: var(--red); }
 .conv-stop:disabled { opacity: 0.45; cursor: default; }
+.conv-attach {
+  flex: none; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0;
+  background: none; border: 1px solid var(--edge); border-radius: 8px; color: var(--muted); cursor: pointer;
+}
+.conv-attach:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-strong); }
+.conv-attach:disabled { opacity: 0.45; cursor: default; }
+/* The files attached to the next message: one row over the box, scrolled sideways when it holds more. */
+.conv-tray { display: flex; gap: 6px; margin-bottom: 8px; overflow-x: auto; overscroll-behavior-x: contain; }
+.conv-chip {
+  flex: none; display: flex; align-items: center; gap: 6px; max-width: 220px; height: 52px; padding: 0 0 0 4px;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
+}
+.conv-chip.uploading { opacity: 0.7; }
+.conv-chip .conv-thumb { flex: none; border: 0; border-radius: 6px; }
+.conv-chip .conv-thumb img { width: 42px; height: 42px; object-fit: cover; }
+.conv-chip-name { min-width: 0; padding-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font: 11.5px var(--mono); }
+.conv-chip-drop { flex: none; width: 44px; height: 44px; padding: 0; background: none; border: 0; color: var(--muted); font-size: 14px; cursor: pointer; }
+.conv-chip-drop:hover { color: var(--fg-strong); }
 .conv-draft-cancel { background: none; border: 1px solid var(--edge); color: var(--fg); }
 .conv-draft {
   margin-bottom: 8px; padding: 10px; border-radius: 8px; color: var(--fg);

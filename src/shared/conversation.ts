@@ -11,7 +11,9 @@ export type ConvItem =
   | { id: string; kind: "peer"; at: string; text: string; from: string }
   | { id: string; kind: "agent"; at: string; text: string }
   | { id: string; kind: "step"; at: string; tool: string; summary: string; input: string; result?: { ok: boolean; output: string; at: string } }
-  | { id: string; kind: "notice"; at: string; text: string };
+  | { id: string; kind: "notice"; at: string; text: string }
+  /** Images the user sent, by the paths the agent read them from: shown under their message. */
+  | { id: string; kind: "images"; at: string; paths: string[] };
 
 /** A later sighting of a step's result, merged by id. */
 export interface StepResult {
@@ -53,7 +55,7 @@ export interface Card {
 /**
  * `working`: the desk's draft can't be cleared while the agent works (the key that clears it would interrupt).
  * `unsent`: the words were pasted, but Enter wasn't pressed: the screen changed, or the prompt never showed them, so
- * they may be waiting in the desk's prompt.
+ * they may be waiting in the desk's prompt. `attachment`: a file attached is no longer on the server.
  */
-export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent" | "working" | "unsent";
+export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent" | "working" | "unsent" | "attachment";
 export type GenericKey = "1" | "2" | "3" | "4" | "5" | "Enter" | "Escape" | "Up" | "Down" | "Tab";

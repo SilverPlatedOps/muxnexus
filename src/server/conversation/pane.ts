@@ -158,6 +158,22 @@ export function allDim(line: PaneLine, from = 0): boolean {
 /** Text with its whitespace and the agents' prompt glyphs taken out: a prompt wraps and indents what it shows. */
 export const squeezed = (text: string): string => text.replace(/[\s❯›]/gu, "");
 
+/**
+ * What a prompt shows before its last `images` image tokens, or null when it doesn't end in that many. A path pasted
+ * on its own is taken as the image and shown as `[Image #N]`, N counting the session's pastes; measured on Claude
+ * Code 2.1.325 and Codex 0.167.1: `look at this [Image #3] [Image #4]`, `look[Image #5]` (a leading space is
+ * dropped), `[Pasted text #14 +3 lines][Image #15]`.
+ */
+export function beforeImages(shown: string, images: number): string | null {
+  let rest = shown.trimEnd();
+  for (let i = 0; i < images; i++) {
+    const m = /\[Image #\d+\]$/u.exec(rest);
+    if (!m) return null;
+    rest = rest.slice(0, m.index).trimEnd();
+  }
+  return rest;
+}
+
 /** sha1 hex of the parts joined by newlines. */
 export function fingerprint(parts: string[]): string {
   return createHash("sha1").update(parts.join("\n")).digest("hex");

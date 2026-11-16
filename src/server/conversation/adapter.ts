@@ -21,15 +21,16 @@ export interface ConvAdapter {
   /** The keys that empty the prompt. Sent only to an idle prompt that holds text. */
   clearDraft: string[];
   /**
-   * Whether the prompt `read` shows holds `words`, just pasted into it, and nothing else (`shows`). False when that
-   * can't be told: Enter would send whatever the prompt holds.
+   * Whether the prompt `read` shows holds `words`, just pasted into it, then `images` images pasted after them as
+   * paths, and nothing else (`shows`). False when that can't be told: Enter would send whatever the prompt holds.
    */
-  owns(read: PaneRead, words: string): boolean;
+  owns(read: PaneRead, words: string, images?: number): boolean;
   /**
    * Whether `shown`, what a prompt or a dialog's field holds as drawn, is `words` and nothing else: the same text,
-   * wrapping, indentation and the prompt glyphs aside, or the agent's own placeholder for a paste of their size.
+   * wrapping, indentation and the prompt glyphs aside, or the agent's own placeholder for a paste of their size;
+   * then exactly `images` image tokens (`beforeImages`). `words` empty with images: the tokens alone.
    */
-  shows(shown: string, words: string): boolean;
+  shows(shown: string, words: string, images?: number): boolean;
   /**
    * The screen's rows as a Screen key's token sees them (`rowKey`: text and attributes), with what the agent
    * redraws on its own, unasked, made steady: a timer's redraw is no change while anything else is.

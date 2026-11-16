@@ -258,6 +258,8 @@ function textsOf(it: Item): string[] {
       return [it.summary, it.input, it.result?.output ?? ""];
     case "step-result":
       return [it.output];
+    case "images":
+      return [];
     default:
       return [it.text];
   }

@@ -5,7 +5,7 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
-  allDim, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
+  allDim, beforeImages, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
   optionRow, paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
@@ -65,6 +65,16 @@ function said(id: string, at: string, text: string, queued: boolean, parent?: st
   return [queued ? { id, kind: "you", at, text, queued: true } : { id, kind: "you", at, text }];
 }
 
+/**
+ * Where an image the user sent was read from: Claude Code follows a message with images in it (pasted, or a path
+ * pasted on its own) with a row of its own, one `[Image: source: <path>]` block per image. Measured on 2.1.325.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function imageSource(b: any): string[] {
+  const m = b?.type === "text" && typeof b.text === "string" ? /^\[Image: source: (\/[^\n]+)\]$/u.exec(b.text) : null;
+  return m ? [m[1]!] : [];
+}
+
 // Rows are whatever the agent wrote: read loosely, never throw.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowItems(row: any): Out {
@@ -87,6 +97,8 @@ function rowItems(row: any): Out {
       if (typeof content === "string") return meta ? [] : said(uuid, at, content, row.promptSource === "queued", parent);
       if (!Array.isArray(content)) return [];
       const out: Out = [];
+      const sent = meta ? content.flatMap((b) => imageSource(b)) : [];
+      if (sent.length > 0) out.push({ id: uuid, kind: "images", at, paths: sent });
       const only = content.length === 1;
       content.forEach((b, i) => {
         const id = only ? uuid : `${uuid}:${i}`;
@@ -446,17 +458,21 @@ const PASTED = /^\[Pasted text #\d+(?: \+(\d+) lines)?\]$/u;
 const FOLD_CHARS = 800;
 const FOLD_BREAKS = 3;
 
-function shows(shown: string, words: string): boolean {
-  const folded = PASTED.exec(shown.trim());
+function shows(shown: string, words: string, images = 0): boolean {
+  const rest = beforeImages(shown, images);
+  if (rest === null) return false;
+  // Images alone: nothing before them.
+  if (images > 0 && words.trim() === "") return squeezed(rest) === "";
+  const folded = PASTED.exec(rest.trim());
   if (folded) {
     const breaks = (words.match(/\n/g) ?? []).length;
     return (breaks >= FOLD_BREAKS || words.length > FOLD_CHARS) && Number(folded[1] ?? 0) === breaks;
   }
-  return squeezed(shown) !== "" && squeezed(shown) === squeezed(words);
+  return squeezed(rest) !== "" && squeezed(rest) === squeezed(words);
 }
 
-function owns(r: PaneRead, words: string): boolean {
-  return !r.dialog && !r.unrecognised && r.draft === "text" && shows(r.draftText ?? "", words);
+function owns(r: PaneRead, words: string, images = 0): boolean {
+  return !r.dialog && !r.unrecognised && r.draft === "text" && shows(r.draftText ?? "", words, images);
 }
 
 // --- Screen's token (codex-fixes-1 fix 1) ---

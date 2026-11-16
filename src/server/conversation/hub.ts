@@ -7,7 +7,7 @@ import type { Card, GenericKey } from "../../shared/conversation";
 import type { ServerMessage } from "../../shared/protocol";
 import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
-import { afterStop, answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop, stoppedSince } from "./actions";
+import { afterStop, answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop, stoppedSince, type Attached } from "./actions";
 import { linksIn, readPage, readSince, searchFile } from "./reader";
 
 /**
@@ -257,10 +257,10 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       send(ws, { t: "conv-links-result", req, windowId, conversation, links });
     },
 
-    /** `replace`: the fingerprint of the desk's draft the user agreed to replace, or null. */
-    async send(ws: HubSocket, req: string, windowId: string, conversation: string, text: string, replace: string | null) {
+    /** `replace`: the fingerprint of the desk's draft the user agreed to replace, or null. `attached`: the files that go with the words. */
+    async send(ws: HubSocket, req: string, windowId: string, conversation: string, text: string, replace: string | null, attached?: Attached) {
       try {
-        const r = await inLane(windowId, () => sendText(tmux, windowId, conversation, text, replace));
+        const r = await inLane(windowId, () => sendText(tmux, windowId, conversation, text, replace, attached));
         send(ws, { t: "conv-result", req, ...r });
       } catch (e) {
         failed(ws, req, e);

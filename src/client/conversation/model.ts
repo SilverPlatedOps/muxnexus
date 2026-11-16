@@ -190,6 +190,7 @@ export const CONV_ERROR: Record<ConvError, string> = {
   // The words may have gone into the prompt and stayed there, or never shown (a survey took a digit, a leading `!`
   // made it Claude's bash mode): only Screen tells which.
   unsent: "Not sent. Your words may be in the prompt at the desk: check Screen.",
+  attachment: "Not sent: an attached file is no longer on the server. Remove it and attach it again.",
 };
 
 /**

@@ -687,6 +687,12 @@ describe("conversations over the socket", () => {
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x".repeat(100_001) }, "invalid conv-send");
     // Replace names the draft it clears (the fingerprint it was shown with), not just yes.
     await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x", replace: true }, "invalid conv-send");
+    // Attachments are the names the upload route gave, ten at most.
+    await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x", attachments: "a.png" }, "invalid conv-send");
+    await refused({ t: "conv-send", req: "r", windowId: "@1", conversation: "sess-1", text: "x", attachments: Array(11).fill("a") }, "invalid conv-send");
+    // A name no store gave (or a file gone since): refused before anything is pasted.
+    c.send({ t: "conv-send", req: "r1", windowId: "@1", conversation: "sess-1", text: "x", attachments: ["../../etc/passwd"] });
+    expect(await waitFor(() => all(c.messages, "conv-result").find((r) => r.req === "r1"), 2000, "the attachment's result")).toMatchObject({ ok: false, error: "attachment" });
     await refused({ t: "conv-more", req: "m", windowId: "@1", before: -1 }, "invalid conv-more");
     // A page request names itself, so its answer can't be taken for another's.
     await refused({ t: "conv-more", windowId: "@1", before: 10 }, "invalid conv-more");

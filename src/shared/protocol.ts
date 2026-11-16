@@ -267,9 +267,11 @@ export type ClientMessage =
    * written for): answered with `conv-result`. One with `draft` means the
    * desk's prompt holds that text; sent again with `replace` set to that
    * result's `draftFingerprint`, the draft is cleared first, if it is still
-   * the one shown (else the new draft comes back).
+   * the one shown (else the new draft comes back). `attachments`: names the
+   * upload route gave; images go in after the words, other files are named
+   * in them.
    */
-  | { t: "conv-send"; req: string; windowId: string; conversation: string; text: string; replace?: string }
+  | { t: "conv-send"; req: string; windowId: string; conversation: string; text: string; replace?: string; attachments?: string[] }
   /**
    * Choose option `option` (a `CardOption.index`) of the card read as
    * `fingerprint`, in `conversation` (the `conv`'s); `text` for an option that

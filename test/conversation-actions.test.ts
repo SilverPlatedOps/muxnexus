@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapterFor } from "../src/server/conversation/adapter";
-import { answer, cleanText, conversationOf, draftFingerprint, pendingQuestionMulti, pressKey, screenNow, sendText, stop } from "../src/server/conversation/actions";
+import { answer, cleanText, conversationOf, draftFingerprint, pendingQuestionMulti, pressKey, screenNow, sendText, stop, wordsWith } from "../src/server/conversation/actions";
 import { paneLines } from "../src/server/conversation/pane";
 import type { GenericKey } from "../src/shared/conversation";
 import type { WindowAgentInfo } from "../src/server/tmux";
@@ -911,4 +911,51 @@ describe("stop and keys", () => {
     expect(conversationOf(codexAgent({ thread: undefined, daemon: true }))).toBeNull();
     expect(conversationOf(claudeAgent({ conversation: undefined }))).toBeNull();
   });
+});
+
+// Images go in as their paths, each on a paste of its own, and the agents show each as `[Image #N]` (measured on Claude
+// Code 2.1.325 and Codex 0.167.1); other files are named in the words.
+describe("send with attachments", () => {
+  const prompt = (kind: "claude" | "codex", text: string) => raw(`${kind}-idle-draft`).replace("hello draft", text);
+  const two = { images: ["/p/1-a.png", "/p/2-b.png"], files: [] };
+
+  test("the words, then each image once the prompt shows exactly what went before it, then Enter", async () => {
+    const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), prompt("claude", "hello draft"), prompt("claude", "hello draft [Image #1]"), prompt("claude", "hello draft [Image #1] [Image #2]")]);
+    expect(await sendText(tmux, "@1", "sess-1", "hello draft", null, two)).toEqual({ ok: true });
+    expect(tmux.writes()).toEqual([["pasteInto", "%1", "hello draft "], ["pasteInto", "%1", "/p/1-a.png"], ["pasteInto", "%1", "/p/2-b.png"], ["sendKeys", "%1", ["Enter"]]]);
+
+    const codex = fakeTmux(codexAgent(), [raw("codex-idle-empty"), prompt("codex", "hello draft"), prompt("codex", "hello draft [Image #1]"), prompt("codex", "hello draft [Image #1] [Image #2]")]);
+    expect(await sendText(codex, "@2", "thread-1", "hello draft", null, two)).toEqual({ ok: true });
+    expect(codex.writes()).toEqual([["pasteInto", "%2", "hello draft "], ["pasteInto", "%2", "/p/1-a.png"], ["pasteInto", "%2", "/p/2-b.png"], ["sendKeys", "%2", ["Enter"]]]);
+  });
+
+  test("images alone: the first into the empty prompt, the next once it shows, then Enter", async () => {
+    const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), prompt("claude", "[Image #1]"), prompt("claude", "[Image #1] [Image #2]")]);
+    expect(await sendText(tmux, "@1", "sess-1", "  ", null, two)).toEqual({ ok: true });
+    expect(tmux.writes()).toEqual([["pasteInto", "%1", "/p/1-a.png"], ["pasteInto", "%1", "/p/2-b.png"], ["sendKeys", "%1", ["Enter"]]]);
+  });
+
+  test("a file is named in the words, on a line of its own", async () => {
+    expect(wordsWith("see this", { images: [], files: ["/u/1-a-notes.txt"] })).toBe("see this\n/u/1-a-notes.txt");
+    expect(wordsWith("", { images: [], files: ["/u/1-a-notes.txt", "/u/2-b.pdf"] })).toBe("/u/1-a-notes.txt\n/u/2-b.pdf");
+    expect(wordsWith("see this  ", { images: ["/p/1-a.png"], files: [] })).toBe("see this ");
+    expect(wordsWith("", { images: ["/p/1-a.png"], files: [] })).toBe("");
+    const tmux = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), prompt("claude", "see this /u/1-a-notes.txt")]);
+    expect(await sendText(tmux, "@1", "sess-1", "see this", null, { images: [], files: ["/u/1-a-notes.txt"] })).toEqual({ ok: true });
+    expect(tmux.writes()).toEqual([["pasteInto", "%1", "see this\n/u/1-a-notes.txt"], ["sendKeys", "%1", ["Enter"]]]);
+  });
+
+  test("an image pasted at the desk meanwhile, a dialog, or a path never taken as an image, and no Enter", async () => {
+    // One token too many before ours went in: the prompt isn't what the phone put there.
+    const extra = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), prompt("claude", "hello draft [Image #1]")]);
+    // A dialog drawn between the words and the image: the path would go into it as keys.
+    const dialog = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), prompt("claude", "hello draft"), raw("claude-bash-permission")]);
+    // The path stays text (not an image the agent could read): never the image the phone sent.
+    const text = fakeTmux(claudeAgent(), [raw("claude-idle-empty"), prompt("claude", "hello draft"), prompt("claude", "hello draft /p/1-a.png")]);
+    const results = await Promise.all([extra, dialog, text].map((t) => sendText(t, "@1", "sess-1", "hello draft", null, { images: ["/p/1-a.png"], files: [] })));
+    expect(results).toEqual([{ ok: false, error: "unsent" }, { ok: false, error: "unsent" }, { ok: false, error: "unsent" }]);
+    expect(extra.writes()).toEqual([["pasteInto", "%1", "hello draft "]]);
+    expect(dialog.writes()).toEqual([["pasteInto", "%1", "hello draft "], ["pasteInto", "%1", "/p/1-a.png"]]);
+    expect(text.writes()).toEqual([["pasteInto", "%1", "hello draft "], ["pasteInto", "%1", "/p/1-a.png"]]);
+  }, 15_000);
 });

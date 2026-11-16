@@ -35,5 +35,9 @@ export function createPasteStore(dir: string) {
       await writeFile(path, bytes, { mode: 0o600 });
       return { ok: true, name: named.name, path };
     },
+    /** Where a name this store gave is kept, or null for any other name. */
+    pathOf(name: string): string | null {
+      return NAME.test(name) ? join(dir, name) : null;
+    },
   };
 }

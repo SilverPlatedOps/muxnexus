@@ -5,7 +5,7 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, hashId, inputText, peerOf, stepSummary, textOf } from "./items";
 import {
-  allDim, blank, block, cardOption, findRowBack, fingerprint, highlighted, lastFilled, lasting, optionRow,
+  allDim, beforeImages, blank, block, cardOption, findRowBack, fingerprint, highlighted, lastFilled, lasting, optionRow,
   paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneRead,
 } from "./pane";
 
@@ -201,15 +201,19 @@ function readPane(ansi: string): PaneRead {
 const PASTED = /^\[Pasted Content (\d+) chars\]$/u;
 const FOLD_CHARS = 1000;
 
-function shows(shown: string, words: string): boolean {
-  const folded = PASTED.exec(shown.trim());
+function shows(shown: string, words: string, images = 0): boolean {
+  const rest = beforeImages(shown, images);
+  if (rest === null) return false;
+  // Images alone: nothing before them.
+  if (images > 0 && words.trim() === "") return squeezed(rest) === "";
+  const folded = PASTED.exec(rest.trim());
   const chars = [...words].length;
   if (folded) return chars > FOLD_CHARS && Number(folded[1]) === chars;
-  return squeezed(shown) !== "" && squeezed(shown) === squeezed(words);
+  return squeezed(rest) !== "" && squeezed(rest) === squeezed(words);
 }
 
-function owns(r: PaneRead, words: string): boolean {
-  return !r.dialog && !r.unrecognised && r.draft === "text" && shows(r.draftText ?? "", words);
+function owns(r: PaneRead, words: string, images = 0): boolean {
+  return !r.dialog && !r.unrecognised && r.draft === "text" && shows(r.draftText ?? "", words, images);
 }
 
 // --- Answering (the Codex checks doc, "Key map for the approval dialog") ---

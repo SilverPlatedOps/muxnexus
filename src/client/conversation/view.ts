@@ -13,6 +13,7 @@ import { isArchived, visualOrder } from "../groups";
 import { sessionLabel, tabLabel } from "../labels";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
+import { isImagePath, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
 import { SAFE_LINK } from "../live-markdown";
 import {
   clipAround, composedAs, type Composed, CONV_ERROR, hitShown, linkRows, mergeItems, pageFor, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
@@ -69,6 +70,8 @@ const MAX_TEXT = 100_000;
 const SEND_GIVE_UP_MS = 15_000;
 
 const DOTS = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="8" r="1.2"></circle><circle cx="8" cy="8" r="1.2"></circle><circle cx="12" cy="8" r="1.2"></circle></svg>';
+/** A paperclip: attach a photo or a file. */
+const PAPERCLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>';
 const PLAY = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 3v10l8-5z"></path></svg>';
 
 type Step = Extract<ConvItem, { kind: "step" }>;
@@ -134,14 +137,20 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let card: Card | null = null;
   let screen = false;
   let working = false;
-  /** A send waiting for its `conv-result`, in the tab shown, and the conversation it went to: Send stays off, so a double tap pastes once. */
-  let pending: { req: string; text: string; to: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  /**
+   * A send waiting for its `conv-result`, in the tab shown, the conversation it went to, and the attachments it took:
+   * Send stays off, so a double tap pastes once.
+   */
+  let pending: { req: string; text: string; to: string; files: number[]; timer: ReturnType<typeof setTimeout> } | null = null;
   /** A stop waiting for its `conv-result`. */
   let stopping: string | null = null;
   /** What the text box holds, and the conversation it was written for. */
   let composed: Composed = { text: "", for: null };
   /** What was typed in each tab and not sent, with the conversation it was for: switching tabs keeps it. */
   const typed = new Map<string, Composed>();
+  /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them. */
+  const attachedIn = new Map<string, Attachment[]>();
+  let attachSeq = 0;
   /** Send was pressed on words written for the conversation before: the line over the box asks before they go to this one. */
   let confirming = false;
   let seq = 0;
@@ -222,8 +231,20 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const stopBtn = button("conv-stop", "Stop");
   stopBtn.title = "Interrupt the agent (Esc at the desk)";
   const sendBtn = button("conv-send", "Send");
-  compose.append(input, stopBtn, sendBtn);
-  slot.append(draftEl, boundEl, waiting.el, compose);
+  const attachBtn = button("conv-attach");
+  attachBtn.innerHTML = PAPERCLIP;
+  attachBtn.setAttribute("aria-label", "Attach a photo or a file");
+  attachBtn.title = "Attach a photo or a file";
+  // No `accept`: a phone then offers its photos, its camera and its files.
+  const picker = el("input", "conv-picker");
+  picker.type = "file";
+  picker.multiple = true;
+  picker.hidden = true;
+  compose.append(attachBtn, input, stopBtn, sendBtn, picker);
+  /** The files attached to the next message, over the text box. */
+  const tray = el("div", "conv-tray");
+  tray.hidden = true;
+  slot.append(draftEl, boundEl, waiting.el, tray, compose);
   host.replaceChildren(head, main, slot);
 
   // ---- the header ----
@@ -454,11 +475,13 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     if (!shown) return false;
     const e = shown.el;
     let target: HTMLElement = e;
-    if (find && shown.item.kind === "step" && e instanceof HTMLDetailsElement) {
-      e.querySelector(":scope > .conv-step-body")?.remove();
-      e.append(stepBody(shown.item, find));
-      e.open = true;
-      const match = e.querySelector<HTMLElement>(".conv-match");
+    // A step that sent files is drawn with them, its own row first.
+    const step = e instanceof HTMLDetailsElement ? e : e.querySelector<HTMLDetailsElement>(":scope > details.conv-step");
+    if (find && shown.item.kind === "step" && step) {
+      step.querySelector(":scope > .conv-step-body")?.remove();
+      step.append(stepBody(shown.item, find));
+      step.open = true;
+      const match = step.querySelector<HTMLElement>(".conv-match");
       const pre = match?.closest<HTMLElement>(".conv-pre");
       if (match && pre) {
         // The output scrolls in its own box: the match to its middle first.
@@ -551,11 +574,26 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         e = el("div", "conv-item conv-agent");
         const b = el("div", "conv-bubble");
         b.append(renderMarkdown(it.text, windowId ?? undefined));
+        // The images the reply links to, shown under it: a path on the agent's machine, read through this server.
+        const linked = [...b.querySelectorAll<HTMLAnchorElement>("a[href]")].map((a) => linkedPath(a.getAttribute("href") ?? "") ?? "");
+        const thumbs = thumbnails(linked.filter(isImagePath), windowId);
+        if (thumbs) b.append(thumbs);
         e.append(b);
         break;
       }
-      case "step":
-        e = stepEl(it);
+      case "step": {
+        const sent = sentFiles(it);
+        const thumbs = sent.length > 0 ? thumbnails(sent, windowId) : null;
+        if (thumbs) {
+          // Files the agent sent the user: the pictures stay in sight, the step under them as any other.
+          e = el("div", "conv-item conv-sent");
+          e.append(stepEl(it), thumbs);
+        } else e = stepEl(it);
+        break;
+      }
+      case "images":
+        e = el("div", "conv-item conv-you conv-images");
+        e.append(thumbnails(it.paths, windowId) ?? el("div", "conv-meta", `${it.paths.length} image${it.paths.length === 1 ? "" : "s"}`));
         break;
       case "notice":
         e = el("div", "conv-item conv-notice", it.text);
@@ -678,7 +716,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     // A Stop names the conversation it is for; with none to name, only a fresh Codex's "none yet" binds it.
     stopBtn.hidden = !working || asked() || (!conversation && agent !== "codex");
     stopBtn.disabled = stopping !== null;
-    sendBtn.disabled = !conversation || pending !== null || input.value.trim() === "";
+    const files = attachedNow();
+    const uploading = files.some((f) => !f.name);
+    sendBtn.disabled = !conversation || pending !== null || uploading || (input.value.trim() === "" && files.length === 0);
+    attachBtn.disabled = !conversation || pending !== null || files.length >= MAX_ATTACHMENTS;
+    tray.hidden = compose.hidden || files.length === 0;
     const elsewhere = writtenElsewhere(composed, conversation);
     if (!elsewhere) confirming = false;
     boundEl.hidden = !elsewhere || compose.hidden;
@@ -702,7 +744,12 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
    * now holds another), they wait for the user to say they're for this one.
    */
   function send(text: string) {
-    if (!windowId || !conversation || pending || asked() || text.trim() === "") return;
+    if (!windowId || !conversation || pending || asked()) return;
+    // Files alone go to the conversation shown: there are no words written for another.
+    if (text.trim() === "") {
+      if (attachedNow().length > 0) sendTo(text, conversation);
+      return;
+    }
     const how = sendAs({ text, for: composed.for }, conversation);
     if (!how) return;
     if ("ask" in how) {
@@ -718,7 +765,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
    * `replace`: the desk's draft to clear first, as the server fingerprinted it when it was shown.
    */
   function sendTo(text: string, to: string, replace?: string) {
-    if (!windowId || pending || asked() || text.trim() === "") return;
+    const files = attachedNow();
+    if (!windowId || pending || asked() || (text.trim() === "" && files.length === 0) || files.some((f) => !f.name)) return;
     if (text.length > MAX_TEXT) {
       deps.toast(`Too long to send: ${text.length} characters, ${MAX_TEXT} at most`);
       return;
@@ -729,9 +777,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       pending = null;
       paintSlot();
     }, SEND_GIVE_UP_MS);
-    pending = { req, text, to, timer };
+    pending = { req, text, to, files: files.map((f) => f.id), timer };
     draftEl.hidden = true;
-    deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace !== undefined ? { replace } : {}) });
+    const attachments = files.map((f) => f.name!);
+    deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace !== undefined ? { replace } : {}), ...(attachments.length > 0 ? { attachments } : {}) });
     paintSlot();
   }
 
@@ -772,6 +821,64 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     paintSlot();
   }
   input.addEventListener("input", () => setTyped(input.value));
+
+  // ---- attachments ----
+  /** The files attached in the tab shown. */
+  const attachedNow = (): Attachment[] => (windowId ? attachedIn.get(windowId) ?? [] : []);
+
+  /** `files` as the tab's attachments: kept for the tab, and the tray and buttons painted if it is shown. */
+  function setAttached(tab: string, files: Attachment[]) {
+    if (files.length > 0) attachedIn.set(tab, files);
+    else attachedIn.delete(tab);
+    if (tab !== windowId) return;
+    paintTray();
+    paintSlot();
+  }
+
+  function paintTray() {
+    tray.replaceChildren(...attachedNow().map((f) => {
+      const chip = el("div", `conv-chip${f.name ? "" : " uploading"}`);
+      const shown = f.image && f.path ? thumbnails([f.path])?.firstElementChild : null;
+      if (shown) chip.append(shown);
+      chip.append(el("span", "conv-chip-name", f.name ? f.label : `Uploading ${f.label}…`));
+      const drop = button("conv-chip-drop", "✕");
+      drop.setAttribute("aria-label", `Remove ${f.label}`);
+      drop.onclick = () => {
+        if (windowId) setAttached(windowId, attachedNow().filter((x) => x.id !== f.id));
+      };
+      chip.append(drop);
+      return chip;
+    }));
+  }
+
+  /** Uploads each file picked, for the tab shown when it was picked: each shows in the tray while it goes. */
+  function attach(picked: File[]) {
+    const tab = windowId;
+    if (!tab) return;
+    const room = MAX_ATTACHMENTS - (attachedIn.get(tab)?.length ?? 0);
+    if (picked.length > room) deps.toast(`A message takes ${MAX_ATTACHMENTS} files at most`);
+    for (const file of picked.slice(0, Math.max(0, room))) {
+      const id = ++attachSeq;
+      setAttached(tab, [...(attachedIn.get(tab) ?? []), { id, label: file.name || "file", image: file.type.startsWith("image/") }]);
+      uploadFile(file).then(
+        (up) => {
+          // Removed while it uploaded: not attached after all.
+          const now = attachedIn.get(tab) ?? [];
+          if (now.some((f) => f.id === id)) setAttached(tab, now.map((f) => (f.id === id ? { ...f, ...up } : f)));
+        },
+        (err: Error) => {
+          setAttached(tab, (attachedIn.get(tab) ?? []).filter((f) => f.id !== id));
+          deps.toast(err.message);
+        },
+      );
+    }
+  }
+  attachBtn.onclick = () => picker.click();
+  picker.addEventListener("change", () => {
+    attach([...(picker.files ?? [])]);
+    // The same file picked again is a change too.
+    picker.value = "";
+  });
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing) return;
     // ⌘ or Ctrl+Enter sends anywhere. A bare Enter sends only without a touch screen: on one it is the only newline key.
@@ -890,6 +997,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       dropPending();
       if (m.ok) {
         if (input.value === sent.text) setTyped("");
+        if (windowId) setAttached(windowId, attachedNow().filter((f) => !sent.files.includes(f.id)));
       } else if (m.draft !== undefined) showDraft(m.draft, sent.text, sent.to, m.draftFingerprint ?? "unknown");
       else if (m.error) deps.toast(CONV_ERROR[m.error]);
       // Neither: the action threw, and an `error` message says why.
@@ -984,6 +1092,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       composed = typed.get(nextWindow) ?? { text: "", for: null };
       input.value = composed.text;
       confirming = false;
+      paintTray();
       grow();
       paintHead();
       paintBody();

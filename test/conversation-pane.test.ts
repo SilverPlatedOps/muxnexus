@@ -519,3 +519,34 @@ test("a Codex approval is read from its own block only", () => {
   const unknown = edit(pane, "\x1b[1;7m› 1.", "  Something else\n\x1b[1;7m› 1.");
   expect(adapterFor("codex").readPane(unknown)).toMatchObject(unread);
 });
+
+test("a prompt holds the words, then exactly the images pasted after them, as the agents show those", () => {
+  // As measured on Claude Code 2.1.325 and Codex 0.167.1: a path pasted on its own shows as `[Image #N]`, N counting
+  // the session's pastes; a leading space is dropped, and a fold of the words comes first.
+  const shows = (kind: "claude" | "codex", shown: string, words: string, images: number) => adapterFor(kind).shows(shown, words, images);
+  for (const kind of ["claude", "codex"] as const) {
+    expect(shows(kind, "look at this [Image #3] [Image #4]", "look at this ", 2)).toBe(true);
+    expect(shows(kind, "look at this[Image #2]", "look at this", 1)).toBe(true);
+    expect(shows(kind, "[Image #1]", "", 1)).toBe(true);
+    expect(shows(kind, "[Image #1] [Image #2]", "", 2)).toBe(true);
+    // Before the image's token: the words alone (the path still showing as text is not yet the image).
+    expect(shows(kind, "look at this", "look at this ", 0)).toBe(true);
+    expect(shows(kind, "look at this /tmp/p/1-a.png", "look at this ", 1)).toBe(false);
+    // One token too many (an image pasted at the desk meanwhile), or too few, and it isn't what the phone sent.
+    expect(shows(kind, "look at this [Image #3] [Image #4]", "look at this ", 1)).toBe(false);
+    expect(shows(kind, "look at this [Image #3]", "look at this ", 2)).toBe(false);
+    expect(shows(kind, "[Image #1] [Image #2]", "", 1)).toBe(false);
+    expect(shows(kind, "x [Image #1]", "", 1)).toBe(false);
+    // Other words, and nothing at all, are never the phone's.
+    expect(shows(kind, "look at that [Image #3]", "look at this ", 1)).toBe(false);
+    expect(shows(kind, "", "", 1)).toBe(false);
+  }
+  // Words long enough to fold, then an image: Claude's fold counts the words' line breaks; Codex's their characters.
+  expect(shows("claude", "[Pasted text #14 +3 lines][Image #15]", "line one\nline two\nline three\nline four ", 1)).toBe(true);
+  expect(shows("codex", `[Pasted Content 1201 chars] [Image #1]`, `${"w".repeat(1200)} `, 1)).toBe(true);
+  // And as the prompt reads on screen: the words and the token as typed text.
+  const draft = (kind: "claude" | "codex", text: string) => adapterFor(kind).readPane(raw(`${kind}-idle-draft`).replace("hello draft", text));
+  expect(adapterFor("claude").owns(draft("claude", "hello draft [Image #1]"), "hello draft ", 1)).toBe(true);
+  expect(adapterFor("claude").owns(draft("claude", "hello draft [Image #1]"), "hello draft ", 0)).toBe(false);
+  expect(adapterFor("codex").owns(draft("codex", "hello draft [Image #1]"), "hello draft ", 1)).toBe(true);
+});

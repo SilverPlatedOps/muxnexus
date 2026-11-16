@@ -17,8 +17,10 @@ import { createNoteStore, isNoteId, pickOrphan } from "./notes";
 import { claudeAdapter, codexAdapter } from "./chat/adapters";
 import { isThisMachine, parseFocusRequest } from "./focus";
 import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
-import { createImageStore } from "./chat/images";
+import { createImageStore, sniff } from "./chat/images";
 import { createPasteStore } from "./pastes";
+import { createUploadStore, MAX_UPLOAD } from "./uploads";
+import type { Attached } from "./conversation/actions";
 import { GENERIC_KEYS } from "./conversation/actions";
 import { createConversationHub } from "./conversation/hub";
 import { createChatStore, isChatId } from "./chat/store";
@@ -50,6 +52,8 @@ const isOffset = (x: unknown): x is number => Number.isSafeInteger(x) && (x as n
 const isText = (x: unknown): x is string => typeof x === "string" && x.length <= 100_000;
 /** A conversation id or a dialog's fingerprint: short tokens the server sent. */
 const isToken = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 256;
+/** A message's attachments: the names the upload route gave, a few at most. */
+const isAttachments = (x: unknown): x is string[] => Array.isArray(x) && x.length <= 10 && x.every((n) => typeof n === "string" && n.length > 0 && n.length <= 200);
 
 /** What a Codex started from a chat is told first: enough to start its thread, nothing to do. */
 const CODEX_OPENING = "You've been added to a muxnexus group chat. Nothing to do yet: reply only with the word ready. Chat messages will arrive here, each headed [muxnexus · …].";
@@ -116,6 +120,8 @@ export interface ServerOptions {
   chatsDir?: string;
   /** Where images pasted into a terminal are saved. Absent, there is no paste route. */
   pastesDir?: string;
+  /** Where files attached in the conversation view that aren't images are saved. Absent (or no `pastesDir`), there is no upload route. */
+  uploadsDir?: string;
   /** This server's settings; `~/.config/muxnexus/settings.json` when absent. */
   settings?: SettingsStore;
 }
@@ -603,6 +609,7 @@ export function createServer(opts: ServerOptions): RunningServer {
   }
 
   const pastes = opts.pastesDir ? createPasteStore(opts.pastesDir) : null;
+  const uploads = opts.uploadsDir ? createUploadStore(opts.uploadsDir) : null;
 
   /** The conversation view's subscriptions: its timer runs only while some socket has one open. */
   const conv = createConversationHub({ tmux });
@@ -614,6 +621,16 @@ export function createServer(opts: ServerOptions): RunningServer {
    */
   async function pasteImage(req: Request): Promise<Response> {
     if (!pastes) return new Response("Not found", { status: 404 });
+    const refused = postRefused(req);
+    if (refused) return refused;
+    const length = Number(req.headers.get("content-length") ?? 0);
+    if (length > 11 * 1024 * 1024) return Response.json({ ok: false, error: "That image is too large." }, { status: 413 });
+    const saved = await pastes.save(new Uint8Array(await req.arrayBuffer()));
+    return saved.ok ? Response.json({ ok: true, path: saved.path }) : Response.json({ ok: false, error: saved.error }, { status: saved.status });
+  }
+
+  /** Why a POST of a file is refused, or null: a page of this server only, never another site's. */
+  function postRefused(req: Request): Response | null {
     if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
     if (!hostAllowed(req.headers.get("host"), allowedHosts)) return new Response("Forbidden: unrecognised Host", { status: 403 });
     const site = req.headers.get("sec-fetch-site");
@@ -622,10 +639,40 @@ export function createServer(opts: ServerOptions): RunningServer {
     if (origin !== null) {
       try { if (new URL(origin).host !== req.headers.get("host")) return new Response("Forbidden: cross-origin", { status: 403 }); } catch { return new Response("Forbidden", { status: 403 }); }
     }
+    return null;
+  }
+
+  /**
+   * A file attached in the conversation view: POST /api/upload?name=<its own name> with the bytes. An image (by its
+   * bytes) goes to the paste store, as a path an agent takes as the image; anything else to the upload store, as a
+   * path it reads. The answer is the name a Send attaches it by, its path (for the page to show it), and which it is.
+   */
+  async function upload(req: Request, url: URL): Promise<Response> {
+    if (!pastes || !uploads) return new Response("Not found", { status: 404 });
+    const refused = postRefused(req);
+    if (refused) return refused;
     const length = Number(req.headers.get("content-length") ?? 0);
-    if (length > 11 * 1024 * 1024) return Response.json({ ok: false, error: "That image is too large." }, { status: 413 });
-    const saved = await pastes.save(new Uint8Array(await req.arrayBuffer()));
-    return saved.ok ? Response.json({ ok: true, path: saved.path }) : Response.json({ ok: false, error: saved.error }, { status: saved.status });
+    if (length > MAX_UPLOAD + 1024) return Response.json({ ok: false, error: "That file is too large." }, { status: 413 });
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    const image = sniff(bytes) !== null;
+    const saved = image ? await pastes.save(bytes) : await uploads.save(bytes, (url.searchParams.get("name") ?? "").slice(0, 255));
+    return saved.ok ? Response.json({ ok: true, name: saved.name, path: saved.path, image }) : Response.json({ ok: false, error: saved.error }, { status: saved.status });
+  }
+
+  /**
+   * The files a message's attachments name, each looked up in the store whose name it is: images to paste as paths,
+   * other files to name in the words. Null when a name is neither store's, or its file is gone (a week old).
+   */
+  async function attachedOf(names: string[]): Promise<Attached | null> {
+    const images: string[] = [];
+    const files: string[] = [];
+    for (const name of names) {
+      const image = pastes?.pathOf(name) ?? null;
+      const path = image ?? uploads?.pathOf(name) ?? null;
+      if (!path || !(await stat(path).catch(() => null))?.isFile()) return null;
+      (image ? images : files).push(path);
+    }
+    return { images, files };
   }
 
   let polling: Promise<void> | null = null;
@@ -1093,9 +1140,12 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "conv-links":
           if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-links" });
           return await conv.links(ws, m.req, m.windowId);
-        case "conv-send":
-          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isText(m.text) || (m.replace !== undefined && !isToken(m.replace))) return send(ws, { t: "error", message: "invalid conv-send" });
-          return await conv.send(ws, m.req, m.windowId, m.conversation, m.text, m.replace ?? null);
+        case "conv-send": {
+          if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isText(m.text) || (m.replace !== undefined && !isToken(m.replace)) || (m.attachments !== undefined && !isAttachments(m.attachments))) return send(ws, { t: "error", message: "invalid conv-send" });
+          const attached = await attachedOf(m.attachments ?? []);
+          if (!attached) return send(ws, { t: "conv-result", req: m.req, ok: false, error: "attachment" });
+          return await conv.send(ws, m.req, m.windowId, m.conversation, m.text, m.replace ?? null, attached);
+        }
         case "conv-answer":
           if (!isReq(m.req) || !isWindowId(m.windowId) || !isToken(m.conversation) || !isToken(m.fingerprint) || !Number.isInteger(m.option) || m.option < 0 || m.option > 99 || (m.text !== undefined && !isText(m.text))) return send(ws, { t: "error", message: "invalid conv-answer" });
           return await conv.answer(ws, m.req, m.windowId, m.conversation, m.fingerprint, m.option, m.text);
@@ -1354,6 +1404,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       if (url.pathname === "/api/focus") return focusPane(req, srv.requestIP(req));
       if (url.pathname.startsWith("/api/chat/image/")) return chatImage(req, url);
       if (url.pathname === "/api/paste-image") return pasteImage(req);
+      if (url.pathname === "/api/upload") return upload(req, url);
       if (url.pathname === "/ws") {
         // WebSocket handshakes are not subject to the browser's same-origin
         // policy, so any page open in the user's browser could otherwise
