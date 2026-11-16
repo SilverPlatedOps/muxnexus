@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { deviceView, setDeviceView, type Store } from "../src/client/display";
 import {
-  answerMessage, CONV_ERROR, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, linkRows, mergeItems, readForShown, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
+  answerMessage, CONV_ERROR, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, foldSteps, linkRows, mergeItems, readForShown, runLine, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
 } from "../src/client/conversation/model";
 import { adapterFor } from "../src/server/conversation/adapter";
@@ -97,6 +97,28 @@ test("merging appends, prepends, dedupes and applies a step's late result", () =
   expect(resultOf(older, "s9")?.output).toBe("ok");
   // A result with no step to apply to is not an item.
   expect(ids(mergeItems([said("a1")], [result("gone")], "append"))).toEqual(["a1"]);
+});
+
+test("two or more steps in a row fold into one run; one alone, or one set apart, stands alone", () => {
+  const shape = (out: ReturnType<typeof foldSteps>) => out.map((x) => (Array.isArray(x) ? x.map((s) => s.id) : x.id));
+  const none = () => false;
+  const list = [said("a1"), step("s1"), step("s2"), step("s3"), said("a2"), step("s4"), you("u1"), step("s5"), step("s6")];
+  expect(shape(foldSteps(list, none))).toEqual(["a1", ["s1", "s2", "s3"], "a2", "s4", "u1", ["s5", "s6"]]);
+  // A step set apart (one that sent files) breaks the run around it.
+  const apart = (s: { id: string }) => s.id === "s2";
+  expect(shape(foldSteps(list, apart))).toEqual(["a1", "s1", "s2", "s3", "a2", "s4", "u1", ["s5", "s6"]]);
+  expect(shape(foldSteps([], none))).toEqual([]);
+});
+
+test("a run's line counts what it did, in the order first done", () => {
+  const steps = [
+    step("s1", "Ran ls"), step("s2", "Read Banner.java"), step("s3", "Ran mvn -q test"),
+    step("s4", "Edited Banner.java"), step("s5", "Wrote Note.md"), step("s6", "Searched TODO"),
+    { ...step("s7", "TaskUpdate"), tool: "TaskUpdate" }, { ...step("s8", "TaskUpdate"), tool: "TaskUpdate" }, { ...step("s9", "TaskCreate"), tool: "TaskCreate" },
+  ] as Extract<ConvItem, { kind: "step" }>[];
+  expect(runLine(steps)).toBe("2 commands, 1 file read, 2 edits, 1 search, TaskUpdate ×2, TaskCreate");
+  expect(runLine(steps.slice(0, 1))).toBe("1 command");
+  expect(runLine([steps[1]!, { ...steps[1]!, id: "r2" }])).toBe("2 files read");
 });
 
 test("the working line names the step still running", () => {

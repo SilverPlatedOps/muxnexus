@@ -2516,6 +2516,17 @@ select.na-input:disabled { color: var(--dim); }
 .conv-step-time { flex: none; color: var(--dim); font-size: 11px; }
 .conv-step-body { padding: 0 12px 12px; }
 .conv-step-label { margin: 6px 0 4px; color: var(--muted); font-size: 11px; }
+/* Steps in a row, folded into one line; open, they are rows of one box. */
+.conv-steps { border: 1px solid var(--line-soft); border-radius: 8px; }
+.conv-steps.ok > summary > .conv-step-mark { color: var(--green); }
+.conv-steps.failed > summary > .conv-step-mark { color: var(--red); }
+.conv-steps > summary::after { content: "›"; flex: none; width: 10px; text-align: center; color: var(--dim); font-size: 15px; transition: transform 0.15s; }
+.conv-steps[open] > summary::after { transform: rotate(90deg); }
+.conv-steps-failed { flex: none; color: var(--red); font-size: 11px; }
+.conv-steps-list { border-top: 1px solid var(--line-soft); }
+.conv-steps-list > .conv-step { border: 0; border-radius: 0; }
+.conv-steps-list > .conv-step + .conv-step { border-top: 1px solid var(--line-soft); }
+.conv-steps-list > .conv-step > .conv-step-line { padding-left: 24px; }
 .conv-pre {
   margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px; background: var(--well); border: 1px solid var(--line-soft); border-radius: 6px;
   color: var(--fg); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;

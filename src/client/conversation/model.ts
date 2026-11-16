@@ -70,6 +70,49 @@ export function stepLine(it: Extract<ConvItem, { kind: "step" }>): string {
   return verb && TRIED[verb[1]!] ? `${TRIED[verb[1]!]} ${verb[2]}` : it.summary;
 }
 
+type Step = Extract<ConvItem, { kind: "step" }>;
+
+/**
+ * The list as shown: two or more steps in a row fold into one run, everything else stands alone. A step `apart` says
+ * to (one that sent files, its pictures kept in sight) breaks the run it would be in.
+ */
+export function foldSteps(items: ConvItem[], apart: (s: Step) => boolean): (ConvItem | Step[])[] {
+  const out: (ConvItem | Step[])[] = [];
+  let run: Step[] = [];
+  const end = () => {
+    if (run.length > 1) out.push(run);
+    else out.push(...run);
+    run = [];
+  };
+  for (const it of items) {
+    if (it.kind === "step" && !apart(it)) run.push(it);
+    else {
+      end();
+      out.push(it);
+    }
+  }
+  end();
+  return out;
+}
+
+/** What a run calls each kind of step, one and several, by the verb the server words its line with. */
+const NOUN: Record<string, [string, string]> = {
+  Ran: ["command", "commands"], Edited: ["edit", "edits"], Wrote: ["edit", "edits"], Read: ["file read", "files read"], Searched: ["search", "searches"],
+};
+
+/** A run's folded line: `2 commands, 1 file read, TaskUpdate ×2`, kinds in the order first done. */
+export function runLine(steps: Step[]): string {
+  const kinds = new Map<string, { n: number; noun?: [string, string] }>();
+  for (const s of steps) {
+    const noun = NOUN[/^(\S+) /.exec(s.summary)?.[1] ?? ""];
+    const key = noun ? noun[1] : s.tool;
+    const k = kinds.get(key);
+    if (k) k.n++;
+    else kinds.set(key, { n: 1, noun });
+  }
+  return [...kinds].map(([tool, { n, noun }]) => (noun ? `${n} ${noun[n === 1 ? 0 : 1]}` : n === 1 ? tool : `${tool} ×${n}`)).join(", ");
+}
+
 /**
  * The working line's words: the step still running and for how long
  * (`Running mvn -q test · 2m`), or null when none is. Only the steps at the very

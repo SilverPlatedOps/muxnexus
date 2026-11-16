@@ -18,7 +18,7 @@ import { createScreen, createWaitingCard } from "./card";
 import { isImagePath, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
 import { SAFE_LINK } from "../live-markdown";
 import {
-  clipAround, composedAs, type Composed, CONV_ERROR, hitShown, linkRows, mergeItems, pageFor, readForShown, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
+  clipAround, composedAs, type Composed, CONV_ERROR, foldSteps, hitShown, linkRows, mergeItems, pageFor, readForShown, runLine, sendAs, stepLine, stuckToBottom, workingLine, writtenElsewhere,
 } from "./model";
 
 /**
@@ -457,6 +457,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     if (!shown) return false;
     const e = shown.el;
     let target: HTMLElement = e;
+    // A step in a folded run: the run opens first.
+    const run = e.closest<HTMLDetailsElement>("details.conv-steps");
+    if (run) run.open = true;
     // A step that sent files is drawn with them, its own row first.
     const step = e instanceof HTMLDetailsElement ? e : e.querySelector<HTMLDetailsElement>(":scope > details.conv-step");
     if (find && shown.item.kind === "step" && step) {
@@ -588,19 +591,71 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   /** What each listed item was drawn from: an item that changed (a step's result came) is drawn again. */
   const drawn = new Map<string, { item: ConvItem; el: HTMLElement }>();
 
+  /** A run of steps folded into one line, its steps listed under it. */
+  interface Run { el: HTMLDetailsElement; mark: HTMLElement; text: HTMLElement; failed: HTMLElement; time: HTMLElement; box: HTMLElement }
+  /** The run each folded step is in: a run that grows keeps its block, open or folded. */
+  let runOf = new Map<string, Run>();
+
+  function runEl(): Run {
+    const d = el("details", "conv-item conv-steps");
+    const line = el("summary", "conv-step-line");
+    const r: Run = {
+      el: d, mark: el("span", "conv-step-mark"), text: el("span", "conv-step-text"), failed: el("span", "conv-steps-failed"),
+      time: el("span", "conv-step-time"), box: el("div", "conv-steps-list"),
+    };
+    line.append(r.mark, r.text, r.failed, r.time);
+    d.append(line, r.box);
+    return r;
+  }
+
+  function paintRun(r: Run, steps: Step[]) {
+    const failed = steps.filter((s) => s.result && !s.result.ok).length;
+    const done = steps.every((s) => s.result);
+    r.el.className = `conv-item conv-steps ${failed ? "failed" : done ? "ok" : "pending"}`;
+    r.mark.textContent = failed ? "✗" : done ? "✓" : "·";
+    r.text.textContent = `${steps.length} steps · ${runLine(steps)}`;
+    r.failed.textContent = `${failed} failed`;
+    r.failed.hidden = !failed;
+    const last = steps[steps.length - 1]!.result;
+    r.time.textContent = last ? took(steps[0]!.at, last.at) : "";
+  }
+
+  /** Puts `want` in `parent` in that order, moving only what is out of place (a moved box loses its scroll). */
+  function place(parent: HTMLElement, want: HTMLElement[]) {
+    want.forEach((e, i) => { if (parent.children[i] !== e) parent.insertBefore(e, parent.children[i] ?? null); });
+    while (parent.children.length > want.length) parent.lastElementChild!.remove();
+  }
+
+  /** Lays the drawn items out in `items`' order, steps in a row folded into their run's block. */
+  function layout() {
+    const next = new Map<string, Run>();
+    const taken = new Set<Run>();
+    const top = foldSteps(items, (s) => sentFiles(s).length > 0).map((x) => {
+      if (!Array.isArray(x)) return drawn.get(x.id)!.el;
+      const r = x.map((s) => runOf.get(s.id)).find((y) => y && !taken.has(y)) ?? runEl();
+      taken.add(r);
+      place(r.box, x.map((s) => drawn.get(s.id)!.el));
+      paintRun(r, x);
+      for (const s of x) next.set(s.id, r);
+      return r.el;
+    });
+    place(list, top);
+    runOf = next;
+  }
+
   /** Shows `next`, new items going at the end or the top; returns how many were new. */
   function paintItems(next: ConvItem[], where: "append" | "prepend" | "all"): number {
     if (where === "all") {
       drawn.clear();
+      runOf.clear();
       list.replaceChildren();
     }
-    const fresh: HTMLElement[] = [];
+    let fresh = 0;
     for (const it of next) {
       const had = drawn.get(it.id);
       if (!had) {
-        const e = itemEl(it);
-        drawn.set(it.id, { item: it, el: e });
-        fresh.push(e);
+        drawn.set(it.id, { item: it, el: itemEl(it) });
+        fresh++;
       } else if (had.item !== it) {
         const e = itemEl(it);
         // A step that sent files is drawn with them: its own row is the details inside.
@@ -612,10 +667,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         drawn.set(it.id, { item: it, el: e });
       }
     }
-    if (where === "prepend") list.prepend(...fresh);
-    else list.append(...fresh);
     items = next;
-    return fresh.length;
+    layout();
+    return fresh;
   }
 
   /** Results still waiting for their step, once `incoming` is merged. */
@@ -1087,6 +1141,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       waiting.reset();
       screenView.close();
       drawn.clear();
+      runOf.clear();
       list.replaceChildren();
       draftEl.hidden = true;
       newBtn.hidden = true;
@@ -1119,6 +1174,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       waiting.reset();
       screenView.close();
       drawn.clear();
+      runOf.clear();
       list.replaceChildren();
     },
     onMessage,
