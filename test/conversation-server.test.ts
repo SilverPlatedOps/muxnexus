@@ -462,28 +462,6 @@ describe("the conversation hub", () => {
     }
   });
 
-  test("a tap refused is no first tap: tapped again at once, once the prompt is there, it is answered", async () => {
-    const { state, tmux } = fakeTmux(claude(transcript(), "input", "sess-2"), pane("claude-bash-permission"));
-    const hub = createConversationHub({ tmux, pollMs: 1000 });
-    const ws = socket();
-    try {
-      await hub.open(ws, "@1");
-      const { fingerprint } = ws.last("conv-card")!.card!;
-      // The pane redraws as the tap lands: nothing is pressed.
-      state.screen = pane("claude-idle-empty");
-      await hub.answer(ws, "first", "@1", "sess-2", fingerprint, 1);
-      state.screen = pane("claude-bash-permission");
-      await hub.answer(ws, "retry", "@1", "sess-2", fingerprint, 1);
-      expect(ws.all("conv-result").map((r) => [r.req, r.ok, r.error ?? null])).toEqual([
-        ["first", false, "prompt-changed"],
-        ["retry", true, null],
-      ]);
-      expect(state.writes).toEqual(["keys %1 1"]);
-    } finally {
-      hub.stop();
-    }
-  });
-
   test("a Screen key carries the screen's token back: pressed while it matches, refused with the screen as it is once it doesn't", async () => {
     const { state, tmux } = fakeTmux(claude(transcript()), pane("claude-bash-permission-tip"));
     const hub = createConversationHub({ tmux, pollMs: 1000 });

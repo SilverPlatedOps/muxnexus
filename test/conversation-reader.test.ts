@@ -150,6 +150,8 @@ test("search matches what the conversation says, the same whether or not the que
   expect((await searchFile("claude", p, "ls")).hits.map((h) => h.id)).toEqual(["m1:0", "t9", "r1"]);
   expect((await searchFile("claude", p, "ran ls")).hits).toEqual([]);
   expect((await searchFile("claude", p, "ran ls (")).hits).toEqual([]);
+  // A step's input is searched for its words, not its JSON keys, which every Bash step shares.
+  expect((await searchFile("claude", p, "command")).hits).toEqual([]);
   expect((await searchFile("claude", p, "ls -la")).hits.map((h) => h.id)).toEqual(["t9"]);
 });
 

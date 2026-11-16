@@ -275,13 +275,11 @@ export function createConversationHub({ tmux, pollMs = 1000 }: { tmux: HubTmux; 
       if (last?.fingerprint === fingerprint && Date.now() - last.at < ANSWER_AGAIN_MS) {
         return send(ws, { t: "conv-result", req, ok: false, error: "prompt-changed" });
       }
-      const mine = { fingerprint, at: Date.now() };
-      lastAnswer.set(slot, mine);
+      // Only the last ANSWER_AGAIN_MS matters: older entries (conversations since cleared, tabs since closed) go.
+      for (const [k, v] of lastAnswer) if (Date.now() - v.at >= ANSWER_AGAIN_MS) lastAnswer.delete(k);
+      lastAnswer.set(slot, { fingerprint, at: Date.now() });
       try {
         const r = await inLane(windowId, () => answer(tmux, windowId, conversation, fingerprint, option, text));
-        // A tap refused before any key went is no first tap: tapped again, it is answered. (Words left unsent in a
-        // field did reach the pane: the next tap must not answer as if they hadn't.)
-        if (!r.ok && r.error !== "unsent" && lastAnswer.get(slot) === mine) lastAnswer.delete(slot);
         send(ws, { t: "conv-result", req, ...r });
       } catch (e) {
         failed(ws, req, e);

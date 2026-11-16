@@ -271,12 +271,33 @@ function textsOf(it: Item): string[] {
 function searchedOf(it: Item): string[] {
   switch (it.kind) {
     case "step":
-      return [it.input, it.result?.output ?? ""];
+      return [...valuesOf(it.input), it.result?.output ?? ""];
     case "notice":
       return [];
     default:
       return textsOf(it);
   }
+}
+
+/**
+ * A step's input as the words in it: the string values of its JSON (the command, the path, the content), not its
+ * key names, which every step of a tool shares. Input that isn't JSON (a Codex command line) is itself.
+ */
+function valuesOf(input: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    return [input];
+  }
+  const out: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(parsed);
+  return out;
 }
 
 /** How far back one search request or one Links read goes: a long conversation is read a stretch at a time. */

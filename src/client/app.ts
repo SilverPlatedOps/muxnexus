@@ -949,7 +949,11 @@ const conn = new Connection(wsUrl, {
           }
         }
         // tmux hands its window ids out again after a restart: the chips' table is the old server's.
-        if ((m.tmuxServer ?? null) !== tmuxServer) memoryStore.clear();
+        // Its session ids too: the workspace shown is then found by its name again, never by a `$3` now another's.
+        if ((m.tmuxServer ?? null) !== tmuxServer) {
+          memoryStore.clear();
+          convSessionId = null;
+        }
         tmuxServer = m.tmuxServer ?? null;
         sessions = withTabOrder(applyPendingOrder(m.sessions, pendingOrder));
         if (convMode) syncConversation();
