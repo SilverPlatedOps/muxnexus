@@ -20,17 +20,25 @@ export const KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 /** Only names this store made, whatever the image type: their first 13 digits are when. */
 const NAME = /^(\d{13})-[0-9a-f]{8}\.[a-z]+$/;
 
+/**
+ * `dir` made for this user only, with the files in it older than a week
+ * (`KEEP_MS`) gone: only names a store made (`name`, its first group when).
+ */
+export async function keptFolder(dir: string, name: RegExp, now: number): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  for (const old of await readdir(dir)) {
+    const when = name.exec(old)?.[1];
+    if (when && now - Number(when) > KEEP_MS) await unlink(join(dir, old)).catch(() => {});
+  }
+}
+
 export function createPasteStore(dir: string) {
   return {
     async save(bytes: Uint8Array, now = Date.now()): Promise<ImageResult> {
       const named = imageName(bytes, now);
       if (!named.ok) return named;
       // Screenshots: nobody else's to read.
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      for (const old of await readdir(dir)) {
-        const when = NAME.exec(old)?.[1];
-        if (when && now - Number(when) > KEEP_MS) await unlink(join(dir, old)).catch(() => {});
-      }
+      await keptFolder(dir, NAME, now);
       const path = join(dir, named.name);
       await writeFile(path, bytes, { mode: 0o600 });
       return { ok: true, name: named.name, path };

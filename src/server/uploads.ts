@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
-import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { KEEP_MS } from "./pastes";
+import { keptFolder } from "./pastes";
 
 /**
  * Files attached in the conversation view that aren't images: kept on this
@@ -21,7 +21,7 @@ const KEPT = 80;
 /** Only names this store made: their first 13 digits are when. */
 const NAME = new RegExp(`^(\\d{13})-[0-9a-f]{8}-[A-Za-z0-9._-]{1,${KEPT}}$`);
 /** What Claude Code and Codex take a pasted path for an image by (measured: png, jpg, jpeg; heic, bmp, svg, pdf stay text). */
-const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp)$/i;
+const IMAGE_EXT = /^(?:png|jpe?g|gif|webp)$/i;
 
 export type UploadResult = { ok: true; name: string; path: string } | { ok: false; status: number; error: string };
 
@@ -33,10 +33,14 @@ export type UploadResult = { ok: true; name: string; path: string } | { ok: fals
  * fail to read it.
  */
 export function uploadName(original: string, now: number): string {
-  const base = original.split(/[\\/]/).pop() ?? "";
-  let kept = base.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "");
-  if (IMAGE_EXT.test(kept)) kept += ".txt";
-  kept = kept.slice(-KEPT).replace(/^[.-]+/, "") || "file";
+  // Accents dropped (`Résumé` keeps its letters as `Resume`).
+  const base = (original.split(/[\\/]/).pop() ?? "").normalize("NFKD").replace(/\p{M}+/gu, "");
+  // The extension apart from the rest, so a name in another script (`报告.pdf`) keeps its `.pdf`.
+  const dot = base.lastIndexOf(".");
+  let ext = dot > 0 ? base.slice(dot + 1).replace(/[^A-Za-z0-9]+/g, "").slice(0, 12) : "";
+  if (IMAGE_EXT.test(ext)) ext += ".txt";
+  const stem = (dot > 0 ? base.slice(0, dot) : base).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+|-+$/g, "") || "file";
+  const kept = ext ? `${stem.slice(0, KEPT - ext.length - 1)}.${ext}` : stem.slice(0, KEPT);
   return `${now}-${crypto.randomUUID().slice(0, 8)}-${kept}`;
 }
 
@@ -48,11 +52,7 @@ export function createUploadStore(dir: string) {
         return { ok: false, status: 413, error: `That file is ${(bytes.length / 1048576).toFixed(1)} MB; the most is ${MAX_UPLOAD / 1048576} MB.` };
       }
       // The user's files: nobody else's to read.
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      for (const old of await readdir(dir)) {
-        const when = NAME.exec(old)?.[1];
-        if (when && now - Number(when) > KEEP_MS) await unlink(join(dir, old)).catch(() => {});
-      }
+      await keptFolder(dir, NAME, now);
       const name = uploadName(original, now);
       const path = join(dir, name);
       await writeFile(path, bytes, { mode: 0o600 });

@@ -40,7 +40,11 @@ async function prepared(file: File): Promise<Blob> {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const g = canvas.getContext("2d")!;
+    // A JPEG keeps no transparency: white under it, as a page shows it, not black.
+    g.fillStyle = "#fff";
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
     return await new Promise<Blob>((done, fail) => canvas.toBlob((b) => (b ? done(b) : fail(new Error("no JPEG"))), "image/jpeg", 0.88));
   } catch {

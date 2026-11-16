@@ -18,7 +18,7 @@ describe("the upload store", () => {
   test("keeps a file under its own name made one word, for this user only", async () => {
     const r = await store.save(TEXT, "Meeting notes (final).txt");
     if (!r.ok) throw new Error(r.error);
-    expect(r.name).toMatch(/^\d{13}-[0-9a-f]{8}-Meeting-notes-final-\.txt$/);
+    expect(r.name).toMatch(/^\d{13}-[0-9a-f]{8}-Meeting-notes-final\.txt$/);
     expect(r.path).toBe(join(dir, r.name));
     expect(readFileSync(r.path, "utf8")).toBe("hello\n");
     expect(statSync(dir).mode & 0o777).toBe(0o700);
@@ -36,6 +36,14 @@ describe("the upload store", () => {
     expect(uploadName("IMG_0001.HEIC", 1)).toMatch(/-IMG_0001\.HEIC$/);
     expect(uploadName(`${"a".repeat(300)}.csv`, 1)).toMatch(/^1-[0-9a-f]{8}-a+\.csv$/);
     expect(uploadName(`${"a".repeat(300)}.csv`, 1).length).toBeLessThanOrEqual(13 + 1 + 8 + 1 + 80);
+    // A name in another script keeps its extension; dot files and a bare dot are names too.
+    expect(uploadName("报告.pdf", 1)).toMatch(/^1-[0-9a-f]{8}-file\.pdf$/);
+    expect(uploadName("Résumé.docx", 1)).toMatch(/-Resume\.docx$/);
+    expect(uploadName(".bashrc", 1)).toMatch(/-bashrc$/);
+    // Long, and an image's extension made text: still a name the store knows again.
+    const long = uploadName(`${"b".repeat(300)}.png`, 1_700_000_000_000);
+    expect(long).toMatch(/-b+\.png\.txt$/);
+    expect(store.pathOf(long)).not.toBeNull();
     // Names this store didn't make are no file of its.
     expect(store.pathOf("../x")).toBeNull();
     expect(store.pathOf("1700000000000-deadbeef.png")).toBeNull();

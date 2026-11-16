@@ -2488,12 +2488,12 @@ select.na-input:disabled { color: var(--dim); }
 .conv-peer .conv-bubble { background: none; border: 1px dashed var(--edge); }
 .conv-agent .conv-bubble { white-space: normal; }
 .conv-notice { align-self: center; padding: 2px 10px; color: var(--muted); font-size: 11px; text-align: center; }
-/* Prose reads in a proportional face, as in group chat; code, commands and tool output stay monospace (their own
-   rules name the font). Larger on a phone, where a reply is read at arm's length. */
-.conv-bubble { font: 13.5px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+/* A reply's prose reads in a proportional face, as in group chat; its code stays monospace (its own rules name the
+   font), and so do the user's words, which may be pasted code. Larger on a phone, read at arm's length. */
+.conv-agent .conv-bubble { font: 13.5px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
 @media (pointer: coarse) {
-  .conv-bubble { font-size: 15px; }
-  .conv-bubble .chat-markdown code, .conv-bubble .chat-markdown pre code { font-size: 13px; }
+  .conv-agent .conv-bubble { font-size: 15px; }
+  .conv-agent .chat-markdown code, .conv-agent .chat-markdown pre code { font-size: 13px; }
   .conv-pre { font-size: 12.5px; }
 }
 

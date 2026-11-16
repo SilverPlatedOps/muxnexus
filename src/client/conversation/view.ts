@@ -68,6 +68,8 @@ const RETRY_MS = 3000;
 const MAX_TEXT = 100_000;
 /** A send with no answer by then is given up, so Send comes back whatever happened to it. */
 const SEND_GIVE_UP_MS = 15_000;
+/** And for each image: the server waits up to this long (its IMAGE_MS) for the agent to take each one. */
+const SEND_PER_IMAGE_MS = 6_000;
 
 const DOTS = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="8" r="1.2"></circle><circle cx="8" cy="8" r="1.2"></circle><circle cx="12" cy="8" r="1.2"></circle></svg>';
 /** A paperclip: attach a photo or a file. */
@@ -137,11 +139,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let card: Card | null = null;
   let screen = false;
   let working = false;
-  /**
-   * A send waiting for its `conv-result`, in the tab shown, the conversation it went to, and the attachments it took:
-   * Send stays off, so a double tap pastes once.
-   */
-  let pending: { req: string; text: string; to: string; files: number[]; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** A send waiting for its `conv-result`, in the tab shown, and the conversation it went to: Send stays off, so a double tap pastes once. */
+  let pending: { req: string; text: string; to: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** A stop waiting for its `conv-result`. */
   let stopping: string | null = null;
   /** What the text box holds, and the conversation it was written for. */
@@ -151,6 +150,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them. */
   const attachedIn = new Map<string, Attachment[]>();
   let attachSeq = 0;
+  /** Each send that took files, by its request id: the tab and the files, cleared from it once the send is done. */
+  const filesSent = new Map<string, { tab: string; files: number[] }>();
   /** Send was pressed on words written for the conversation before: the line over the box asks before they go to this one. */
   let confirming = false;
   let seq = 0;
@@ -621,7 +622,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
         fresh.push(e);
       } else if (had.item !== it) {
         const e = itemEl(it);
-        if (had.el instanceof HTMLDetailsElement && had.el.open && e instanceof HTMLDetailsElement) e.open = true;
+        // A step that sent files is drawn with them: its own row is the details inside.
+        const stepOf = (x: HTMLElement) => (x instanceof HTMLDetailsElement ? x : x.querySelector<HTMLDetailsElement>(":scope > details.conv-step"));
+        const was = stepOf(had.el);
+        const now = stepOf(e);
+        if (was?.open && now) now.open = true;
         had.el.replaceWith(e);
         drawn.set(it.id, { item: it, el: e });
       }
@@ -745,6 +750,11 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
    */
   function send(text: string) {
     if (!windowId || !conversation || pending || asked()) return;
+    // Enter pressed with Send still off: say why rather than do nothing.
+    if (attachedNow().some((f) => !f.name)) {
+      deps.toast("Wait for the upload to finish");
+      return;
+    }
     // Files alone go to the conversation shown: there are no words written for another.
     if (text.trim() === "") {
       if (attachedNow().length > 0) sendTo(text, conversation);
@@ -776,8 +786,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       if (pending?.req !== req) return;
       pending = null;
       paintSlot();
-    }, SEND_GIVE_UP_MS);
-    pending = { req, text, to, files: files.map((f) => f.id), timer };
+    }, SEND_GIVE_UP_MS + files.filter((f) => f.image).length * SEND_PER_IMAGE_MS);
+    pending = { req, text, to, timer };
+    if (files.length > 0) filesSent.set(req, { tab: windowId, files: files.map((f) => f.id) });
     draftEl.hidden = true;
     const attachments = files.map((f) => f.name!);
     deps.send({ t: "conv-send", req, windowId, conversation: to, text, ...(replace !== undefined ? { replace } : {}), ...(attachments.length > 0 ? { attachments } : {}) });
@@ -992,12 +1003,17 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
 
   function result(m: Extract<ServerMessage, { t: "conv-result" }>) {
+    const went = filesSent.get(m.req);
+    if (went) {
+      filesSent.delete(m.req);
+      // Sent: the files leave the tab's tray, even when the answer comes after the phone gave up on it or moved on.
+      if (m.ok) setAttached(went.tab, (attachedIn.get(went.tab) ?? []).filter((f) => !went.files.includes(f.id)));
+    }
     if (pending && m.req === pending.req) {
       const sent = pending;
       dropPending();
       if (m.ok) {
         if (input.value === sent.text) setTyped("");
-        if (windowId) setAttached(windowId, attachedNow().filter((f) => !sent.files.includes(f.id)));
       } else if (m.draft !== undefined) showDraft(m.draft, sent.text, sent.to, m.draftFingerprint ?? "unknown");
       else if (m.error) deps.toast(CONV_ERROR[m.error]);
       // Neither: the action threw, and an `error` message says why.
@@ -1123,6 +1139,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     onMessage,
     render(next) {
       sessions = next;
+      // Files attached in a tab that is gone are not sent anywhere: a tab made later may reuse its id.
+      if (next.length > 0) {
+        for (const tab of [...attachedIn.keys()]) if (!next.some((s) => s.windows.some((w) => w.id === tab))) attachedIn.delete(tab);
+      }
       if (windowId) paintHead();
     },
     compose(target, text) {
