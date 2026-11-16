@@ -182,14 +182,35 @@ if [ "$end_turn" = 1 ]; then
   esac
 fi
 
-# $PPID is recorded so the server can drop a stamp whose process has gone:
+# The agent's pid is recorded so the server can drop a stamp whose process has gone:
 # SessionEnd covers a clean exit, but a killed agent never fires it. The config
 # dir says which account the agent spends; unset means Claude's default. It
 # goes last because a path may hold spaces, and the server reads it to the end.
+#
+# The agent runs a hook as `sh -c '<command>'`. macOS's sh replaces itself with
+# the command, so $PPID is the agent; Debian's and Ubuntu's dash stays as its
+# parent and exits with it, and a stamp naming that shell reads as an agent
+# gone. So a shell parent is stepped past to its own parent, read from /proc
+# with builtins only. Without /proc (macOS) $PPID stands, as it is right there.
+pid=$PPID
+if read -r comm < "/proc/$PPID/comm" 2>/dev/null; then
+  case "$comm" in
+    sh|dash|bash|zsh)
+      if read -r stat < "/proc/$PPID/stat" 2>/dev/null; then
+        # "<pid> (<comm>) <state> <ppid> ...": past the last ") ", then the state.
+        rest=${stat##*) }
+        rest=${rest#* }
+        case "${rest%% *}" in
+          ''|*[!0-9]*) ;;
+          *) pid=${rest%% *} ;;
+        esac
+      fi ;;
+  esac
+fi
 if [ "$agent" = codex ]; then
   account=${CODEX_HOME:-$HOME/.codex}
 else
   account=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 fi
-tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $now $PPID $account" 2>/dev/null
+tmux set-option -p -t "$TMUX_PANE" @muxnexus_agent "$state $now $pid $account" 2>/dev/null
 exit 0

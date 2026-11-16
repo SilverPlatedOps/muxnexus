@@ -44,7 +44,26 @@ const option = async (name: string) =>
 const state = async () =>
   (await tmux.run(["show-options", "-p", "-v", "-t", pane, "@muxnexus_agent"]).catch(() => "")).trim().split(" ")[0];
 
+const stampPid = async () =>
+  Number((await tmux.run(["show-options", "-p", "-v", "-t", pane, "@muxnexus_agent"]).catch(() => "")).trim().split(" ")[2]);
+
 describe("agent-state.sh", () => {
+  test("the stamp names the agent that ran the hook, which the server checks is alive", async () => {
+    await fire("PreToolUse", { tool_name: "Bash" });
+    expect(await stampPid()).toBe(process.pid);
+  });
+
+  // Ubuntu's sh: `dash -c` stays as the hook's parent and exits with it, so
+  // naming it would read as the agent gone. Linux only: it is read from /proc.
+  test.skipIf(!existsSync("/proc/self/stat") || !Bun.which("dash"))("run through dash -c, the stamp names the agent, not the shell", async () => {
+    const p = Bun.spawn(["dash", "-c", `'${SCRIPT}' PreToolUse`], {
+      stdin: new Blob([JSON.stringify({ tool_name: "Bash" })]),
+      env: { ...process.env, TMUX: `${socket},0,0`, TMUX_PANE: pane },
+    });
+    expect(await p.exited).toBe(0);
+    expect(await stampPid()).toBe(process.pid);
+  });
+
   test("a turn that ends in an API error is over", async () => {
     await fire("UserPromptSubmit", {});
     await fire("StopFailure", { error: "rate_limit" });

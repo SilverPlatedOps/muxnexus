@@ -291,7 +291,22 @@ export type ClientMessage =
    * `conv-screen-result` for `req`, the screen after it.
    */
   | { t: "conv-key"; req: string; windowId: string; token: string; key: GenericKey }
+  /** This server's settings; answered with `settings`. */
+  | { t: "settings-get" }
+  /** Replace this server's settings: every browser is sent the new ones, or this one an `error` beside the old. */
+  | { t: "settings-save"; settings: ServerSettings }
+  /** The git checkouts in the settings' scan folders, for the New agent form; answered with `repos`. */
+  | { t: "repos" }
   | { t: "ping" };
+
+/**
+ * Settings that belong to the server rather than to one browser: saved in a
+ * file beside it, so every device sees the same.
+ */
+export interface ServerSettings {
+  /** Folders whose git checkouts the New agent form offers, one level down, as `~/github`. */
+  scanFolders: string[];
+}
 
 /** An agent already running in a tab, joining a chat. */
 export interface ChatJoin {
@@ -605,4 +620,8 @@ export type ServerMessage =
    * `error` when the key wasn't pressed (the screen had changed).
    */
   | { t: "conv-screen-result"; req: string; ansi: string; cols: number; rows: number; token: string; error?: ConvError }
+  /** This server's settings; `error` says why a save from this browser did not land. */
+  | { t: "settings"; settings: ServerSettings; error?: string }
+  /** Git checkouts as `~/github/shop-api`, sorted by name. */
+  | { t: "repos"; repos: string[] }
   | { t: "error"; message: string };
