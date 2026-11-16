@@ -483,16 +483,15 @@ function openReader(target: string) {
 function syncConversation() {
   if (current === null && desired && sessions.some((s) => s.name === desired)) return attach(desired, true);
   if (current === null) return;
-  let s = sessions.find((x) => x.name === current);
-  const renamed = s ? undefined : sessions.find((x) => convSessionId !== null && x.id === convSessionId);
-  if (renamed) {
+  // By its id first: a workspace renamed, and another then made under its old name, is still the one shown.
+  const s = convSessionId !== null ? sessions.find((x) => x.id === convSessionId) : sessions.find((x) => x.name === current);
+  if (s && s.name !== current) {
     // The same workspace under another name: follow it, the remembered pick too.
     if (desired === current) {
-      desired = renamed.name;
-      localStorage.setItem(SESSION_KEY, renamed.name);
+      desired = s.name;
+      localStorage.setItem(SESSION_KEY, s.name);
     }
-    current = renamed.name;
-    s = renamed;
+    current = s.name;
   }
   if (!s) {
     convView?.close();
