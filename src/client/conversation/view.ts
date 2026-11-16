@@ -7,6 +7,7 @@ import type { AgentInfo, ClientMessage, ServerMessage, SessionInfo, WindowInfo }
 import { formatElapsed, GLYPH, GLYPH_TITLE, needsYouCount, nextAttention, profileBadge, windowGlyph } from "../agent";
 import { workingDots } from "../chat/activity";
 import { renderMarkdown } from "../chat/markdown";
+import { copyText } from "../copy";
 import { badgesShown } from "../display";
 import { markdownPath } from "../file-links";
 import { isArchived, visualOrder } from "../groups";
@@ -315,34 +316,6 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   }
   const closeSheet = () => { sheet.hidden = true; };
   sheetClose.onclick = closeSheet;
-
-  /** Copies `text`: the clipboard API where the page may use it, else a hidden text box (plain http has no `navigator.clipboard`). */
-  async function copyText(text: string): Promise<boolean> {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-    } catch {
-      // Refused: try the text box.
-    }
-    const box = el("textarea");
-    box.value = text;
-    box.readOnly = true;
-    box.setAttribute("aria-hidden", "true");
-    box.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
-    document.body.append(box);
-    box.select();
-    box.setSelectionRange(0, text.length);
-    let ok = false;
-    try {
-      ok = document.execCommand("copy");
-    } catch {
-      ok = false;
-    }
-    box.remove();
-    return ok;
-  }
 
   const sheetNote = (text: string) => el("div", "conv-sheet-note", text);
 

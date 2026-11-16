@@ -10,6 +10,7 @@
  * text it is, the grid stepping aside while the caret is in it.
  */
 import { syntaxTree } from "@codemirror/language";
+import { copyText } from "./copy";
 import type { SyntaxNode } from "@lezer/common";
 import { type EditorState, Prec, type Range, StateEffect, StateField } from "@codemirror/state";
 import {
@@ -77,10 +78,11 @@ class CopyWidget extends WidgetType {
     b.setAttribute("aria-label", "Copy code");
     b.addEventListener("mousedown", (e) => e.preventDefault()); // the caret stays put
     b.addEventListener("click", () => {
-      navigator.clipboard.writeText(this.code).then(
-        () => { b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1200); },
-        () => { b.textContent = "Failed"; },
-      );
+      void copyText(this.code).then((ok) => {
+        if (!ok) { b.textContent = "Failed"; return; }
+        b.textContent = "Copied";
+        setTimeout(() => (b.textContent = "Copy"), 1200);
+      });
     });
     return b;
   }

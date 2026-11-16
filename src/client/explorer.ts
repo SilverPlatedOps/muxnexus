@@ -9,6 +9,7 @@
  * and a delete.
  */
 import type { NoteSummary } from "../shared/protocol";
+import { copyText } from "./copy";
 import { createNoteEditor } from "./note-editor";
 import { takesRemote } from "./notes";
 
@@ -217,10 +218,7 @@ export function createExplorer(root: HTMLElement, hooks: ExplorerHooks): Explore
     const copy = el("button", "btn", "Copy");
     copy.type = "button";
     copy.onclick = () => {
-      navigator.clipboard.writeText(editor.value).then(
-        () => hooks.toast("Note copied"),
-        () => hooks.toast("Copy failed: select the text instead"),
-      );
+      void copyText(editor.value).then((ok) => hooks.toast(ok ? "Note copied" : "Copy failed: select the text instead"));
     };
     actions.append(copy);
     if (confirming) {

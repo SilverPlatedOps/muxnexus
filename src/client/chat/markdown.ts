@@ -4,6 +4,7 @@
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { SyntaxNode } from "@lezer/common";
 import { SAFE_LINK } from "../live-markdown";
+import { copyText } from "../copy";
 import { fileTarget } from "../file-links";
 import { mentionParts } from "../../shared/chat";
 
@@ -134,8 +135,7 @@ export function renderMarkdown(text: string, windowId?: string): HTMLElement {
     if (n.text !== undefined) e.textContent = n.text;
     for (const c of n.children ?? []) e.append(dom(c));
     if (n.copy !== undefined) e.onclick = async () => {
-      try { await navigator.clipboard.writeText(n.copy!); e.textContent = "Copied"; }
-      catch { e.textContent = "Copy failed"; }
+      e.textContent = (await copyText(n.copy!)) ? "Copied" : "Copy failed";
       setTimeout(() => { e.textContent = "Copy"; }, 1500);
     };
     return e;
