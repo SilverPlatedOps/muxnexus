@@ -2755,3 +2755,10 @@ body.conv-mode { height: var(--app-height, 100%); }
   #conv, #tabs:not([hidden]) + #conv { border: 0; border-radius: 0; }
   .conv-head { padding-left: 12px; }
 }
+/* A phone's title bar keeps room for the name: the group it belongs to is in the drawer, a one-tab workspace keeps only
+   its status mark beside the name, and its New tab is in the ⋯ menu. */
+@media (max-width: 720px) {
+  #chip-name :is(.crumb-tag, .crumb-sep) { display: none; }
+  #top-solo .tab-new { display: none; }
+  #top-solo .tab.solo :is(.pbadge, .mem-chip, .shared-checkout, .note-mark, .panes) { display: none; }
+}
