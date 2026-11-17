@@ -673,6 +673,12 @@ test("80 columns: a plan approval with its question wrapped is a card; its feedb
   // The question's second row changed, or the footer not the plan's: another dialog.
   screenOf("claude", mangled("claude-plan-80col", "\x1b[38;5;246mproceed?", "\x1b[38;5;246mcontinue?"));
   screenOf("claude", mangled("claude-plan-80col", "\x1b[38;5;246mctrl+g", "\x1b[38;5;246mctrl+h"));
+  // A row under the footer that isn't its wrapped path: not the dialog.
+  screenOf("claude", mangled("claude-plan-80col", "engelbart.md", "engelbart.md\n Something unrelated"));
+  // The path itself wrapped onto a second row still is.
+  expect(claude("plan-80col").dialog!.fingerprint).toBe(card.fingerprint);
+  const wrapped = mangled("claude-plan-80col", "zany-swimming-engelbart.md", "zany-swimming-\n engelbart.md");
+  expect(adapterFor("claude").readPane(wrapped).dialog?.kind).toBe("plan");
 });
 
 test("80 columns: a question with its title and descriptions wrapped is a card without the title's `│`; multi-select is Screen's, as it is wide", () => {

@@ -289,7 +289,9 @@ function permission(lines: PaneLine[], texts: string[], field = false): Read | n
 /** With `field`, the dialog with its change request focused: the card as it read before, for its fingerprint. */
 function plan(lines: PaneLine[], texts: string[], field = false): Read | null {
   const foot = footerOf(texts);
-  if (!foot || !foot.text.startsWith(PLAN_FOOTER)) return null;
+  // The footer ends with the plan's file and nothing else (its rows, wrapped in a narrow pane, joined with no space):
+  // another row under it and it's another screen.
+  if (!foot || !foot.text.startsWith(PLAN_FOOTER) || !/^\S+\.md$/u.test(foot.text.slice(PLAN_FOOTER.length).replaceAll(" ", ""))) return null;
   const last = foot.at;
   const title = "Ready to code?";
   const head = findRowBack(texts, (t) => t.trim() === title, last);
