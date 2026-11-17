@@ -15,7 +15,7 @@ import { sessionLabel, tabLabel } from "../labels";
 import type { MenuAction, MenuItem } from "../menus";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
-import { isImagePath, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
+import { isImagePath, keepAttachments, keptAttachments, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
 import { SAFE_LINK } from "../live-markdown";
 import {
   clipAround, composedAs, type Composed, CONV_ERROR, foldSteps, hitShown, linkRows, mergeItems, pageFor, readForShown, runLine, sendAs, type Step, stepLine, stuckToBottom, workingLine, writtenElsewhere,
@@ -88,6 +88,25 @@ function loadTyped(): Map<string, Composed> {
 function saveTyped(typed: Map<string, Composed>) {
   try {
     sessionStorage.setItem(TYPED_KEY, JSON.stringify([...typed].filter(([, c]) => c.text.trim() !== "")));
+  } catch {
+    /* kept for as long as the page is */
+  }
+}
+
+/** Where the files attached in each tab and uploaded, not sent yet, are kept for this browser tab, as its words are. */
+const ATTACHED_KEY = "muxnexus.attached";
+
+function loadAttached(): [string, Omit<Attachment, "id">[]][] {
+  try {
+    return keptAttachments(JSON.parse(sessionStorage.getItem(ATTACHED_KEY) ?? "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function saveAttached(byTab: ReadonlyMap<string, readonly Attachment[]>) {
+  try {
+    sessionStorage.setItem(ATTACHED_KEY, JSON.stringify(keepAttachments(byTab)));
   } catch {
     /* kept for as long as the page is */
   }
@@ -178,9 +197,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let composed: Composed = { text: "", for: null };
   /** What was typed in each tab and not sent, with the conversation it was for: switching tabs keeps it, and a reload. */
   const typed = loadTyped();
-  /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them. */
+  /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them, and a reload the uploaded ones. */
   const attachedIn = new Map<string, Attachment[]>();
   let attachSeq = 0;
+  for (const [tab, files] of loadAttached()) attachedIn.set(tab, files.map((f) => ({ id: ++attachSeq, ...f })));
   /** Each send that took files, by its request id: the tab and the files, cleared from it once the send is done. */
   const filesSent = new Map<string, { tab: string; files: number[] }>();
   /** Send was pressed on words written for the conversation before: the line over the box asks before they go to this one. */
@@ -919,6 +939,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   function setAttached(tab: string, files: Attachment[]) {
     if (files.length > 0) attachedIn.set(tab, files);
     else attachedIn.delete(tab);
+    saveAttached(attachedIn);
     if (tab !== windowId) return;
     paintTray();
     paintSlot();
@@ -1224,7 +1245,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       sessions = next;
       // Files attached in a tab that is gone are not sent anywhere: a tab made later may reuse its id.
       if (next.length > 0) {
-        for (const tab of [...attachedIn.keys()]) if (!next.some((s) => s.windows.some((w) => w.id === tab))) attachedIn.delete(tab);
+        const goneFiles = [...attachedIn.keys()].filter((tab) => !next.some((s) => s.windows.some((w) => w.id === tab)));
+        for (const tab of goneFiles) attachedIn.delete(tab);
+        if (goneFiles.length > 0) saveAttached(attachedIn);
         // So are words typed there (kept across a reload, they could outlive it).
         const gone = [...typed.keys()].filter((tab) => !next.some((s) => s.windows.some((w) => w.id === tab)));
         for (const tab of gone) typed.delete(tab);
