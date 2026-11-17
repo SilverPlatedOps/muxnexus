@@ -159,6 +159,8 @@ test("the sheet's line adds up files and lines, unknown counts as none", () => {
     { path: "b", status: "untracked", added: null, removed: 0, binary: false },
     { path: "c", status: "untracked", added: null, removed: null, binary: true },
   ], 0)).toBe("3 files · +10 −4");
-  expect(changesLine([{ path: "a", status: "deleted", added: 0, removed: 2, binary: false }], 2)).toBe("3 files · +0 −2");
+  expect(changesLine([{ path: "a", status: "deleted", added: 0, removed: 2, binary: false }], 2)).toBe("3 files · +0 −2 in the 1 listed");
   expect(changesLine([{ path: "a", status: "added", added: 1, removed: 0, binary: false }], 0)).toBe("1 file · +1 −0");
+  // Files not listed: the lines are those of the listed ones, and it says so.
+  expect(changesLine([{ path: "a", status: "added", added: 5, removed: 1, binary: false }], 399)).toBe("400 files · +5 −1 in the 1 listed");
 });

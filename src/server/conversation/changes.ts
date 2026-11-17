@@ -95,8 +95,8 @@ export async function changesIn(cwd: string): Promise<ChangesResult> {
   if ("error" in repo) return repo;
   const { root, base } = repo;
   const [names, counts, others, branch] = await Promise.all([
-    git(root, ["diff", base, "--name-status", "-z", "--no-renames"]),
-    git(root, ["diff", base, "--numstat", "-z", "--no-renames"]),
+    git(root, ["diff", base, "--name-status", "-z", "--no-renames", "--no-textconv", "--no-ext-diff"]),
+    git(root, ["diff", base, "--numstat", "-z", "--no-renames", "--no-textconv", "--no-ext-diff"]),
     git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
     git(root, ["symbolic-ref", "--short", "-q", "HEAD"]),
   ]);
@@ -115,10 +115,12 @@ export async function changesIn(cwd: string): Promise<ChangesResult> {
   for (const [path, s] of status) if (!files.some((f) => f.path === path)) files.push({ path, status: s, added: 0, removed: 0, binary: false });
   const untracked = fields(others.out);
   const listed = Math.max(0, MAX_FILES - files.length);
-  for (const path of untracked.slice(0, listed)) {
-    const c = await countLines(join(root, path));
+  const shown = untracked.slice(0, listed);
+  const counted = await Promise.all(shown.map((path) => countLines(join(root, path))));
+  shown.forEach((path, i) => {
+    const c = counted[i]!;
     files.push({ path, status: "untracked", added: c.added, removed: c.binary ? null : 0, binary: c.binary });
-  }
+  });
   files.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
   const more = Math.max(0, files.length - MAX_FILES) + Math.max(0, untracked.length - listed) + (others.cut ? 1 : 0);
   return { root, branch: branch.ok && branch.out.trim() !== "" ? branch.out.trim() : null, files: files.slice(0, MAX_FILES), more };
@@ -150,7 +152,8 @@ export async function diffOf(cwd: string, path: string): Promise<DiffResult> {
   if ("error" in repo) return repo;
   const { root, base } = repo;
   const spec = `:(literal)${path}`;
-  const tracked = await git(root, ["diff", base, "--no-color", "--no-ext-diff", "--no-renames", "--", spec], MAX_DIFF_BYTES);
+  // No textconv or external diff: a repository's own config can name programs for those, and this only reads.
+  const tracked = await git(root, ["diff", base, "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--", spec], MAX_DIFF_BYTES);
   if (!tracked.ok) return { error: "git" };
   if (tracked.out !== "") {
     if (/^Binary files .* differ$/m.test(tracked.out) && !tracked.out.includes("\n@@")) return { diff: "", truncated: false, binary: true };

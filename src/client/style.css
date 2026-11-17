@@ -2666,13 +2666,16 @@ select.na-input:disabled { color: var(--dim); }
 .conv-screen-note { padding: 32px 0; color: var(--muted); text-align: center; }
 .conv-screen-keys {
   flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px;
-  padding: 8px 10px calc(8px + var(--safe-bottom)); border-top: 1px solid var(--line-soft); background: var(--chrome);
+  padding: 8px 10px; border-top: 1px solid var(--line-soft); background: var(--chrome);
 }
+/* The text box's slot keeps the home indicator's room (.conv-slot); a tab with no agent has none, so these do. */
+#conv:has(> .conv-slot[hidden]) .conv-screen-keys { padding-bottom: calc(8px + var(--safe-bottom)); }
+#conv:has(> .conv-slot[hidden]) .conv-sheet { padding-bottom: var(--safe-bottom); }
 .conv-screen-key { min-width: 0; height: 44px; padding: 0; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; color: var(--fg-strong); font: 700 13px var(--mono); cursor: pointer; }
 .conv-screen-key:active { background: var(--current); }
 
 /* Links and Search: one sheet over the list. A hit's item is marked for a moment once found. */
-.conv-sheet { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; padding-bottom: var(--safe-bottom); background: var(--term); }
+.conv-sheet { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; background: var(--term); }
 .conv-sheet[hidden] { display: none; }
 .conv-sheet-bar { flex: none; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 6px 4px 14px; border-bottom: 1px solid var(--line-soft); background: var(--chrome); }
 .conv-sheet-title { flex: 1; min-width: 0; color: var(--fg-strong); font-weight: 700; }

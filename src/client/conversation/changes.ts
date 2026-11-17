@@ -32,13 +32,21 @@ export function diffRows(diff: string): DiffRow[] {
   });
 }
 
-/** "3 files · +12 −4": the whole change in a line. */
+/** "3 files · +12 −4": the whole change in a line, or, with files not listed, the lines of those that are. */
 export function changesLine(files: readonly ChangedFile[], more: number): string {
   const n = files.length + more;
   const added = files.reduce((s, f) => s + (f.added ?? 0), 0);
   const removed = files.reduce((s, f) => s + (f.removed ?? 0), 0);
-  return `${n} file${n === 1 ? "" : "s"} · +${added} −${removed}`;
+  return `${n} file${n === 1 ? "" : "s"} · +${added} −${removed}${more > 0 ? ` in the ${files.length} listed` : ""}`;
 }
+
+/** What a diff with no lines means, for a file of this status. */
+const NO_LINES: Record<ChangedFile["status"], string> = {
+  added: "An empty file, added",
+  untracked: "An empty file",
+  deleted: "An empty file, deleted",
+  modified: "No lines changed: only the file's mode",
+};
 
 export const CHANGES_ERROR: Record<ChangesError, string> = {
   "no-folder": "This tab has no agent, so no folder to read",
@@ -119,6 +127,7 @@ export function createChanges(deps: { send: (m: ClientMessage) => void; windowId
     }
     s.append(mark, path, counts);
     const body = el("div", "conv-diff");
+    body.dataset.status = f.status;
     d.append(s, body);
     // Read when first opened; a file opened again shows what it read then (Refresh reads the list again).
     d.addEventListener("toggle", () => {
@@ -137,10 +146,14 @@ export function createChanges(deps: { send: (m: ClientMessage) => void; windowId
   }
 
   function drawDiff(body: HTMLElement, m: Extract<ServerMessage, { t: "conv-diff-result" }>) {
-    if (m.error) return body.replaceChildren(note(CHANGES_ERROR[m.error]));
+    if (m.error) {
+      // Opened again, it asks again.
+      delete body.dataset.asked;
+      return body.replaceChildren(note(CHANGES_ERROR[m.error]));
+    }
     if (m.binary) return body.replaceChildren(note("A binary file: no lines to show"));
     const rows = diffRows(m.diff);
-    if (rows.length === 0) return body.replaceChildren(note("No lines changed: only the file's mode"));
+    if (rows.length === 0) return body.replaceChildren(note(NO_LINES[(body.dataset.status ?? "modified") as ChangedFile["status"]]));
     // Long lines scroll sideways together, each row's colour as wide as the widest.
     const lines = el("div", "conv-diff-lines");
     const inner = el("div", "conv-diff-inner");
