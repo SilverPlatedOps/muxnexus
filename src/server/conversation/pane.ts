@@ -216,6 +216,8 @@ export interface PaneOption {
   row: number;
   /** The column its label starts at. */
   labelAt: number;
+  /** The column its number starts at: the same on every option of a list. */
+  numberAt: number;
 }
 
 const OPTION = /^(\s*)(?:(\S)(\s+))?(\d+)\.(\s+)(\S.*?)\s*$/u;
@@ -225,8 +227,9 @@ export function optionRow(text: string, marker: string, row = -1): PaneOption | 
   const m = OPTION.exec(text);
   if (!m) return null;
   if (m[2] !== undefined && m[2] !== marker) return null;
-  const labelAt = m[1]!.length + (m[2] ? m[2].length + m[3]!.length : 0) + m[4]!.length + 1 + m[5]!.length;
-  return { index: Number(m[4]), label: m[6]!, selected: m[2] === marker, row, labelAt };
+  const numberAt = m[1]!.length + (m[2] ? m[2].length + m[3]!.length : 0);
+  const labelAt = numberAt + m[4]!.length + 1 + m[5]!.length;
+  return { index: Number(m[4]), label: m[6]!, selected: m[2] === marker, row, labelAt, numberAt };
 }
 
 /**
@@ -239,6 +242,18 @@ export function optionRow(text: string, marker: string, row = -1): PaneOption | 
  * words, and every row after it up to `fieldTo` (the dialog's own end, found
  * from the bottom) is theirs, blank or indented under its label: a `1. …` or
  * a rule in the words is never read as the dialog's. Those rows are `field`.
+ *
+ * With `wraps`, a label too long for the pane continues on the rows right under
+ * it, indented to the label (the pane's own wrap: measured on Claude Code
+ * 2.1.326 at 80 and 46 columns, and Codex 0.167.1 at 80). Those rows join the
+ * label. Anything else under an option is not one, and a row that looks like an
+ * option but is numbered from another column is no list's (null): a wrapped
+ * label must never be read as another option, whose key would choose it. A
+ * number for `wraps` is the pane's width: a row one short of it broke a word in
+ * two (Claude Code 2.1.326 keeps its last column free), so its continuation
+ * joins with no space; so does one broken after a hyphen. Where a version
+ * wraps differently the join can be off by a space: the label is shown, never
+ * keyed on.
  */
 export function scanOptions(
   texts: string[],
@@ -246,28 +261,51 @@ export function scanOptions(
   marker: string,
   between: (text: string, prev: PaneOption) => boolean = () => false,
   fieldTo?: number,
+  wraps: boolean | number = false,
 ): { options: PaneOption[]; end: number; field?: { from: number; to: number } } | null {
   const options: PaneOption[] = [];
   let field: { from: number; to: number } | undefined;
   let i = from;
+  // The last row the previous option took (its own, or a wrapped one).
+  let tail = from - 1;
   for (; i < texts.length; i++) {
     const o = optionRow(texts[i]!, marker, i);
     if (o) {
+      if (wraps && options.length > 0 && o.numberAt !== options[0]!.numberAt) return null;
       options.push(o);
+      tail = i;
       if (o.selected && fieldTo !== undefined) {
         if (fieldTo <= i) return null;
         for (let k = i + 1; k < fieldTo; k++) if (!blank(texts[k]!) && indentOf(texts[k]!) < o.labelAt) return null;
         field = { from: i + 1, to: fieldTo };
         i = fieldTo - 1;
+        tail = i;
       }
       continue;
     }
     const prev = options[options.length - 1];
-    if (!prev || !between(texts[i]!, prev)) break;
+    if (!prev) break;
+    if (between(texts[i]!, prev)) { tail = i; continue; }
+    if (!wraps || i !== tail + 1 || blank(texts[i]!) || indentOf(texts[i]!) !== prev.labelAt) break;
+    const split = (typeof wraps === "number" && texts[i - 1]!.length === wraps - 1) || /[A-Za-z0-9]-$/u.test(texts[i - 1]!);
+    prev.label += `${split ? "" : " "}${texts[i]!.trim()}`;
+    tail = i;
   }
   if (options.length === 0 || options.some((o, k) => o.index !== k + 1)) return null;
   if (fieldTo !== undefined && !field) return null;
   return { options, end: i, ...(field ? { field } : {}) };
+}
+
+/**
+ * A dialog's footer, which wraps in a narrow pane: the filled rows at the bottom, back to a blank row, as one line
+ * (`at` is the first of them). Null with nothing on screen.
+ */
+export function footerOf(texts: string[]): { at: number; text: string } | null {
+  const last = lastFilled(texts);
+  if (last < 0) return null;
+  let at = last;
+  while (at > 0 && !blank(texts[at - 1]!)) at--;
+  return { at, text: texts.slice(at, last + 1).map((t) => t.trim()).join(" ") };
 }
 
 /** How far a row is indented. */

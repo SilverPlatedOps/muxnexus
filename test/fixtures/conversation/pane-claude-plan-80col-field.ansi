@@ -1,0 +1,40 @@
+[48;5;237m  [38;5;231mhaiku[39m
+  [38;5;231mMake a tiny plan to create hello.txt containing hi in this folder, then call [39m
+  [38;5;231mExitPlanMode. Keep the plan to three bullet lines; one bullet should be long [39m
+  [38;5;231menough to wrap across the screen.[39m
+[38;5;246m[49m  ⎿  [38;5;210mError: You are not in plan mode. To enter plan mode, call the EnterPlanMode
+[39m     [38;5;210mtool first. If your plan was already approved, continue with [39m
+     [38;5;210mimplementation.[39m
+
+[38;5;109m⏺[39m Entered plan mode
+  [38;5;246mClaude is exploring and planning an approach.[39m
+
+[38;5;75m⏺[39m [1mUpdated plan[0m
+[38;5;246m  ⎿  /plan to preview[39m
+
+[38;5;109m────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;153mReady to code?[0m
+
+ Here is Claude's plan:
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m [1;3;4mPlan: create hello.txt[0m
+
+ - Confirm hello.txt does not already exist in /private/tmp/claude-501/shop-api
+   so that creating it cannot overwrite anything the user already has in this
+   folder.
+ - Use the Write tool to create hello.txt in the working directory with the
+   single line "hi" followed by a trailing newline.
+ - Verify by reading hello.txt back and checking that it contains exactly "hi".
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+[38;5;109m────────────────────────────────────────────────────────────────────────────────
+[39m [38;5;246mClaude[39m [38;5;246mhas[39m [38;5;246mwritten[39m [38;5;246mup[39m [38;5;246ma[39m [38;5;246mplan[39m [38;5;246mand[39m [38;5;246mis[39m [38;5;246mready[39m [38;5;246mto[39m [38;5;246mexecute.[39m [38;5;246mWould[39m [38;5;246myou[39m [38;5;246mlike[39m [38;5;246mto[39m
+ [38;5;246mproceed?[39m
+
+   [38;5;246m1.[39m Yes, and use auto mode
+   [38;5;246m2.[39m Yes, manually approve edits
+ [38;5;153m❯[39m [38;5;246m3.[39m [2mTell Claude what to change[0m
+      [38;5;246mshift+tab[39m [38;5;246mto[39m [38;5;246mapprove[39m [38;5;246mwith[39m [38;5;246mthis[39m [38;5;246mfeedback[39m
+
+ [38;5;246mctrl+g[39m [38;5;246mto[39m [38;5;246medit[39m [38;5;246min[39m [38;5;246mVim[39m [38;5;246m·[39m [38;5;246m~/.claude/plans/zany-swimming-engelbart.md[39m
+

@@ -1,0 +1,40 @@
+
+[38;5;75m⏺[39m [1mBash[0m(touch narrow.txt)
+[38;5;246m [39m [38;5;246m⎿[39m [38;5;246m Done[39m
+
+[38;5;231m⏺[39m I ran [38;5;153mtouch[39m [38;5;153mnarrow.txt[39m once. It completed with no output, so [38;5;153mnarrow.txt[39m should
+  now exist in the working directory, [38;5;153m/private/tmp/claude-501/shop-api[39m. I
+  didn't check that the file exists afterward.
+
+[38;5;246m✻[39m [38;5;246mWorked[39m [38;5;246mfor[39m [38;5;246m5s[39m [38;5;246m·[39m [38;5;246mdone[39m [38;5;246m10:20[39m [38;5;246mAM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the Write tool once to create notes.txt containing the single line: hello[39m
+
+[38;5;75m[49m⏺[39m [1mWrite[0m(]8;id=1oq4ozu;file:///private/tmp/claude-501/shop-api/notes.txt\notes.txt]8;;\)
+[38;5;246m  ⎿  [39mWrote [1m1[0m line to [1m]8;id=1oq4ozu;file:///private/tmp/claude-501/shop-api/notes.txt\notes.txt[0m]8;;\
+     [2m 1 [0mhello
+
+[38;5;231m⏺[39m I created [38;5;153m/private/tmp/claude-501/shop-api/notes.txt[39m with one Write call. It
+  contains the single line "hello".
+
+[38;5;246m✻[39m [38;5;246mBaked for 3s · done 10:20 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the Edit tool once to change hello to hello world in notes.txt[39m
+
+[38;5;246m[49m⏺[39m [1mUpdate[0m(]8;id=1oq4ozu;file:///private/tmp/claude-501/shop-api/notes.txt\notes.txt]8;;\)
+
+[38;5;153m────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;153mEdit file[0m
+ [38;5;246mnotes.txt[39m
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[38;5;167m[48;5;52m 1 -[38;5;231mhello
+[38;5;74m[48;5;17m 1 +[38;5;231mhello[48;5;24m world[48;5;17m
+[38;5;239m[49m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m Do you want to make this edit to [1mnotes.txt[0m?
+ [38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mYes[39m
+   [38;5;246m2. [39mYes, and switch to [1maccept edits (auto-approve file edits and common file [0m
+      [1mcommands)[0m for this session [1m(shift+tab)[0m
+   [38;5;246m3. [39mNo
+
+ [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m [38;5;246m·[39m [38;5;246mTab[39m [38;5;246mto[39m [38;5;246mamend[39m
+

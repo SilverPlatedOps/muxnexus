@@ -1,0 +1,40 @@
+
+[38;5;246m✻[39m [38;5;246mChurned for 4s · done 10:21 AM[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with one single-select question asking [39m
+  [38;5;231m"Pick a colour" (header Colour) with options red, green, blue, each with a [39m
+  [38;5;231mshort description. Do nothing else.[39m
+
+[38;5;246m[49m⏺ [39mDeclined to answer Claude's questions:
+[38;5;246m  ⎿  · Pick a colour (Red / Green / Blue)[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with two questions. Q1 single-select: [39m
+  [38;5;231m"Which database engine should the shop-api service use for its order history [39m
+  [38;5;231mtables in production?" (header Database) with options "PostgreSQL" [39m
+  [38;5;231m(description: "Mature relational database with strong transactional [39m
+  [38;5;231mguarantees, JSON support and a very large ecosystem of tooling for [39m
+  [38;5;231mmigrations") and "SQLite" (description "Embedded single-file database, [39m
+  [38;5;231msimplest to run but limited concurrent writers"). Q2 multi-select: "Which [39m
+  [38;5;231mextras should we enable?" (header Extras) with options "Metrics" (description[39m
+  [38;5;231m"Prometheus"), "Tracing" (description "OpenTelemetry"), "A very long option [39m
+  [38;5;231mlabel that surely wraps across the narrow eighty column terminal width" [39m
+  [38;5;231m(description "Long"). Do nothing else.[39m
+[38;5;246m[49m────────────────────────────────────────────────────────────────────────────────
+[39m←  ☒ Database [38;5;16m[48;5;153m ☐ Extras [39m[49m ✔ Submit  →
+
+[1m[38;5;231mWhich extras should we enable?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [ ] [38;5;153mMetrics[39m
+         [38;5;246mPrometheus[39m
+  [38;5;246m2.[39m [ ] Tracing
+         [38;5;246mOpenTelemetry[39m
+  [38;5;246m3.[39m [ ] A very long option label that surely wraps across the narrow eighty
+         column terminal width
+         [38;5;246mLong[39m
+  [38;5;246m4.[39m [ ] [38;5;246mType something[39m
+     [1mSubmit[0m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246mTab/Arrow[39m [38;5;246mkeys[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m
+

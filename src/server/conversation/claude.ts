@@ -5,7 +5,7 @@ import type { Card, ConvItem, StepResult } from "../../shared/conversation";
 import type { ConvAdapter, KeyPlan } from "./adapter";
 import { afterHeader, clip, inputText, peerOf, plain, stepSummary, textOf } from "./items";
 import {
-  allDim, arrowsTo, beforeImages, blank, block, cardOption, findRow, findRowBack, fingerprint, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
+  allDim, arrowsTo, beforeImages, blank, block, cardOption, findRow, findRowBack, fingerprint, footerOf, highlighted, indentOf, isRule, lastFilled, lasting, nextFilled,
   optionRow, paneLines, rowKey, scanOptions, squeezed, UNREADABLE, type PaneLine, type PaneOption, type PaneRead,
 } from "./pane";
 
@@ -133,8 +133,9 @@ function rowItems(row: any): Out {
 //
 // The prompt is the box between the last two `───` rules. A dialog replaces
 // it, and each dialog is matched whole, anchored at the bottom of the screen:
-// any row out of place (a wrapped label, a focused text field, a changed
-// footer) and it's unrecognised. A dialog whose row for the user's words has
+// any row out of place (a focused text field, a changed footer, a row under
+// a label that isn't its wrap) and it's unrecognised. A narrow pane wraps its
+// own rows (a label under itself, a tip, a footer); only those wraps are read. A dialog whose row for the user's words has
 // focus is read on its own (`field`), as the same dialog, so an answer can
 // check its words go into that field and nowhere else.
 
@@ -213,10 +214,31 @@ function fieldWords(lines: PaneLine[], texts: string[], o: PaneOption, prefix: s
   return [texts[o.row]!.slice(at), ...rows.map((t) => t.slice(Math.min(indentOf(t), at)))].join("\n").trimEnd();
 }
 
+/** The rows after the tip, which a narrow pane wraps at the spaces: all of it, or the rows as they are when it isn't there. */
+function afterTip(rows: string[]): string[] {
+  let seen = "";
+  for (let k = 0; k < rows.length; k++) {
+    seen = k === 0 ? rows[0]! : `${seen} ${rows[k]}`;
+    if (seen === BASH_TIP) return rows.slice(k + 1);
+    if (!BASH_TIP.startsWith(seen)) break;
+  }
+  return rows;
+}
+
+/**
+ * What a command's description says: one row, or a wrapped one, every row of it under a `│ ` (measured on 2.1.326 at
+ * 80 and 46 columns; the question's own wrapped title wears it too). Null for any other rows.
+ */
+function describing(rows: string[]): string | null {
+  if (rows.length === 1) return rows[0]!;
+  return rows.length > 1 && rows.every((t) => t.startsWith("│ ")) ? rows.map((t) => t.slice(2).trim()).join(" ") : null;
+}
+
 /** With `field`, the dialog after Tab on its No row: the card as it read before, for its fingerprint. */
 function permission(lines: PaneLine[], texts: string[], field = false): Read | null {
-  const last = lastFilled(texts);
-  if (last < 0 || texts[last]!.trim() !== (field ? PERMISSION_FIELD_FOOTER : PERMISSION_FOOTER)) return null;
+  const foot = footerOf(texts);
+  if (!foot || foot.text !== (field ? PERMISSION_FIELD_FOOTER : PERMISSION_FOOTER)) return null;
+  const last = foot.at;
   const top = findRowBack(texts, rule, last);
   const head = top < 0 ? -1 : nextFilled(texts, top + 1, last);
   if (head < 0) return null;
@@ -228,7 +250,7 @@ function permission(lines: PaneLine[], texts: string[], field = false): Read | n
   const first = findRow(texts, option, close + 1, last);
   if (first < 0 || !PERMISSION_ASK.test(askBefore(texts, close + 1, first))) return null;
   // Focused, the No row's field runs down to the footer.
-  const scan = scanOptions(texts, first, "❯", undefined, field ? last : undefined);
+  const scan = scanOptions(texts, first, "❯", undefined, field ? last : undefined, texts[top]!.trim().length);
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const no = opts[opts.length - 1]!;
@@ -241,11 +263,12 @@ function permission(lines: PaneLine[], texts: string[], field = false): Read | n
   let detail = body;
   let description: string | undefined;
   if (title === "Bash command") {
-    // Between the title and the command: blank rows, the tip, and at most one row saying what the command does. It is
+    // Between the title and the command: blank rows, the tip, and at most one thing saying what the command does. It is
     // on the card and in the fingerprint (another description is another prompt); any other row, and it is Screen's.
-    const rows = texts.slice(head + 1, open).filter((t) => !blank(t)).map((t) => t.trim()).filter((t) => t !== BASH_TIP);
-    if (rows.length > 1 || rows[0]?.startsWith("Tip:")) return null;
-    description = rows[0];
+    const rows = afterTip(texts.slice(head + 1, open).filter((t) => !blank(t)).map((t) => t.trim()));
+    if (rows[0]?.startsWith("Tip:")) return null;
+    description = describing(rows) ?? undefined;
+    if (description === undefined && rows.length > 0) return null;
     if (description) parts.push(description);
   } else {
     // The file's path: the one row between the heading and the content.
@@ -265,8 +288,9 @@ function permission(lines: PaneLine[], texts: string[], field = false): Read | n
 
 /** With `field`, the dialog with its change request focused: the card as it read before, for its fingerprint. */
 function plan(lines: PaneLine[], texts: string[], field = false): Read | null {
-  const last = lastFilled(texts);
-  if (last < 0 || !texts[last]!.trim().startsWith(PLAN_FOOTER)) return null;
+  const foot = footerOf(texts);
+  if (!foot || !foot.text.startsWith(PLAN_FOOTER)) return null;
+  const last = foot.at;
   const title = "Ready to code?";
   const head = findRowBack(texts, (t) => t.trim() === title, last);
   if (head < 1 || !rule(texts[head - 1]!)) return null;
@@ -281,7 +305,7 @@ function plan(lines: PaneLine[], texts: string[], field = false): Read | null {
   // Focused, the change request's field runs down to its hint, the last one on screen (the words may quote it).
   const hint = field ? findRowBack(texts, (t) => t.trim() === PLAN_HINT, last) : -1;
   const between = (t: string, prev: PaneOption) => !field && prev.label === PLAN_FEEDBACK && t.trim() === PLAN_HINT;
-  const scan = scanOptions(texts, first, "❯", between, field ? hint + 1 : undefined);
+  const scan = scanOptions(texts, first, "❯", between, field ? hint + 1 : undefined, texts[head - 1]!.trim().length);
   if (!scan || nextFilled(texts, scan.end, last) >= 0) return null;
   const opts = scan.options;
   const feedback = opts[opts.length - 1]!;
@@ -324,8 +348,7 @@ function isChip(lines: PaneLine[], texts: string[], row: number): boolean {
 }
 
 /** Where the questions' header row is, and which question of how many shows: the tab bar's lit tab, or the one chip. */
-function questionHeader(lines: PaneLine[], texts: string[], last: number, field: boolean): { bar: number; at: number; of: number } | null {
-  const footer = texts[last]!.trim();
+function questionHeader(lines: PaneLine[], texts: string[], last: number, footer: string, field: boolean): { bar: number; at: number; of: number } | null {
   if (footer === (field ? QUESTION_FIELD_FOOTER : QUESTION_FOOTER)) {
     const bar = findRowBack(texts, isTabBar, last);
     const tabs = bar < 0 ? null : tabBar(lines[bar]!);
@@ -342,13 +365,16 @@ function questionHeader(lines: PaneLine[], texts: string[], last: number, field:
 
 /** With `field`, the question with "Type something." focused: the card as it read before, for its fingerprint. */
 function question(lines: PaneLine[], texts: string[], field = false): Read | null {
-  const last = lastFilled(texts);
-  const header = last < 0 ? null : questionHeader(lines, texts, last, field);
+  const foot = footerOf(texts);
+  const last = foot?.at ?? -1;
+  const header = foot ? questionHeader(lines, texts, last, foot.text, field) : null;
   if (!header) return null;
   const { bar, at, of } = header;
   const first = findRow(texts, option, bar + 1, last);
   if (at === 0 || first < 0) return null;
-  const title = block(texts, bar + 1, first, 0);
+  // A title wrapped in a narrow pane wears a `│ ` on each row, as a command's description does.
+  const quoted = texts.slice(bar + 1, first).filter((t) => !blank(t)).every((t) => t.startsWith("│ "));
+  const title = block(texts, bar + 1, first, 0).split("\n").map((t) => (quoted ? t.replace(/^│ /u, "") : t)).join("\n");
   // Under each option its description, indented to the label; a rule sets "Chat about this" apart. Focused, the field
   // of "Type something." runs down to that rule, over the last option on screen.
   const fieldTo = field ? findRowBack(texts, option, last) - 1 : undefined;
@@ -414,8 +440,9 @@ const TRUST_ROW = /^ ([❯ ]) (\S.*)$/u;
  * number, which the arrows count from.
  */
 function trust(texts: string[]): Card | null {
-  const last = lastFilled(texts);
-  if (last < 0 || texts[last]!.trim() !== TRUST_FOOTER) return null;
+  const foot = footerOf(texts);
+  if (!foot || foot.text !== TRUST_FOOTER) return null;
+  const last = foot.at;
   const head = findRowBack(texts, (t) => t.trim() === TRUST_HEAD, last);
   if (head < 0) return null;
   // The list: the filled rows right above the footer, back to a blank one.

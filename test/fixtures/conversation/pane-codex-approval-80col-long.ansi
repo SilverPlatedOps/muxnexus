@@ -1,0 +1,40 @@
+[48;5;8m
+
+[2m[49m• [0mI’ll run [38;2;166;227;161mtouch probe.txt[39m with the requested escalation and justification.
+
+[38;5;1m✗ [39mYou [1mcanceled[0m the request to run [2mtouch probe.txt[0m
+
+[1m[38;5;1m•[0m [1mRan[0m [38;2;137;180;250mtouch[38;2;205;214;244m probe.txt[39m
+[2m  └ (no output)[0m
+
+■ Conversation interrupted - use /feedback if something went wrong
+
+[48;5;8m
+[1;2m› [0m[48;5;8mRun the shell command: touch probe-with-a-very-long-file-name-number-one.txt
+  probe-with-a-very-long-file-name-number-two.txt probe-three.txt   using
+  sandbox_permissions require_escalated, justification: create files
+
+
+[2m[49m• [0mI’ll run the command with the requested escalation and justification.
+
+[1m[38;2;128;128;128m•[0m [1mRunning[0m [38;2;137;180;250mtouch[38;2;205;214;244m probe-with-a-very-long-file-name-number-one.txt[39m
+[2m  │ [0m[38;2;205;214;244mprobe-with-a-very-long-file-name-number-two.txt probe-three.txt[39m
+
+
+  [1mWould you like to run the following command?[0m
+
+  Environment: [1mlocal
+[0m
+  Reason: [3mcreate files[0m
+
+  $ [38;2;137;180;250mtouch[38;2;205;214;244m probe-with-a-very-long-file-name-number-one.txt[39m
+  [38;2;205;214;244mprobe-with-a-very-long-file-name-number-two.txt probe-three.txt[39m
+
+
+[1;7m› 1. Yes, proceed (y)
+[0m  2. Yes, and don't ask again for commands that start with `touch probe-with-a-
+     very-long-file-name-number-one.txt probe-with-a-very-long-file-name-number-
+     two.txt probe-three.txt` ([1mp[0m)
+  3. No, and tell Codex what to do differently ([1mesc[0m)
+
+  [2mPress [0;1menter[0;2m to confirm or [0;1mesc[0;2m to cancel
