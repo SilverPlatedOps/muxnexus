@@ -18,7 +18,7 @@ import { makeResizable, makeSplit } from "./resize";
 import { crumb, tabLabel } from "./labels";
 import { applyPendingOrder, orderSatisfied } from "./reorder";
 import { badgedLabels, renderUsage } from "./usage";
-import { followWorkspaces, memoryShown, openDisplay, setWorkspaceView, workspaceView, type DeviceView, type DisplayHandle } from "./display";
+import { followWorkspaces, memoryShown, offersViewSwitch, openDisplay, setWorkspaceView, workspaceView, type DeviceView, type DisplayHandle } from "./display";
 import { conversationWindow, TERMINAL_MESSAGES, withLocalActive } from "./conversation/model";
 import { createConversationView } from "./conversation/view";
 import { createReader, type Reader } from "./reader";
@@ -662,9 +662,9 @@ topMenu.onclick = () => {
   if (current) menus.session(current, topMenu, withViewSwitch(convView && onPhone() && !chatting() ? convView.tools() : undefined));
 };
 
-/** The title bar's switch to the other view, first, on a touch device (or one already showing conversations). */
+/** The title bar's switch to the other view, first, wherever chat is in use on this device (`offersViewSwitch`). */
 function withViewSwitch(tools: MenuExtra | undefined): MenuExtra | undefined {
-  if (!convMode && navigator.maxTouchPoints === 0) return tools;
+  if (!offersViewSwitch(pageView)) return tools;
   return {
     items: [{ action: "switch-view", label: convMode ? "Show as terminal" : "Show as chat", hint: "this workspace" }, ...(tools?.items ?? [])],
     pick: (action) => (action === "switch-view" ? (switchView(), true) : tools?.pick(action) ?? false),
