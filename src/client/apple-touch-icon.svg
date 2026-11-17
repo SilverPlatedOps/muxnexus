@@ -1,0 +1,11 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- The home-screen icon: favicon.svg's mark, full bleed (iOS rounds the corners itself). apple-touch-icon.png is this, drawn at 180 x 180 in a browser. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <rect width="180" height="180" fill="#171a1f"/>
+  <g transform="translate(90 90) scale(4.4) translate(-16 -16)">
+    <path d="m8 8 16 16M8 24 24 8" stroke="#61afef" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+    <g fill="#61afef"><circle cx="8" cy="8" r="3"/><circle cx="24" cy="8" r="3"/><circle cx="8" cy="24" r="3"/><circle cx="24" cy="24" r="3"/></g>
+    <circle cx="16" cy="16" r="5" fill="#171a1f"/>
+    <circle cx="16" cy="16" r="3" fill="#98c379"/>
+  </g>
+</svg>

@@ -1,0 +1,40 @@
+[48;5;237m  [38;5;231m"Which database engine should the shop-api service use for its order history [39m
+  [38;5;231mtables in production?" (header Database) with options "PostgreSQL" [39m
+  [38;5;231m(description: "Mature relational database with strong transactional [39m
+  [38;5;231mguarantees, JSON support and a very large ecosystem of tooling for [39m
+  [38;5;231mmigrations") and "SQLite" (description "Embedded single-file database, [39m
+  [38;5;231msimplest to run but limited concurrent writers"). Q2 multi-select: "Which [39m
+  [38;5;231mextras should we enable?" (header Extras) with options "Metrics" (description[39m
+  [38;5;231m"Prometheus"), "Tracing" (description "OpenTelemetry"), "A very long option [39m
+  [38;5;231mlabel that surely wraps across the narrow eighty column terminal width" [39m
+  [38;5;231m(description "Long"). Do nothing else.[39m
+
+[38;5;246m[49m⏺ [39mDeclined to answer Claude's questions:
+[38;5;246m  ⎿  · Which database engine should the shop-api service use for its order [39m
+     [38;5;246mhistory tables in production? (PostgreSQL / SQLite)[39m
+     [38;5;246m· Which extras should we enable? (Metrics / Tracing / A very long option [39m
+     [38;5;246mlabel that surely wraps across the narrow eighty column terminal width)[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with one single-select question "Pick a [39m
+  [38;5;231mdeployment strategy" (header Deploy) with options "Roll out gradually to ten [39m
+  [38;5;231mpercent of the fleet, then watch the dashboards before continuing" [39m
+  [38;5;231m(description "Safer"), "Blue green" (description "Fast switch between two [39m
+  [38;5;231mcomplete production environments with an instant rollback path available"). [39m
+  [38;5;231mDo nothing else.[39m
+[38;5;246m[49m────────────────────────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Deploy [39m[49m
+
+[1m[38;5;231mPick a deployment strategy[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mRoll out gradually to ten percent of the fleet, then watch the dashboards [39m
+     [38;5;153mbefore continuing[39m
+     [38;5;246mSafer[39m
+  [38;5;246m2.[39m Blue green
+     [38;5;246mFast[39m [38;5;246mswitch[39m [38;5;246mbetween[39m [38;5;246mtwo[39m [38;5;246mcomplete[39m [38;5;246mproduction[39m [38;5;246menvironments[39m [38;5;246mwith[39m [38;5;246man[39m [38;5;246minstant[39m
+     [38;5;246mrollback[39m [38;5;246mpath[39m [38;5;246mavailable[39m
+  [38;5;246m3.[39m [38;5;246mType[39m [38;5;246msomething.
+────────────────────────────────────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m
+

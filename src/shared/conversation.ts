@@ -60,3 +60,17 @@ export interface Card {
  */
 export type ConvError = "another-conversation" | "prompt-changed" | "waiting" | "no-agent" | "working" | "unsent" | "attachment";
 export type GenericKey = "1" | "2" | "3" | "4" | "5" | "Enter" | "Escape" | "Up" | "Down" | "Tab";
+
+/**
+ * A file in the uncommitted changes of the folder a tab's agent works in (the Changes sheet), against the last
+ * commit. `untracked`: new and not added to git yet. A count is null when it is not known (an untracked file too
+ * large to count); a binary file has none.
+ */
+export interface ChangedFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "untracked";
+  added: number | null;
+  removed: number | null;
+  binary: boolean;
+}
+export type ChangesError = "no-folder" | "not-git" | "git" | "gone";

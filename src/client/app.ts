@@ -1340,6 +1340,9 @@ if (convMode) paintMain();
 if (convMode && window.visualViewport) {
   const vv = window.visualViewport;
   const fit = () => {
+    // Up, the keyboard covers the home indicator: the text box needs no room kept for it (style.css --safe-bottom).
+    // Read zoomed or not, so a keyboard put away while zoomed gives the room back.
+    document.documentElement.classList.toggle("keyboard-up", window.innerHeight - vv.height * vv.scale > 150);
     // Pinch-zoomed, the visible part is smaller for another reason: the page keeps its size, and pans as zoom does.
     if (Math.abs(vv.scale - 1) > 0.01) return;
     document.documentElement.style.setProperty("--app-height", `${Math.round(vv.height)}px`);
@@ -1351,3 +1354,8 @@ if (convMode && window.visualViewport) {
 }
 
 conn.connect();
+// Added to a home screen the page has no reload: back from the background, a socket that closed meanwhile is
+// opened again at once, not after the backoff. (One iOS left looking open is found dead by the next ping.)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") conn.retryNow();
+});

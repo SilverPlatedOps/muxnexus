@@ -1,0 +1,35 @@
+[38;5;246m  ⎿  Interrupted · What should Claude do inst…
+
+[48;5;237m❯ [38;5;231mUse the Write tool once to create [39m
+  [38;5;231msrc/zz2.txt containing the single line: [39m
+  [38;5;231mhello[39m
+[49m
+[38;5;210m⏺[39m [1mWrite[0m(]8;id=141r2kk;file:///private/tmp/claude-501/shop-n81/services/orders-service/src/main/java/com/example/shop/infrastructure/src/zz2.txt\src/zz2.txt]8;;\)
+[38;5;246m  ⎿  Rejected write to [1m]8;id=141r2kk;file:///private/tmp/claude-501/shop-n81/services/orders-service/src/main/java/com/example/shop/infrastructure/src/zz2.txt\src/zz2.txt[0m]8;;\
+     [2m 1 hello[0m
+
+[38;5;246m[48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with one [39m
+  [38;5;231msingle-select question "Pick a deployment [39m
+  [38;5;231mstrategy for the orders service" (header [39m
+  [38;5;231mDeploy) with options "Rolling" (description[39m
+  [38;5;231m"Gradual rollout across the fleet with [39m
+  [38;5;231mchecks"), "Blue green" (description "Fast [39m
+  [38;5;231mswitch"). Do nothing else.[39m
+[38;5;246m[49m──────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Deploy [39m[49m
+
+[1m[38;5;231mPick a deployment strategy for the orders [0m
+[1m[38;5;231mservice[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mRolling[39m
+     [38;5;246mGradual rollout across the fleet with [39m
+     [38;5;246mchecks[39m
+  [38;5;246m2.[39m Blue green
+     [38;5;246mFast[39m [38;5;246mswitch[39m
+  [38;5;246m3.[39m [38;5;246mType[39m [38;5;246msomething.[39m
+[38;5;246m──────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m
+[38;5;246mcancel[39m
+

@@ -15,7 +15,8 @@ import { sessionLabel, tabLabel } from "../labels";
 import type { MenuAction, MenuItem } from "../menus";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
-import { isImagePath, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
+import { createChanges } from "./changes";
+import { isImagePath, keepAttachments, keptAttachments, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
 import { SAFE_LINK } from "../live-markdown";
 import {
   clipAround, composedAs, type Composed, CONV_ERROR, foldSteps, hitShown, linkRows, mergeItems, pageFor, readForShown, runLine, sendAs, type Step, stepLine, stuckToBottom, workingLine, writtenElsewhere,
@@ -88,6 +89,25 @@ function loadTyped(): Map<string, Composed> {
 function saveTyped(typed: Map<string, Composed>) {
   try {
     sessionStorage.setItem(TYPED_KEY, JSON.stringify([...typed].filter(([, c]) => c.text.trim() !== "")));
+  } catch {
+    /* kept for as long as the page is */
+  }
+}
+
+/** Where the files attached in each tab and uploaded, not sent yet, are kept for this browser tab, as its words are. */
+const ATTACHED_KEY = "muxnexus.attached";
+
+function loadAttached(): [string, Omit<Attachment, "id">[]][] {
+  try {
+    return keptAttachments(JSON.parse(sessionStorage.getItem(ATTACHED_KEY) ?? "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function saveAttached(byTab: ReadonlyMap<string, readonly Attachment[]>) {
+  try {
+    sessionStorage.setItem(ATTACHED_KEY, JSON.stringify(keepAttachments(byTab)));
   } catch {
     /* kept for as long as the page is */
   }
@@ -178,9 +198,10 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   let composed: Composed = { text: "", for: null };
   /** What was typed in each tab and not sent, with the conversation it was for: switching tabs keeps it, and a reload. */
   const typed = loadTyped();
-  /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them. */
+  /** The files attached in each tab and not sent yet, uploading or uploaded: switching tabs keeps them, and a reload the uploaded ones. */
   const attachedIn = new Map<string, Attachment[]>();
   let attachSeq = 0;
+  for (const [tab, files] of loadAttached()) attachedIn.set(tab, files.map((f) => ({ id: ++attachSeq, ...f })));
   /** Each send that took files, by its request id: the tab and the files, cleared from it once the send is done. */
   const filesSent = new Map<string, { tab: string; files: number[] }>();
   /** Send was pressed on words written for the conversation before: the line over the box asks before they go to this one. */
@@ -224,7 +245,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const backBtn = button("conv-new conv-back", "Back to latest ↓");
   backBtn.hidden = true;
 
-  // Links and Search share one sheet over the list.
+  // Links, Search and Changes share one sheet over the list.
   const sheet = el("section", "conv-sheet");
   sheet.hidden = true;
   const sheetBar = el("div", "conv-sheet-bar");
@@ -234,7 +255,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const linksPane = el("div", "conv-sheet-pane");
   const searchPane = el("div", "conv-sheet-pane");
   const sheetBody = el("div", "conv-sheet-body");
-  sheetBody.append(linksPane, searchPane);
+  const changes = createChanges({ send: (m) => deps.send(m), windowId: () => windowId });
+  sheetBody.append(linksPane, searchPane, changes.pane);
   sheet.append(sheetBar, sheetBody);
   const main = el("div", "conv-main");
   main.append(body, newBtn, backBtn, screenView.el, sheet);
@@ -313,12 +335,18 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     { action: "screen", label: "Screen", hint: "the terminal, read-only" },
     { action: "links", label: "Links" },
     { action: "search", label: "Search" },
+    { action: "changes", label: "Changes", hint: "uncommitted, in its folder" },
   ];
   /** A pick from the conversation's own items; false for any other action. */
   function pickTool(action: MenuAction): boolean {
     if (action === "screen") showScreen();
     else if (action === "links") showLinks();
     else if (action === "search") showSearch();
+    else if (action === "changes") {
+      if (!windowId) return true;
+      openSheet("Changes", changes.pane);
+      changes.show();
+    }
     else if (action === "note") { if (windowId) deps.openNote(windowId); }
     else return false;
     return true;
@@ -344,6 +372,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     sheetTitle.textContent = title;
     linksPane.hidden = pane !== linksPane;
     searchPane.hidden = pane !== searchPane;
+    changes.pane.hidden = pane !== changes.pane;
     sheet.hidden = false;
   }
   const closeSheet = () => { sheet.hidden = true; };
@@ -919,6 +948,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   function setAttached(tab: string, files: Attachment[]) {
     if (files.length > 0) attachedIn.set(tab, files);
     else attachedIn.delete(tab);
+    saveAttached(attachedIn);
     if (tab !== windowId) return;
     paintTray();
     paintSlot();
@@ -1144,6 +1174,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
           drawHits(m);
         }
         return true;
+      case "conv-changes-result":
+      case "conv-diff-result":
+        return changes.onMessage(m);
       case "conv-links-result":
         if (linksReq === m.req && readForShown(m, { windowId, conversation })) {
           linksReq = null;
@@ -1224,7 +1257,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
       sessions = next;
       // Files attached in a tab that is gone are not sent anywhere: a tab made later may reuse its id.
       if (next.length > 0) {
-        for (const tab of [...attachedIn.keys()]) if (!next.some((s) => s.windows.some((w) => w.id === tab))) attachedIn.delete(tab);
+        const goneFiles = [...attachedIn.keys()].filter((tab) => !next.some((s) => s.windows.some((w) => w.id === tab)));
+        for (const tab of goneFiles) attachedIn.delete(tab);
+        if (goneFiles.length > 0) saveAttached(attachedIn);
         // So are words typed there (kept across a reload, they could outlive it).
         const gone = [...typed.keys()].filter((tab) => !next.some((s) => s.windows.some((w) => w.id === tab)));
         for (const tab of gone) typed.delete(tab);

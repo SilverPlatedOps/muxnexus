@@ -347,8 +347,15 @@ test("an unknown Codex dialog is never read as the composer", () => {
   expect(adapterFor("codex").readPane(pane)).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
 });
 
-test("a wrapped dialog fails closed", () => {
-  expect(claude("bash-permission-60col")).toEqual({ dialog: null, unrecognised: true, draft: "unknown", working: false });
+test("a dialog wrapped in a 60-column pane (2.1.322): its tip over three rows and an option's label over two are read", () => {
+  const card = claude("bash-permission-60col").dialog!;
+  expect(card).toMatchObject({ kind: "permission", title: "Bash command", description: "Create empty file narrow.txt", detail: "touch narrow.txt", selected: 1 });
+  expect(card.options.map((o) => [o.index, o.label])).toEqual([
+    [1, "Yes"],
+    [2, "Yes, and always allow access to /private/tmp/claude-501/cvt3 from this project"],
+    [3, "Yes, and switch to auto mode · auto mode handles these prompts for you"],
+    [4, "No"],
+  ]);
 });
 
 test("dialogs no adapter knows, and panes that aren't an agent's, fail closed", () => {
@@ -578,4 +585,186 @@ test("Codex's trust question is a trust card; the update notice before it, and i
   expect(codex("update")).toMatchObject({ dialog: null, unrecognised: true });
   // Trusted, it waits at its empty prompt.
   expect(codex("fresh")).toMatchObject({ dialog: null, unrecognised: false, draft: "empty", working: false });
+});
+
+// --- Narrow panes ---
+//
+// Measured on Claude Code 2.1.326 at 80 and 46 columns and Codex 0.167.1 at 80, in a scratch tmux. The agents wrap their own
+// rows (`capture-pane -J` joins nothing: the rows are written separately, only padded). A label too long for the pane
+// carries on in the rows under it, indented to the label; a Bash command's tip and description, a plan's question and a
+// dialog's footer wrap at the spaces; a wrapped description or question title wears a `│ ` on each row.
+
+const claudeKeys = (c: Parameters<ReturnType<typeof adapterFor>["keysFor"]>[0], o: number) => adapterFor("claude").keysFor(c, o, false)?.keys;
+const mangled = (name: string, from: string, to: string) => {
+  const text = raw(name);
+  expect(text).toContain(from);
+  return text.replace(from, to);
+};
+const screenOf = (kind: "claude" | "codex", ansi: string) => expect(adapterFor(kind).readPane(ansi)).toMatchObject({ dialog: null, unrecognised: true });
+const choices = (c: { options: { index: number; label: string }[] }) => c.options.map((o) => [o.index, o.label]);
+
+test("80 columns: a Bash prompt with a wrapped tip, description and option is a card; each option keeps its row's number", () => {
+  const r = claude("bash-permission-80col");
+  expect(r.unrecognised).toBe(false);
+  const card = r.dialog!;
+  expect(card).toMatchObject({
+    kind: "permission", title: "Bash command", detail: "touch zz1.txt", selected: 1, fingerprint: anyPrint,
+    description: "Create an empty marker file called zz1.txt in the current folder so that later experiments can confirm the file exists",
+  });
+  expect(choices(card)).toEqual([
+    [1, "Yes"],
+    [2, "Yes, and always allow access to /private/tmp/claude-501/shop-n80 from this project"],
+    [3, "Yes, and switch to auto mode · auto mode handles these prompts for you"],
+    [4, "No"],
+  ]);
+  expect(card.options.map((o) => !!o.secondary)).toEqual([false, true, true, false]);
+  // The digit is the row's own, wrapped or not: the wrapped option 2 is not option 3.
+  for (const o of [1, 2, 3, 4]) expect(claudeKeys(card, o)).toEqual([String(o)]);
+  // Only a tip and a one-row description: the same layout, the tip alone wrapped.
+  const short = claude("bash-permission-80col-short").dialog!;
+  expect(short).toMatchObject({ kind: "permission", description: "Create empty file narrow.txt", detail: "touch narrow.txt" });
+  expect(choices(short)[1]).toEqual([2, "Yes, and always allow access to /private/tmp/claude-501/shop-api from this project"]);
+});
+
+test("80 columns: a wrapped option that is not exactly a wrap is Screen's, never another option", () => {
+  const cont = "      this project";
+  const bash = "claude-bash-permission-80col";
+  // Indented one short, or after a blank row: not the label's rows.
+  screenOf("claude", mangled(bash, cont, "     this project"));
+  screenOf("claude", mangled(bash, cont, "\n" + cont));
+  // Looks like an option, numbered from another column: a wrapped label must never become the next choice.
+  screenOf("claude", mangled(bash, cont, "      3. this project"));
+  screenOf("claude", mangled(bash, cont, "   3. this project"));
+  // A row under the label that is not at its indent.
+  screenOf("claude", mangled(bash, cont, cont + "\n       always allow everything"));
+  screenOf("claude", mangled(bash, cont, cont + "\n always allow everything"));
+  // A tip that is not the tip, a description row without its `│`, or a row more than the description.
+  screenOf("claude", mangled(bash, " \x1b[1mbelow\x1b[0m\n", " \x1b[1mbelow and more\x1b[0m\n"));
+  screenOf("claude", mangled(bash, "\x1b[2m│\x1b[0m \x1b[38;5;246mlater", " \x1b[38;5;246mlater"));
+  screenOf("claude", mangled(bash, " \x1b[1mbelow\x1b[0m\n", " \x1b[1mbelow\x1b[0m\n Warning: this command writes outside the project\n"));
+  // The footer with a row more under it.
+  screenOf("claude", mangled(bash, "Tab\x1b[39m \x1b[38;5;246mto\x1b[39m \x1b[38;5;246mamend", "Tab\x1b[39m \x1b[38;5;246mto\x1b[39m \x1b[38;5;246mamend\n Something else"));
+});
+
+test("80 columns: Write and Edit prompts read their wrapped second option; the field of a No after Tab is the dialog's", () => {
+  for (const [name, title] of [["write-permission-80col", "Create file"], ["edit-permission-80col", "Edit file"]] as const) {
+    const card = claude(name).dialog!;
+    expect(card).toMatchObject({ kind: "permission", title, selected: 1 });
+    expect(choices(card)).toEqual([[1, "Yes"], [2, "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)"], [3, "No"]]);
+    expect(card.options.map((o) => !!o.takesText)).toEqual([false, false, true]);
+    expect(claudeKeys(card, 3)).toEqual(["3"]);
+  }
+  expect(claude("write-permission-80col").dialog!.detail).toBe("notes.txt\n 1 hello");
+  // A wrapped label and a No row holding the user's words, Tab pressed: the same dialog read as a field.
+  const field = claude("bash-permission-80col-field");
+  expect(field).toMatchObject({ dialog: null, unrecognised: true, field: { text: "not now", fingerprint: anyPrint } });
+  screenOf("claude", mangled("claude-bash-permission-80col-field", "      project", "     project"));
+});
+
+test("80 columns: a plan approval with its question wrapped is a card; its feedback row focused is its field", () => {
+  const r = claude("plan-80col");
+  expect(r.unrecognised).toBe(false);
+  const card = r.dialog!;
+  expect(card).toMatchObject({ kind: "plan", title: "Ready to code?", selected: 1 });
+  expect(choices(card)).toEqual([[1, "Yes, and use auto mode"], [2, "Yes, manually approve edits"], [3, "Tell Claude what to change"]]);
+  expect(card.detail).toContain("- Use the Write tool to create hello.txt in the working directory with the\n  single line");
+  expect(claudeKeys(card, 2)).toEqual(["2"]);
+  expect(claude("plan-80col-field").field).toEqual({ fingerprint: card.fingerprint, text: "" });
+  // The question's second row changed, or the footer not the plan's: another dialog.
+  screenOf("claude", mangled("claude-plan-80col", "\x1b[38;5;246mproceed?", "\x1b[38;5;246mcontinue?"));
+  screenOf("claude", mangled("claude-plan-80col", "\x1b[38;5;246mctrl+g", "\x1b[38;5;246mctrl+h"));
+  // A row under the footer that isn't its wrapped path: not the dialog.
+  screenOf("claude", mangled("claude-plan-80col", "engelbart.md", "engelbart.md\n Something unrelated"));
+  // The path itself wrapped onto a second row still is.
+  expect(claude("plan-80col").dialog!.fingerprint).toBe(card.fingerprint);
+  const wrapped = mangled("claude-plan-80col", "zany-swimming-engelbart.md", "zany-swimming-\n engelbart.md");
+  expect(adapterFor("claude").readPane(wrapped).dialog?.kind).toBe("plan");
+});
+
+test("80 columns: a question with its title and descriptions wrapped is a card without the title's `│`; multi-select is Screen's, as it is wide", () => {
+  const card = claude("question-80col").dialog!;
+  expect(card).toMatchObject({ kind: "question", question: { at: 1, of: 2 }, selected: 1 });
+  expect(card.title).toBe("Which database engine should the shop-api service use for its order history\ntables in production?");
+  expect(card.options[0]).toEqual({
+    index: 1, label: "PostgreSQL",
+    description: "Mature relational database with strong transactional guarantees, JSON support and a very large ecosystem of tooling for migrations",
+  });
+  expect(card.options.map((o) => o.index)).toEqual([1, 2, 3, 4]);
+  expect(claudeKeys(card, 2)).toEqual(["2"]);
+  // A label that wraps is cut at its first row and the rest read as its description: shown so, but the digit is the row's.
+  const single = claude("question-single-80col").dialog!;
+  expect(single.options.map((o) => o.index)).toEqual([1, 2, 3, 4]);
+  expect(claudeKeys(single, 1)).toEqual(["1"]);
+  expect(claude("question-multi-80col")).toMatchObject({ dialog: null, unrecognised: true });
+});
+
+test("46 columns: Bash, Write and question dialogs wrap a path across rows and a footer over two; options keep their numbers", () => {
+  const bash = claude("bash-permission-46col").dialog!;
+  expect(bash).toMatchObject({ kind: "permission", detail: "touch zz1.txt", description: "Create an empty marker file called zz1.txt" });
+  expect(choices(bash)).toEqual([
+    [1, "Yes"],
+    [2, "Yes, and always allow access to /private/tmp/claude-501/shop-n81/services/orders-service/src/main/java/com/example/shop/infrastructure from this project"],
+    [3, "Yes, and switch to auto mode · auto mode handles these prompts for you"],
+    [4, "No"],
+  ]);
+  for (const o of [1, 2, 3, 4]) expect(claudeKeys(bash, o)).toEqual([String(o)]);
+  expect(choices(claude("write-permission-46col").dialog!).map(([i]) => i)).toEqual([1, 2, 3]);
+  const question = claude("question-46col").dialog!;
+  expect(question).toMatchObject({ kind: "question", title: "Pick a deployment strategy for the orders\nservice", question: { at: 1, of: 1 } });
+  expect(choices(question).map(([i]) => i)).toEqual([1, 2, 3, 4]);
+  // The footer's rows must still read as the footer.
+  screenOf("claude", mangled("claude-question-46col", "cancel", "cancel it"));
+  screenOf("claude", mangled("claude-bash-permission-46col", "amend", "amend now"));
+});
+
+test("80x24: a plan taller than the pane has lost its heading off the top, so it is Screen's", () => {
+  screenOf("claude", raw("claude-plan-24rows"));
+});
+
+test("a trust question whose folder wraps across rows is a card with the whole path", () => {
+  const card = claude("trust-80col").dialog!;
+  expect(card).toMatchObject({ kind: "trust", detail: "/private/tmp/claude-501/shop-n81/services/orders-service/src/main/java/com/example/shop/infrastructure", selected: 1 });
+  expect(choices(card)).toEqual([[2, "Yes, I trust this folder"], [1, "No, exit"]]);
+});
+
+test("Codex at 80 columns: an approval whose reason, command and option label wrap is a card; hotkeys still pick by row", () => {
+  const short = codex("approval-80col").dialog!;
+  expect(short).toMatchObject({ kind: "approval", selected: 1 });
+  expect(short.detail).toBe("Environment: local\nReason: Do you want to allow creating the empty probe file here so later\nexperiments can confirm it exists in this folder?\n$ touch probe.txt");
+  const card = codex("approval-80col-long").dialog!;
+  expect(card).toMatchObject({ kind: "approval", selected: 1, fingerprint: anyPrint });
+  expect(choices(card)).toEqual([
+    [1, "Yes, proceed"],
+    [2, "Yes, and don't ask again for commands that start with `touch probe-with-a-very-long-file-name-number-one.txt probe-with-a-very-long-file-name-number-two.txt probe-three.txt`"],
+    [3, "No, and tell Codex what to do differently"],
+  ]);
+  expect(card.options.map((o) => !!o.secondary)).toEqual([false, true, false]);
+  const keys = (o: number) => adapterFor("codex").keysFor(card, o, false)?.keys;
+  expect([keys(1), keys(2), keys(3)]).toEqual([["y"], ["p"], ["Escape"]]);
+});
+
+test("Codex at 80 columns: rows that are not exactly a wrap are Screen's", () => {
+  const long = "codex-approval-80col-long";
+  const label = "     two.txt probe-three.txt`";
+  const cmd = "  \x1b[38;2;205;214;244mprobe-with-a-very-long-file-name-number-two.txt probe-three.txt\x1b[39m";
+  // A wrapped option label with its row indented one short, after a blank row, or without its hotkey.
+  screenOf("codex", mangled(long, label, "    two.txt probe-three.txt`"));
+  screenOf("codex", mangled(long, label, "\n" + label));
+  screenOf("codex", mangled(long, "` (", "` ["));
+  // A row that looks like an option, numbered from another column.
+  screenOf("codex", mangled(long, label, "     3. two.txt probe-three.txt`"));
+  // The command's wrapped row after a blank row, or a second command, or a wrapped row right under the header.
+  screenOf("codex", mangled(long, cmd, "\n" + cmd));
+  screenOf("codex", mangled(long, cmd, "  $ rm -rf x"));
+  screenOf("codex", mangled("codex-approval-80col", "  Environment:", "  stray words\n  Environment:"));
+  screenOf("codex", mangled("codex-approval-80col", "  \x1b[3mexperiments", "\n  \x1b[3mexperiments"));
+});
+
+test("a Codex trust question whose folder and question wrap at 80 columns is still a card", () => {
+  // Codex asked for trust only in the 110-column lab; its 80-column wrap could not be produced, so this is that screen
+  // rewrapped by hand (a long folder over two rows, the question over more).
+  const text = raw("codex-trust").replace("/private/tmp/claude-501/shop-api", "/private/tmp/claude-501/shop-api/services/orders-service/src/main/java/com/example/shop/infrastruc\n  ture");
+  const card = adapterFor("codex").readPane(text).dialog!;
+  expect(card).toMatchObject({ kind: "trust", detail: "/private/tmp/claude-501/shop-api/services/orders-service/src/main/java/com/example/shop/infrastructure", selected: 1 });
+  expect(choices(card)).toEqual([[1, "Trust and continue"], [2, "Back to Agent Command Center"]]);
 });

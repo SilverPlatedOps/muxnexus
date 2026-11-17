@@ -99,25 +99,27 @@ const WORKING = /^• \S.*\(\d[^)]*esc to interrupt\)(?: · .*)?$/u;
 const option = (t: string) => optionRow(t, "›") !== null;
 /** Rows of the dialog's block: `  Environment: local`, `  Reason: …` (the model's own words), `  $ touch probe.txt`. */
 const KEYED = /^ {2}(Environment: |Reason: |\$ )/u;
-/** A row wrapped from the one above, indented under it. */
-const WRAPPED = /^ {3,}\S/u;
+/** A row wrapped from the one above: a narrow pane carries on at the block's own indent (measured at 80 columns). */
+const WRAPPED = /^ {2,}\S/u;
 
 /**
  * The `$ ` row of the approval whose options start at row `options`, or -1.
  * The block above the options runs up to the header with no gap and holds,
  * in order, `Environment:` / `Reason:` rows, then one `$ ` row, each
  * optionally wrapped, with blank rows between. Anything else: not this dialog.
+ * A wrapped row follows its row with no blank between; one under the header, or
+ * after a blank row, is not a wrap.
  */
 function commandRow(texts: string[], options: number): number {
   let head = options - 1;
-  while (head >= 0 && (blank(texts[head]!) || KEYED.test(texts[head]!) || WRAPPED.test(texts[head]!))) head--;
+  while (head >= 0 && texts[head] !== `  ${APPROVAL}` && (blank(texts[head]!) || KEYED.test(texts[head]!) || WRAPPED.test(texts[head]!))) head--;
   if (head < 0 || texts[head] !== `  ${APPROVAL}`) return -1;
   let cmd = -1;
   for (let i = head + 1; i < options; i++) {
     const t = texts[i]!;
     if (blank(t)) continue;
-    if (WRAPPED.test(t)) {
-      if (i === head + 1 || blank(texts[i - 1]!)) return -1;
+    if (!KEYED.test(t)) {
+      if (!WRAPPED.test(t) || i === head + 1 || blank(texts[i - 1]!)) return -1;
       continue;
     }
     // Only one command, and nothing keyed after it.
@@ -131,9 +133,9 @@ function approval(texts: string[]): Card | null {
   const last = lastFilled(texts);
   if (last < 0 || texts[last]!.trim() !== APPROVAL_FOOTER) return null;
   const end = findRowBack(texts, (t) => !blank(t), last);
-  let start = end;
-  while (start > 0 && option(texts[start - 1]!)) start--;
-  const scan = end < 0 ? null : scanOptions(texts, start, "›");
+  // The list starts at the nearest `1.` above its last row; a label too long for the pane wraps under itself.
+  const start = end < 0 ? -1 : findRowBack(texts, (t) => optionRow(t, "›")?.index === 1, end + 1);
+  const scan = start < 0 ? null : scanOptions(texts, start, "›", undefined, undefined, true);
   if (!scan || scan.end !== end + 1) return null;
   const opts = scan.options;
   const keyed = opts.map((o) => /^(.+) \((\w+)\)$/u.exec(o.label));

@@ -135,6 +135,28 @@ html, body {
 
 [hidden] { display: none !important; }
 
+/* Added to a phone's home screen the page runs full screen (index.html): the status bar, the home indicator
+   and, held sideways, the notch sit over it. These are what to keep clear of; all 0 in a browser tab held upright. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+/* The keyboard is up (app.ts): it covers the home indicator, and the text box sits on it with no gap. */
+html.keyboard-up { --safe-bottom: 0px; }
+/* The status bar's strip: the title bar's colour, but dark in the light theme too, since a see-through
+   status bar writes the time in white (index.html black-translucent; it can't follow the theme). A fallback,
+   not a :root default: Bun's CSS bundler drops a `:root { --status-strip: var(--chrome) }` rule. */
+:root[data-theme="light"] { --status-strip: #1b1f25; }
+body {
+  /* A border, so the page's height still includes it. */
+  border-top: var(--safe-top) solid var(--status-strip, var(--chrome));
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+/* The conversation's text box keeps the home indicator's room itself, in its own colour (.conv-slot). */
+body.conv-mode { padding-bottom: 0; }
+
 button { font: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A row or tab clips what spills past it, which cut the ring to one edge; drawn
@@ -170,7 +192,7 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 /* On a phone the drawer, its overlay and the notes are fixed to the viewport:
    they start under the banner, so it stays in view and its Got it within reach. */
 @media (max-width: 720px) {
-  body.has-nudge #layout :is(#sidebar, #overlay, #notes-panel) { top: var(--nudge-h, 0px); }
+  body.has-nudge #layout :is(#sidebar, #overlay, #notes-panel) { top: calc(var(--safe-top) + var(--nudge-h, 0px)); border-top-width: 0; }
 }
 
 #layout {
@@ -696,8 +718,8 @@ body.has-nudge > #layout { flex: 1 1 0; min-height: 0; height: auto; }
 
 .toast {
   position: fixed;
-  left: 12px;
-  bottom: 12px;
+  left: calc(12px + var(--safe-left));
+  bottom: calc(12px + var(--safe-bottom));
   z-index: 30;
   display: flex;
   align-items: center;
@@ -1111,6 +1133,8 @@ body.conv-mode #term-shell { display: none; }
     top: 0;
     bottom: 0;
     left: 0;
+    border-top: var(--safe-top) solid var(--status-strip, var(--chrome));
+    padding-bottom: var(--safe-bottom);
     z-index: 20;
     display: flex;
     width: 304px;
@@ -1869,6 +1893,8 @@ body.conv-mode #term-shell { display: none; }
     inset: 0;
     z-index: 25;
     border-left: 0;
+    border-top: var(--safe-top) solid var(--status-strip, var(--chrome));
+    padding-bottom: var(--safe-bottom);
   }
   .grip, .grip-row { display: none; }
   #notes-head { height: var(--notes-head); }
@@ -2542,7 +2568,7 @@ select.na-input:disabled { color: var(--dim); }
 
 .conv-slot {
   flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line-soft); background: var(--chrome);
+  padding: 8px 10px calc(8px + var(--safe-bottom)); border-top: 1px solid var(--line-soft); background: var(--chrome);
 }
 .conv-slot > * { flex: none; }
 .conv-compose { display: flex; align-items: flex-end; gap: 8px; }
@@ -2642,6 +2668,9 @@ select.na-input:disabled { color: var(--dim); }
   flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px;
   padding: 8px 10px; border-top: 1px solid var(--line-soft); background: var(--chrome);
 }
+/* The text box's slot keeps the home indicator's room (.conv-slot); a tab with no agent has none, so these do. */
+#conv:has(> .conv-slot[hidden]) .conv-screen-keys { padding-bottom: calc(8px + var(--safe-bottom)); }
+#conv:has(> .conv-slot[hidden]) .conv-sheet { padding-bottom: var(--safe-bottom); }
 .conv-screen-key { min-width: 0; height: 44px; padding: 0; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; color: var(--fg-strong); font: 700 13px var(--mono); cursor: pointer; }
 .conv-screen-key:active { background: var(--current); }
 
@@ -2661,6 +2690,42 @@ select.na-input:disabled { color: var(--dim); }
 .conv-link-url { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .conv-link-buttons { display: flex; gap: 8px; margin-top: 4px; }
 .conv-link-buttons .conv-sheet-btn { flex: 1; }
+/* Changes (changes.ts): the folder's uncommitted files, each opening to its diff. */
+.conv-changes-head { padding: 4px 0 10px; border-bottom: 1px solid var(--line-soft); }
+.conv-changes-top { display: flex; align-items: center; gap: 10px; }
+.conv-changes-where { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.conv-changes-branch { color: var(--fg-strong); font-weight: 700; overflow-wrap: anywhere; }
+.conv-changes-root { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.conv-changes-line { margin-top: 8px; color: var(--fg); }
+.conv-change { border-bottom: 1px solid var(--line-soft); }
+.conv-change-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 2px; cursor: pointer; list-style: none; }
+.conv-change-row::-webkit-details-marker { display: none; }
+.conv-change-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.conv-change-mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; background: var(--yellow); color: var(--well); font-size: 11px; font-weight: 700; }
+.conv-change:is(.added, .untracked) .conv-change-mark { background: var(--green); }
+.conv-change.deleted .conv-change-mark { background: var(--red); }
+.conv-change-path { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.conv-change-dir { color: var(--muted); }
+.conv-change-name { color: var(--fg-strong); }
+.conv-change-counts { flex: none; display: flex; gap: 6px; font-size: 11px; }
+.conv-change-add { color: var(--green); }
+.conv-change-del { color: var(--red); }
+.conv-change-bin { color: var(--muted); }
+.conv-change[open] > .conv-change-row { border-bottom: 1px solid var(--line-soft); }
+/* Edge to edge in the sheet's 14px gutters: a phone needs every column for code. */
+.conv-diff { margin: 0 -14px; }
+.conv-diff > .conv-sheet-note { padding: 14px; }
+.conv-diff-lines { overflow-x: auto; overscroll-behavior-x: contain; background: var(--well); font-size: 11.5px; line-height: 1.5; font-variant-ligatures: none; }
+.conv-diff-inner { width: max-content; min-width: 100%; padding: 4px 0; }
+.conv-diff-row { display: flex; white-space: pre; }
+.conv-diff-sign { flex: none; width: 20px; text-align: center; color: var(--dim); user-select: none; }
+.conv-diff-text { padding-right: 14px; }
+.conv-diff-row.add { background: color-mix(in oklab, var(--green) 15%, transparent); }
+.conv-diff-row.add .conv-diff-sign { color: var(--green); }
+.conv-diff-row.del { background: color-mix(in oklab, var(--red) 15%, transparent); }
+.conv-diff-row.del .conv-diff-sign { color: var(--red); }
+.conv-diff-row.hunk { margin: 4px 0; padding: 2px 0; background: var(--panel); color: var(--muted); }
+.conv-diff-row.note { color: var(--muted); font-style: italic; }
 .conv-search-form { display: flex; gap: 8px; }
 .conv-search-input {
   flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
@@ -2702,7 +2767,10 @@ body.conv-mode .tab .tab-dots, body.conv-mode .tab-new .row-btn { width: 44px; h
 body.conv-mode .tab-new { margin-bottom: 0; }
 
 /* The reader, over the whole page, for a Markdown file an agent linked to. */
-.conv-reader { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--term); }
+.conv-reader {
+  position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--term);
+  border-top: var(--safe-top) solid var(--status-strip, var(--chrome)); padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
 .conv-reader-head { flex: none; display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 4px 0 14px; background: var(--chrome); border-bottom: 1px solid var(--line-soft); }
 .conv-reader-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-strong); font-weight: 700; }
 .conv-reader-close { flex: none; height: 44px; padding: 0 14px; background: none; border: 1px solid var(--edge); border-radius: 8px; color: var(--fg); font: 600 12px var(--mono); cursor: pointer; }

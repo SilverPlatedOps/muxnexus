@@ -22,6 +22,33 @@ export interface Attachment {
   path?: string;
 }
 
+/** An uploaded file as kept across a reload: everything but its id, which the page gives again. */
+export type KeptAttachment = Required<Omit<Attachment, "id">>;
+
+/** Each tab's uploaded files, to keep across a reload. One still uploading is not kept: its bytes are in the page that went. */
+export function keepAttachments(byTab: ReadonlyMap<string, readonly Attachment[]>): [string, KeptAttachment[]][] {
+  const kept: [string, KeptAttachment[]][] = [];
+  for (const [tab, files] of byTab) {
+    const done = files.flatMap((f) => (f.name && f.path ? [{ label: f.label, image: f.image, name: f.name, path: f.path }] : []));
+    if (done.length > 0) kept.push([tab, done]);
+  }
+  return kept;
+}
+
+/** What `keepAttachments` kept, read back; anything malformed is dropped. */
+export function keptAttachments(raw: unknown): [string, KeptAttachment[]][] {
+  if (!Array.isArray(raw)) return [];
+  const file = (f: unknown): f is KeptAttachment => {
+    const v = f as Partial<KeptAttachment> | null;
+    return typeof v === "object" && v !== null && typeof v.label === "string" && typeof v.image === "boolean" && typeof v.name === "string" && v.name !== "" && typeof v.path === "string" && v.path !== "";
+  };
+  return raw.flatMap((e): [string, KeptAttachment[]][] => {
+    if (!Array.isArray(e) || typeof e[0] !== "string" || !Array.isArray(e[1])) return [];
+    const files = (e[1] as unknown[]).filter(file).slice(0, MAX_ATTACHMENTS).map((f) => ({ label: f.label, image: f.image, name: f.name, path: f.path }));
+    return files.length > 0 ? [[e[0], files]] : [];
+  });
+}
+
 /** What the agents take as an image: anything else picked as an image (an iPhone's HEIC) is redrawn as a JPEG. */
 const AGENT_IMAGE = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /** Under the server's 10 MB for an image, with room to spare. Larger photos are redrawn smaller. */

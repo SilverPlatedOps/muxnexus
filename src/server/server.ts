@@ -1141,6 +1141,12 @@ export function createServer(opts: ServerOptions): RunningServer {
         case "conv-links":
           if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-links" });
           return await conv.links(ws, m.req, m.windowId);
+        case "conv-changes":
+          if (!isReq(m.req) || !isWindowId(m.windowId)) return send(ws, { t: "error", message: "invalid conv-changes" });
+          return await conv.changes(ws, m.req, m.windowId);
+        case "conv-diff":
+          if (!isReq(m.req) || !isWindowId(m.windowId) || typeof m.path !== "string" || m.path.length === 0 || m.path.length > 4096) return send(ws, { t: "error", message: "invalid conv-diff" });
+          return await conv.diff(ws, m.req, m.windowId, m.path);
         case "conv-send": {
           if (!isReq(m.req) || !isWindowId(m.windowId) || (m.conversation !== null && !isToken(m.conversation)) || !isText(m.text) || (m.replace !== undefined && !isToken(m.replace)) || (m.attachments !== undefined && !isAttachments(m.attachments))) return send(ws, { t: "error", message: "invalid conv-send" });
           const attached = await attachedOf(m.attachments ?? []);
