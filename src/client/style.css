@@ -2687,6 +2687,42 @@ select.na-input:disabled { color: var(--dim); }
 .conv-link-url { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .conv-link-buttons { display: flex; gap: 8px; margin-top: 4px; }
 .conv-link-buttons .conv-sheet-btn { flex: 1; }
+/* Changes (changes.ts): the folder's uncommitted files, each opening to its diff. */
+.conv-changes-head { padding: 4px 0 10px; border-bottom: 1px solid var(--line-soft); }
+.conv-changes-top { display: flex; align-items: center; gap: 10px; }
+.conv-changes-where { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.conv-changes-branch { color: var(--fg-strong); font-weight: 700; overflow-wrap: anywhere; }
+.conv-changes-root { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.conv-changes-line { margin-top: 8px; color: var(--fg); }
+.conv-change { border-bottom: 1px solid var(--line-soft); }
+.conv-change-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 2px; cursor: pointer; list-style: none; }
+.conv-change-row::-webkit-details-marker { display: none; }
+.conv-change-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.conv-change-mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; background: var(--yellow); color: var(--well); font-size: 11px; font-weight: 700; }
+.conv-change:is(.added, .untracked) .conv-change-mark { background: var(--green); }
+.conv-change.deleted .conv-change-mark { background: var(--red); }
+.conv-change-path { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.conv-change-dir { color: var(--muted); }
+.conv-change-name { color: var(--fg-strong); }
+.conv-change-counts { flex: none; display: flex; gap: 6px; font-size: 11px; }
+.conv-change-add { color: var(--green); }
+.conv-change-del { color: var(--red); }
+.conv-change-bin { color: var(--muted); }
+.conv-change[open] > .conv-change-row { border-bottom: 1px solid var(--line-soft); }
+/* Edge to edge in the sheet's 14px gutters: a phone needs every column for code. */
+.conv-diff { margin: 0 -14px; }
+.conv-diff > .conv-sheet-note { padding: 14px; }
+.conv-diff-lines { overflow-x: auto; overscroll-behavior-x: contain; background: var(--well); font-size: 11.5px; line-height: 1.5; font-variant-ligatures: none; }
+.conv-diff-inner { width: max-content; min-width: 100%; padding: 4px 0; }
+.conv-diff-row { display: flex; white-space: pre; }
+.conv-diff-sign { flex: none; width: 20px; text-align: center; color: var(--dim); user-select: none; }
+.conv-diff-text { padding-right: 14px; }
+.conv-diff-row.add { background: color-mix(in oklab, var(--green) 15%, transparent); }
+.conv-diff-row.add .conv-diff-sign { color: var(--green); }
+.conv-diff-row.del { background: color-mix(in oklab, var(--red) 15%, transparent); }
+.conv-diff-row.del .conv-diff-sign { color: var(--red); }
+.conv-diff-row.hunk { margin: 4px 0; padding: 2px 0; background: var(--panel); color: var(--muted); }
+.conv-diff-row.note { color: var(--muted); font-style: italic; }
 .conv-search-form { display: flex; gap: 8px; }
 .conv-search-input {
   flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;

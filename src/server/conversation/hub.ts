@@ -9,6 +9,7 @@ import { believedState, type Tmux, type WindowAgentInfo } from "../tmux";
 import { adapterFor } from "./adapter";
 import { afterStop, answer, conversationOf, pendingQuestionMulti, pressKey, screenNow, sendText, stop, stoppedSince, type Attached } from "./actions";
 import { paneLines } from "./pane";
+import { changesIn, diffOf } from "./changes";
 import { linksIn, readPage, readSince, searchFile } from "./reader";
 
 /**
@@ -308,6 +309,21 @@ export function createConversationHub({ tmux: given, pollMs = 1000 }: { tmux: Hu
       const { conversation, file } = await fileOf(ws, windowId);
       const links = file ? await linksIn(file.kind, file.path).catch(() => []) : [];
       send(ws, { t: "conv-links-result", req, windowId, conversation, links });
+    },
+
+    /** The folder is the agent's (its pane's): a tab with no agent has none to read. */
+    async changes(ws: HubSocket, req: string, windowId: string) {
+      const cwd = (await tmux.agentOfWindow(windowId).catch(() => null))?.cwd;
+      const r = cwd ? await changesIn(cwd).catch(() => ({ error: "git" as const })) : { error: "no-folder" as const };
+      if ("error" in r) return send(ws, { t: "conv-changes-result", req, windowId, root: null, branch: null, files: [], more: 0, error: r.error });
+      send(ws, { t: "conv-changes-result", req, windowId, ...r });
+    },
+
+    async diff(ws: HubSocket, req: string, windowId: string, path: string) {
+      const cwd = (await tmux.agentOfWindow(windowId).catch(() => null))?.cwd;
+      const r = cwd ? await diffOf(cwd, path).catch(() => ({ error: "git" as const })) : { error: "no-folder" as const };
+      if ("error" in r) return send(ws, { t: "conv-diff-result", req, windowId, path, diff: "", truncated: false, binary: false, error: r.error });
+      send(ws, { t: "conv-diff-result", req, windowId, path, ...r });
     },
 
     /** `replace`: the fingerprint of the desk's draft the user agreed to replace, or null. `attached`: the files that go with the words. */

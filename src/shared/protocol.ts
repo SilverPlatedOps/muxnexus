@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aditya Wirya Darma. Additional terms: see NOTICE.
 
 import type { AgentKind, Chat, ChatMode, ChatNotes, ChatSearchHit, ChatSummary } from "./chat";
-import type { Card, ConvError, ConvItem, GenericKey, StepResult } from "./conversation";
+import type { Card, ChangedFile, ChangesError, ConvError, ConvItem, GenericKey, StepResult } from "./conversation";
 
 export interface WindowInfo {
   /**
@@ -262,6 +262,10 @@ export type ClientMessage =
   /** Newest first, from `cursor` (a previous result's `next`): answered with `conv-search-result`. */
   | { t: "conv-search"; req: string; windowId: string; query: string; cursor?: number }
   | { t: "conv-links"; req: string; windowId: string }
+  /** The uncommitted changes in the folder the tab's agent works in: answered with `conv-changes-result`. */
+  | { t: "conv-changes"; req: string; windowId: string }
+  /** One of those files' diff, by the path `conv-changes-result` listed: answered with `conv-diff-result`. */
+  | { t: "conv-diff"; req: string; windowId: string; path: string }
   /**
    * `text` as the user's next message to `conversation` (the one it was
    * written for): answered with `conv-result`. One with `draft` means the
@@ -612,6 +616,10 @@ export type ServerMessage =
   | { t: "conv-search-result"; req: string; windowId: string; conversation: string | null; hits: { id: string; offset: number; snippet: string }[]; next?: number }
   /** Every URL in `conversation` once, pull requests first. */
   | { t: "conv-links-result"; req: string; windowId: string; conversation: string | null; links: { url: string; pr: boolean }[] }
+  /** The repository's top folder, its branch (null when detached), and its changed files; `more` were not listed. */
+  | { t: "conv-changes-result"; req: string; windowId: string; root: string | null; branch: string | null; files: ChangedFile[]; more: number; error?: ChangesError }
+  /** A unified diff, from its first `@@`; a binary file's is empty. `truncated`: cut short for the phone. */
+  | { t: "conv-diff-result"; req: string; windowId: string; path: string; diff: string; truncated: boolean; binary: boolean; error?: ChangesError }
   /**
    * How a send, an answer or a stop went. A failure with neither `error` nor
    * `draft` threw: an `error` message says why. `draftFingerprint` names the

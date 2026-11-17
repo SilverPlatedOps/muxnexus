@@ -15,6 +15,7 @@ import { sessionLabel, tabLabel } from "../labels";
 import type { MenuAction, MenuItem } from "../menus";
 import { openMenu } from "../popover";
 import { createScreen, createWaitingCard } from "./card";
+import { createChanges } from "./changes";
 import { isImagePath, keepAttachments, keptAttachments, linkedPath, MAX_ATTACHMENTS, sentFiles, thumbnails, uploadFile, type Attachment } from "./attach";
 import { SAFE_LINK } from "../live-markdown";
 import {
@@ -244,7 +245,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const backBtn = button("conv-new conv-back", "Back to latest ↓");
   backBtn.hidden = true;
 
-  // Links and Search share one sheet over the list.
+  // Links, Search and Changes share one sheet over the list.
   const sheet = el("section", "conv-sheet");
   sheet.hidden = true;
   const sheetBar = el("div", "conv-sheet-bar");
@@ -254,7 +255,8 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
   const linksPane = el("div", "conv-sheet-pane");
   const searchPane = el("div", "conv-sheet-pane");
   const sheetBody = el("div", "conv-sheet-body");
-  sheetBody.append(linksPane, searchPane);
+  const changes = createChanges({ send: (m) => deps.send(m), windowId: () => windowId });
+  sheetBody.append(linksPane, searchPane, changes.pane);
   sheet.append(sheetBar, sheetBody);
   const main = el("div", "conv-main");
   main.append(body, newBtn, backBtn, screenView.el, sheet);
@@ -333,12 +335,18 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     { action: "screen", label: "Screen", hint: "the terminal, read-only" },
     { action: "links", label: "Links" },
     { action: "search", label: "Search" },
+    { action: "changes", label: "Changes", hint: "uncommitted, in its folder" },
   ];
   /** A pick from the conversation's own items; false for any other action. */
   function pickTool(action: MenuAction): boolean {
     if (action === "screen") showScreen();
     else if (action === "links") showLinks();
     else if (action === "search") showSearch();
+    else if (action === "changes") {
+      if (!windowId) return true;
+      openSheet("Changes", changes.pane);
+      changes.show();
+    }
     else if (action === "note") { if (windowId) deps.openNote(windowId); }
     else return false;
     return true;
@@ -364,6 +372,7 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
     sheetTitle.textContent = title;
     linksPane.hidden = pane !== linksPane;
     searchPane.hidden = pane !== searchPane;
+    changes.pane.hidden = pane !== changes.pane;
     sheet.hidden = false;
   }
   const closeSheet = () => { sheet.hidden = true; };
@@ -1165,6 +1174,9 @@ export function createConversationView(host: HTMLElement, deps: ConversationDeps
           drawHits(m);
         }
         return true;
+      case "conv-changes-result":
+      case "conv-diff-result":
+        return changes.onMessage(m);
       case "conv-links-result":
         if (linksReq === m.req && readForShown(m, { windowId, conversation })) {
           linksReq = null;
