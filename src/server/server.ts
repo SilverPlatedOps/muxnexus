@@ -8,13 +8,14 @@ import { categoryProfile, profileLabel, type UsageReader } from "./usage";
 import { splitCategory } from "../shared/category";
 import { SEARCH_LIMITS } from "../shared/chat";
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { CmuxMirror } from "./cmux";
 import { attachSession, type PtyHandle } from "./pty";
 import { shellQuote, Tmux } from "./tmux";
 import { createNoteStore, isNoteId, pickOrphan } from "./notes";
 import { claudeAdapter, codexAdapter } from "./chat/adapters";
+import { boardMessage } from "./board";
 import { isThisMachine, parseFocusRequest } from "./focus";
 import { createChatService, isLoopback, parseChatMessage, parseHookRequest, type ChatService, type WindowLive } from "./chat/service";
 import { createImageStore, sniff } from "./chat/images";
@@ -1279,6 +1280,34 @@ export function createServer(opts: ServerOptions): RunningServer {
     };
   }
 
+  /**
+   * GET /api/board: the desk board's read-only view of this machine, polled over
+   * Wi-Fi through a Cloudflare Access service token. No page may be open here
+   * (warrior, mostly), so it refreshes tmux and quota itself, at the rates a page
+   * would: tmux at most once a second, quota through the same 429-safe due check.
+   */
+  async function boardResponse(req: Request): Promise<Response> {
+    if (req.method !== "GET") return new Response("Method not allowed", { status: 405, headers: { allow: "GET" } });
+    if (!hostAllowed(req.headers.get("host"), allowedHosts)) return new Response("Forbidden: unrecognised Host", { status: 403 });
+    if (Date.now() - lastSessionsAt > 1000) {
+      const read = await tmux.listState().catch(() => null);
+      if (read) {
+        lastSessions = read.sessions;
+        lastSessionsAt = Date.now();
+      }
+    }
+    if (opts.usage && usageDue()) void pollUsage();
+    const body = boardMessage({
+      src: hostname().split(".")[0].slice(0, 24),
+      now: Math.floor(Date.now() / 1000),
+      sessions: lastSessions,
+      usage: lastUsage?.t === "usage" ? lastUsage.sources : null,
+      vitals: opts.vitals?.latest() ?? null,
+      memory: lastMemory ? { at: lastMemoryAt, apps: lastMemory.apps } : null,
+    });
+    return new Response(body, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  }
+
   /** Two bodies at most: with the list, for those who show it, and without. */
   function sendSystem(targets: Socket[]) {
     let withList: string | null = null;
@@ -1408,6 +1437,7 @@ export function createServer(opts: ServerOptions): RunningServer {
       if (url.pathname === "/licence") return licencePage();
       if (url.pathname === "/api/chat/hook") return chatHook(req, srv.requestIP(req));
       if (url.pathname === "/api/focus") return focusPane(req, srv.requestIP(req));
+      if (url.pathname === "/api/board") return boardResponse(req);
       if (url.pathname.startsWith("/api/chat/image/")) return chatImage(req, url);
       if (url.pathname === "/api/paste-image") return pasteImage(req);
       if (url.pathname === "/api/upload") return upload(req, url);
