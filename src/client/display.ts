@@ -85,6 +85,15 @@ export function deviceView(store?: Store, touch: number = navigator.maxTouchPoin
   return touch > 0 ? "conversation" : "terminal";
 }
 
+/**
+ * Whether the title bar offers the workspace shown the other view: wherever chat is in use on this device (a touch
+ * device, one set to chat in Settings, or a page showing chat), so a switch made here can always be undone here. A
+ * computer that shows terminals and was never set to chat keeps its menu as it was.
+ */
+export function offersViewSwitch(showing: DeviceView, store?: Store, touch: number = navigator.maxTouchPoints): boolean {
+  return showing === "conversation" || touch > 0 || deviceView(store, touch) === "conversation";
+}
+
 export function setDeviceView(v: DeviceView, store?: Store): void {
   try {
     (store ?? localStorage).setItem(DEVICE_VIEW_KEY, v);

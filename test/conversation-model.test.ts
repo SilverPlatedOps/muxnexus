@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { deviceView, followWorkspaces, setDeviceView, setWorkspaceView, workspaceView, type Store } from "../src/client/display";
+import { deviceView, followWorkspaces, offersViewSwitch, setDeviceView, setWorkspaceView, workspaceView, type Store } from "../src/client/display";
 import {
   answerMessage, CONV_ERROR, hitShown, pageFor, CARD_ARM_MS, cardArmedAt, cardButtons, cardTitle, clipAround, composedAs, conversationWindow, foldSteps, linkRows, mergeItems, readForShown, runLine, sendAs, stepLine, stuckToBottom, TERMINAL_MESSAGES,
   withLocalActive, wordsOptional, workingLine, writtenElsewhere,
@@ -23,6 +23,19 @@ test("touch devices default to conversation, others to terminal, a choice wins",
   expect(deviceView(s, 5)).toBe("terminal");
   setDeviceView("conversation", s);
   expect(deviceView(s, 0)).toBe("conversation");
+});
+
+test("the switch is offered wherever chat is in use, so a workspace switched to terminal can always switch back", () => {
+  const s = memory();
+  // A computer showing terminals, never set to chat: its menu as it was.
+  expect(offersViewSwitch("terminal", s, 0)).toBe(false);
+  expect(offersViewSwitch("terminal", s, 5)).toBe(true);
+  expect(offersViewSwitch("conversation", s, 0)).toBe(true);
+  // A computer set to chat in Settings, with this workspace switched to terminal: the way back is there.
+  setDeviceView("conversation", s);
+  expect(setWorkspaceView("api", "terminal", s, 0)).toBe(true);
+  expect(workspaceView("api", s, 0)).toBe("terminal");
+  expect(offersViewSwitch(workspaceView("api", s, 0), s, 0)).toBe(true);
 });
 
 test("a store that throws falls back to the default", () => {
