@@ -1343,6 +1343,8 @@ if (convMode && window.visualViewport) {
     // Pinch-zoomed, the visible part is smaller for another reason: the page keeps its size, and pans as zoom does.
     if (Math.abs(vv.scale - 1) > 0.01) return;
     document.documentElement.style.setProperty("--app-height", `${Math.round(vv.height)}px`);
+    // Up, the keyboard covers the home indicator: the text box needs no room kept for it (style.css --safe-bottom).
+    document.documentElement.classList.toggle("keyboard-up", window.innerHeight - vv.height > 150);
     if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
   };
   vv.addEventListener("resize", fit);
@@ -1351,3 +1353,7 @@ if (convMode && window.visualViewport) {
 }
 
 conn.connect();
+// Added to a home screen the page has no reload: back from the background it reconnects at once, not after the backoff.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") conn.retryNow();
+});

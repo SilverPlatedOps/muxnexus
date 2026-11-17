@@ -5,7 +5,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- viewport-fit=cover: added to a phone's home screen, the page runs full screen, under a see-through
+       status bar; style.css keeps it out of the status bar, the home indicator and the notch (--safe-*). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- The name under the icon: the title changes with what needs you (nudge.ts). -->
+  <meta name="apple-mobile-web-app-title" content="muxnexus" />
   <title>muxnexus</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
